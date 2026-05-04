@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "active_profile_id": "dc79a7f4-a67d-4755-b141-b6f433d47375",
+  "profiles": [
+    {
+      "profile_id": "dc79a7f4-a67d-4755-b141-b6f433d47375",
+      "profile_name": "Default",
+      "is_default": true,
+      "profile": {
+        "traveler_summary": "Around end of May (near Memorial Day)",
+        "group_size": 2,
+        "group_type": "couple with pet",
+        "trip_type": "leisure",
+        "traveler_origin": "Seattle, WA",
+        "budget_max_usd": 58.0,
+        "destination_preferences": [
+          "Warm beach",
+          "romantic anniversary flare",
+          "plus urban exploration & nature"
+        ],
+        "preferred_climate": "warm",
+        "preferred_activities": [
+          "snorkeling",
+          "scuba diving",
+          "water activities"
+        ],
+        "pace_preference": "3-4 days",
+        "accommodation_style": "somewhat luxury",
+        "travel_time_tolerance": "within 12 hours of fly time",
+        "dietary_or_accessibility_notes": [],
+        "assumptions_used": [],
+        "editable_notes": "My partner and me"
+      }
+    }
+  ]
+}

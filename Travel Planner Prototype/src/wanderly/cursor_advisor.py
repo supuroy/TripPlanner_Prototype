@@ -1,0 +1,639 @@
+"""
+Cursor Cloud Agent helpers for Wanderly (no local Ollama).
+
+- **Advisor** (``CURSOR_ADVISOR_MODEL_ID``): cheapest parallel profile listener.
+- **Structured follow-ups** (``structured_followup_model_id``): prefers ``CURSOR_REFINEMENT_MODEL_ID``,
+  else advisor — plan review, advisor_feed chat, profile-change JSON.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from typing import Any
+
+from pydantic import ValidationError
+
+from src.integrations.cursor_agent_client import basic_client, get_api_key, load_env_from_roots, run_prompt_collect_assistant_text
+from src.wanderly.refinement_cursor import refinement_model_id
+from src.wanderly.schemas import SmokeProfilePillDTO
+from src.wanderly.session_store import cursor_run_persist_kwargs
+
+
+def advisor_model_id() -> str | None:
+    mid = (os.environ.get("CURSOR_ADVISOR_MODEL_ID") or "").strip()
+    return mid or None
+
+
+def structured_followup_model_id() -> str | None:
+    """
+    Model for structured JSON / prose follow-ups (plan review, advisor_feed, profile-change hints).
+
+    Prefers ``CURSOR_REFINEMENT_MODEL_ID`` when set, else ``CURSOR_ADVISOR_MODEL_ID``.
+    **Not** used for ``run_profile_listener_cursor`` (keep that on the cheapest advisor pass).
+    """
+    return refinement_model_id() or advisor_model_id()
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    t = text.strip()
+    try:
+        out = json.loads(t)
+        return out if isinstance(out, dict) else None
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", t, re.IGNORECASE)
+    if m:
+        try:
+            o = json.loads(m.group(1).strip())
+            return o if isinstance(o, dict) else None
+        except json.JSONDecodeError:
+            pass
+    start = t.find("{")
+    end = t.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            o = json.loads(t[start : end + 1])
+            return o if isinstance(o, dict) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+_PROFILE_LISTENER_PROMPT = """
+You are Wanderly's fast profile extractor. Reply with ONE JSON object only (no markdown fences, no prose).
+
+Schema:
+{
+  "profile_pills": [
+    {"key": "when", "label": "When", "value": "short text", "icon": "📅", "editable": true},
+    {"key": "who", "label": "Who", "value": "short text", "icon": "👥", "editable": true},
+    {"key": "from", "label": "Flying from", "value": "City or airport", "icon": "✈️", "editable": true},
+    {"key": "vibe", "label": "Vibe", "value": "short text", "icon": "✨", "editable": true},
+    {"key": "budget", "label": "Budget", "value": "short text", "icon": "💰", "editable": true},
+    {"key": "duration", "label": "Duration", "value": "short text", "icon": "⏱", "editable": true}
+  ],
+  "advisor_note": "One short sentence acknowledging what you captured for the traveler, or empty string"
+}
+
+Rules:
+- Always include all six keys in profile_pills in this order.
+- Infer from the latest user message; use prior pills + context only to disambiguate (prefer new facts over stale values).
+- If unknown, use concise placeholders (e.g. "Flexible dates", "Not specified").
+- If the user names a home city or airport (e.g. "from Seattle", "SEA"), set "from" accordingly.
+- advisor_note must be empty if there is nothing new beyond prior context.
+""".strip()
+
+
+_PLAN_REVIEW_PROMPT = """
+You are Wanderly's trip QA advisor. Compare the traveler profile to the destination cards and their day-by-day itineraries.
+
+Reply with ONE JSON object only (no markdown fences, no prose).
+
+Schema:
+{
+  "assistant_markdown": "2–6 short paragraphs in markdown: friendly summary, mismatches, pacing or budget tension if any",
+  "issues": [
+    {"severity": "info|warning", "text": "plain language issue or conflict"}
+  ],
+  "suggested_prompts": [
+    "Concrete follow-up the user could type in the chat to fix or explore the top issue"
+  ]
+}
+
+Rules:
+- Use only the JSON context; do not invent bookings or live prices.
+- If plans fit the profile well, say so briefly and keep issues minimal.
+- suggested_prompts: 0–3 strings, each actionable (start with a verb).
+- severity "warning" for real trip friction (pace, budget, weather fit, mobility, party size vs activities); "info" for mild notes.
+""".strip()
+
+
+def _validate_profile_pills(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        try:
+            dto = SmokeProfilePillDTO.model_validate(p)
+            out.append(dto.model_dump())
+        except ValidationError:
+            continue
+    return out
+
+
+def run_profile_listener_cursor(
+    *,
+    user_message: str,
+    prior_pills: list[dict[str, Any]],
+    prior_chat_snippet: str,
+    workspace_destinations_summary: list[dict[str, Any]],
+    session_id: str | None = None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Single cheap Cursor agent call; returns (profile_pills dicts, advisor_note)."""
+    mid = advisor_model_id()
+    if not mid:
+        return [], None
+    load_env_from_roots()
+    ctx = json.dumps(
+        {
+            "prior_profile_pills": prior_pills[:24],
+            "prior_chat_snippet": (prior_chat_snippet or "")[:6000],
+            "workspace_destination_titles": [
+                {
+                    "id": str(x.get("id") or ""),
+                    "name": str(x.get("name") or ""),
+                    "country": str(x.get("country") or ""),
+                    "pinned": bool(x.get("pinned")),
+                    "dismissed": bool(x.get("dismissed")),
+                }
+                for x in (workspace_destinations_summary or [])[:12]
+                if isinstance(x, dict)
+            ],
+        },
+        indent=2,
+    )
+    prompt = (
+        _PROFILE_LISTENER_PROMPT
+        + "\n\nContext JSON:\n"
+        + ctx
+        + "\n\nLatest user message:\n"
+        + (user_message or "").strip()[:8000]
+    )
+    try:
+        with basic_client(get_api_key(), timeout_s=120.0) as client:
+            raw_text = run_prompt_collect_assistant_text(
+                client,
+                prompt,
+                model_id_override=mid,
+                **cursor_run_persist_kwargs(session_id or "", mid),
+            )
+    except Exception as exc:
+        print(f"[cursor_advisor] profile_listener failed: {exc!r}")
+        return [], None
+    parsed = _extract_json_object(raw_text)
+    if not parsed:
+        print("[cursor_advisor] profile_listener: no JSON parsed")
+        return [], None
+    pills = _validate_profile_pills(parsed.get("profile_pills"))
+    note = parsed.get("advisor_note")
+    note_s = str(note).strip() if note is not None else ""
+    if len(pills) < 4:
+        return [], note_s or None
+    return pills, note_s or None
+
+
+def run_plan_review_cursor(
+    *,
+    profile_pills: list[dict[str, Any]],
+    destinations: list[dict[str, Any]],
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """QA review: profile vs destinations + itineraries. Returns wanderly-shaped fragments."""
+    mid = structured_followup_model_id()
+    if not mid:
+        return {
+            "assistant_markdown": "",
+            "issues": [],
+            "suggested_prompts": [],
+            "skipped": True,
+            "reason": "CURSOR_REFINEMENT_MODEL_ID and CURSOR_ADVISOR_MODEL_ID unset",
+        }
+    load_env_from_roots()
+    slim_dests: list[dict[str, Any]] = []
+    for d in (destinations or [])[:12]:
+        if not isinstance(d, dict):
+            continue
+        it = d.get("itinerary")
+        it_out: list[dict[str, Any]] = []
+        if isinstance(it, list):
+            for row in it[:14]:
+                if not isinstance(row, dict):
+                    continue
+                it_out.append(
+                    {
+                        "day": row.get("day"),
+                        "label": str(row.get("label") or "")[:120],
+                        "items": [
+                            str(x)[:200]
+                            for x in (row.get("items") or [])[:8]
+                            if isinstance(x, str) and x.strip()
+                        ],
+                    }
+                )
+        slim_dests.append(
+            {
+                "id": str(d.get("id") or ""),
+                "name": str(d.get("name") or ""),
+                "country": str(d.get("country") or ""),
+                "hook": str(d.get("hook") or "")[:240],
+                "cost": str(d.get("cost") or ""),
+                "flight": str(d.get("flight") or ""),
+                "vibe": d.get("vibe") if isinstance(d.get("vibe"), list) else [],
+                "warnings": d.get("warnings") if isinstance(d.get("warnings"), list) else [],
+                "itinerary": it_out,
+            }
+        )
+    ctx = json.dumps(
+        {"profile_pills": profile_pills[:24], "destinations": slim_dests},
+        ensure_ascii=True,
+    )
+    prompt = _PLAN_REVIEW_PROMPT + "\n\nContext JSON:\n" + ctx[:48000]
+    try:
+        with basic_client(get_api_key(), timeout_s=120.0) as client:
+            raw_text = run_prompt_collect_assistant_text(
+                client,
+                prompt,
+                model_id_override=mid,
+                **cursor_run_persist_kwargs(session_id or "", mid),
+            )
+    except Exception as exc:
+        print(f"[cursor_advisor] plan_review failed: {exc!r}")
+        return {
+            "assistant_markdown": "",
+            "issues": [],
+            "suggested_prompts": [],
+            "error": str(exc),
+        }
+    parsed = _extract_json_object(raw_text)
+    if not parsed:
+        return {
+            "assistant_markdown": (raw_text or "")[:4000].strip(),
+            "issues": [],
+            "suggested_prompts": [],
+            "parse_ok": False,
+        }
+    issues_raw = parsed.get("issues") or []
+    issues: list[dict[str, str]] = []
+    if isinstance(issues_raw, list):
+        for it in issues_raw[:12]:
+            if not isinstance(it, dict):
+                continue
+            sev = str(it.get("severity") or "info").lower()
+            if sev not in ("info", "warning"):
+                sev = "info"
+            tx = str(it.get("text") or "").strip()
+            if tx:
+                issues.append({"severity": sev, "text": tx[:500]})
+    prompts_raw = parsed.get("suggested_prompts") or []
+    prompts: list[str] = []
+    if isinstance(prompts_raw, list):
+        for x in prompts_raw[:5]:
+            if isinstance(x, str) and x.strip():
+                prompts.append(x.strip()[:400])
+    md = str(parsed.get("assistant_markdown") or "").strip()
+    return {
+        "assistant_markdown": md[:8000],
+        "issues": issues,
+        "suggested_prompts": prompts,
+        "parse_ok": True,
+    }
+
+
+_ADVISOR_CHAT_PROMPT = """
+You are Wanderly's quick trip advisor. Reply with ONE JSON object only (no markdown fences, no prose before or after).
+
+Schema:
+{
+  "assistant_markdown": "2–8 sentences for the traveler; you may use **double asterisks** for emphasis. Use only the context JSON.",
+  "refine_prompt": null OR one imperative paragraph the MAIN trip planner should run to change the workspace/itinerary (concrete edits: swap days, add rest time, change pace, replace activities, etc.). Must name the destination by id and name from context. Use null when the user only needs Q&A, logistics you do not have, or no itinerary edit is appropriate.
+}
+
+Rules:
+- Destinations may include "itinerary" (day, label, items) — cite it when answering about the plan.
+- refine_prompt: only when applying that change would clearly improve the trip per the user's ask; keep it self-contained (the app will prepend focus destination). null for pure information, validation, or "I don't have live data" replies.
+- Do not claim live prices, availability, or bookings.
+""".strip()
+
+
+def _destination_row_for_advisor_chat(
+    d: dict[str, Any],
+    *,
+    include_itinerary: bool,
+    max_days: int = 14,
+    max_items_per_day: int = 8,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "id": str(d.get("id") or ""),
+        "name": str(d.get("name") or ""),
+        "country": str(d.get("country") or ""),
+    }
+    hook = str(d.get("hook") or "").strip()
+    if hook:
+        out["hook"] = hook[:280]
+    if not include_itinerary:
+        return out
+    it = d.get("itinerary")
+    if not isinstance(it, list) or not it:
+        return out
+    rows: list[dict[str, Any]] = []
+    for row in it[:max_days]:
+        if not isinstance(row, dict):
+            continue
+        items_in = row.get("items")
+        items: list[str] = []
+        if isinstance(items_in, list):
+            for itm in items_in[:max_items_per_day]:
+                if isinstance(itm, str) and itm.strip():
+                    items.append(itm.strip()[:200])
+                elif isinstance(itm, dict):
+                    s = str(
+                        itm.get("text")
+                        or itm.get("item")
+                        or itm.get("title")
+                        or itm.get("label")
+                        or itm.get("description")
+                        or ""
+                    ).strip()
+                    if s:
+                        items.append(s[:200])
+        rows.append(
+            {
+                "day": row.get("day"),
+                "label": str(row.get("label") or "")[:160],
+                "items": items,
+            }
+        )
+    if rows:
+        out["itinerary"] = rows
+    return out
+
+
+def _advisor_chat_parse_response(raw_text: str) -> dict[str, Any]:
+    """Parse advisor JSON; on failure treat whole body as assistant_markdown."""
+    raw = (raw_text or "").strip()
+    if not raw:
+        return {"assistant_markdown": "", "refine_prompt": None}
+    parsed = _extract_json_object(raw)
+    if parsed and isinstance(parsed.get("assistant_markdown"), str):
+        md = str(parsed["assistant_markdown"]).strip()
+        rp_any = parsed.get("refine_prompt")
+        refine: str | None = None
+        if isinstance(rp_any, str):
+            rps = rp_any.strip()
+            if rps and rps.lower() not in ("null", "none"):
+                refine = rps[:4000]
+        return {"assistant_markdown": md[:8000] or "", "refine_prompt": refine}
+    return {"assistant_markdown": raw[:6000], "refine_prompt": None}
+
+
+def run_advisor_chat_cursor(
+    *,
+    user_message: str,
+    profile_pills: list[dict[str, Any]],
+    destinations: list[dict[str, Any]],
+    session_id: str | None = None,
+    focus_destination_id: str | None = None,
+) -> dict[str, Any]:
+    """Structured reply for /advisor_feed: ``assistant_markdown`` + optional ``refine_prompt`` for the main planner."""
+    mid = structured_followup_model_id()
+    if not mid:
+        return {
+            "assistant_markdown": "Set CURSOR_REFINEMENT_MODEL_ID or CURSOR_ADVISOR_MODEL_ID to enable the Cursor-based advisor.",
+            "refine_prompt": None,
+        }
+    load_env_from_roots()
+    fid = (focus_destination_id or "").strip()
+    dest_payload: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    if fid:
+        for x in destinations or []:
+            if isinstance(x, dict) and str(x.get("id") or "").strip() == fid:
+                dest_payload.append(_destination_row_for_advisor_chat(x, include_itinerary=True))
+                seen.add(fid)
+                break
+    for x in destinations or []:
+        if not isinstance(x, dict):
+            continue
+        did = str(x.get("id") or "").strip()
+        if not did or did in seen:
+            continue
+        dest_payload.append(_destination_row_for_advisor_chat(x, include_itinerary=False))
+        if len(dest_payload) >= 10:
+            break
+        seen.add(did)
+    ctx = json.dumps(
+        {
+            "profile_pills": profile_pills[:24],
+            "destinations": dest_payload,
+            "focus_destination_id": fid or None,
+        },
+        ensure_ascii=True,
+    )
+    prompt = (
+        _ADVISOR_CHAT_PROMPT
+        + "\n\nContext JSON:\n"
+        + ctx[:16000]
+        + "\n\nUser message:\n"
+        + (user_message or "").strip()[:4000]
+    )
+    try:
+        with basic_client(get_api_key(), timeout_s=90.0) as client:
+            raw_text = run_prompt_collect_assistant_text(
+                client,
+                prompt,
+                model_id_override=mid,
+                **cursor_run_persist_kwargs(session_id or "", mid),
+            )
+    except Exception as exc:
+        return {"assistant_markdown": f"(Advisor unavailable: {exc})", "refine_prompt": None}
+    return _advisor_chat_parse_response(raw_text)
+
+
+_PROFILE_CHANGE_PROMPT = """
+You are Wanderly's advisor. The traveler changed ONE field in their sidebar profile (budget, who, vibe, when, duration, or flying-from).
+
+Reply with ONE JSON object only (no markdown fences, no prose).
+
+Schema:
+{
+  "headline": "1-3 sentences: react to the change and what it implies for their shortlist",
+  "warnings": [
+    { "destination_id": "exact id from context or empty string", "text": "short card-level warning if one place clashes with the new profile" }
+  ],
+  "suggestions": [
+    {
+      "label": "Short button title (max 10 words)",
+      "description": "One line — what asking the planner to do will improve",
+      "icon": "single emoji",
+      "refine_prompt": "One imperative sentence the user could send as a chat message to the main planner; name real destinations from context; self-contained"
+    }
+  ]
+}
+
+Rules:
+- 0–4 suggestions; refine_prompt must be ready to paste as the user's next message (no quotes around it).
+- 0–6 warnings; use destination_id from context when the warning targets one card; use "" only for trip-wide notes.
+- Use only the JSON context; do not invent exact prices, bookings, or policies.
+- If the change is minor and nothing needs fixing, return empty suggestions and a short supportive headline.
+""".strip()
+
+
+def _slim_destinations_for_profile_change(destinations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for d in (destinations or [])[:14]:
+        if not isinstance(d, dict):
+            continue
+        it = d.get("itinerary")
+        it_brief: list[dict[str, Any]] = []
+        if isinstance(it, list):
+            for row in it[:5]:
+                if not isinstance(row, dict):
+                    continue
+                it_brief.append(
+                    {
+                        "day": row.get("day"),
+                        "label": str(row.get("label") or "")[:80],
+                        "n_items": len(row.get("items") or []) if isinstance(row.get("items"), list) else 0,
+                    }
+                )
+        out.append(
+            {
+                "id": str(d.get("id") or ""),
+                "name": str(d.get("name") or ""),
+                "country": str(d.get("country") or ""),
+                "hook": str(d.get("hook") or "")[:200],
+                "cost": str(d.get("cost") or "")[:40],
+                "flight": str(d.get("flight") or "")[:40],
+                "vibe": (d.get("vibe") if isinstance(d.get("vibe"), list) else [])[:6],
+                "pinned": bool(d.get("pinned")),
+                "dismissed": bool(d.get("dismissed")),
+                "itinerary_days": it_brief,
+            }
+        )
+    return out
+
+
+def run_profile_change_advisor_cursor(
+    *,
+    pill_key: str,
+    old_value: str,
+    new_value: str,
+    profile_pills: list[dict[str, Any]],
+    destinations: list[dict[str, Any]],
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """Headline + optional card warnings + refine_prompt suggestions after a profile edit (refinement or advisor)."""
+    mid = structured_followup_model_id()
+    if not mid:
+        return {
+            "skipped": True,
+            "reason": "CURSOR_REFINEMENT_MODEL_ID and CURSOR_ADVISOR_MODEL_ID unset",
+            "headline": "",
+            "warnings": [],
+            "suggestions": [],
+        }
+    load_env_from_roots()
+    ctx = json.dumps(
+        {
+            "change": {
+                "key": pill_key,
+                "old_value": (old_value or "")[:400],
+                "new_value": (new_value or "")[:400],
+            },
+            "profile_pills": profile_pills[:24],
+            "destinations": _slim_destinations_for_profile_change(destinations),
+        },
+        ensure_ascii=True,
+    )
+    prompt = _PROFILE_CHANGE_PROMPT + "\n\nContext JSON:\n" + ctx[:52000]
+    try:
+        with basic_client(get_api_key(), timeout_s=120.0) as client:
+            raw_text = run_prompt_collect_assistant_text(
+                client,
+                prompt,
+                model_id_override=mid,
+                **cursor_run_persist_kwargs(session_id or "", mid),
+            )
+    except Exception as exc:
+        print(f"[cursor_advisor] profile_change_advisor failed: {exc!r}")
+        return {
+            "skipped": True,
+            "reason": str(exc),
+            "headline": "",
+            "warnings": [],
+            "suggestions": [],
+            "error": str(exc),
+        }
+    parsed = _extract_json_object(raw_text)
+    if not parsed:
+        return {
+            "skipped": True,
+            "reason": "no_json",
+            "headline": (raw_text or "")[:500].strip(),
+            "warnings": [],
+            "suggestions": [],
+        }
+    headline = str(parsed.get("headline") or "").strip()[:2000]
+    warnings_raw = parsed.get("warnings") or []
+    warnings: list[dict[str, str]] = []
+    if isinstance(warnings_raw, list):
+        for w in warnings_raw[:8]:
+            if not isinstance(w, dict):
+                continue
+            did = str(w.get("destination_id") or w.get("destId") or "").strip()
+            tx = str(w.get("text") or "").strip()
+            if tx:
+                warnings.append({"destination_id": did, "text": tx[:400]})
+    sug_raw = parsed.get("suggestions") or []
+    suggestions: list[dict[str, str]] = []
+    if isinstance(sug_raw, list):
+        for s in sug_raw[:5]:
+            if not isinstance(s, dict):
+                continue
+            lab = str(s.get("label") or "").strip()
+            desc = str(s.get("description") or "").strip()
+            ic = str(s.get("icon") or "✨").strip()[:8] or "✨"
+            rp = str(s.get("refine_prompt") or s.get("refinePrompt") or "").strip()
+            if lab and rp:
+                suggestions.append(
+                    {
+                        "label": lab[:120],
+                        "description": desc[:240],
+                        "icon": ic,
+                        "refine_prompt": rp[:1200],
+                    }
+                )
+    return {
+        "skipped": False,
+        "headline": headline,
+        "warnings": warnings,
+        "suggestions": suggestions,
+    }
+
+
+def merge_profile_pills_advisor_precedence(
+    main_pills: list[dict[str, Any]],
+    advisor_pills: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Overlay advisor pills onto main; advisor wins when its value looks substantive."""
+    by_key: dict[str, dict[str, Any]] = {}
+    for p in main_pills:
+        if isinstance(p, dict) and p.get("key"):
+            by_key[str(p["key"])] = dict(p)
+    for p in advisor_pills:
+        if not isinstance(p, dict):
+            continue
+        k = str(p.get("key") or "").strip()
+        if not k:
+            continue
+        v = str(p.get("value") or "").strip()
+        substantive = bool(v) and v.lower() not in ("not specified", "tbd", "unknown", "n/a", "flexible dates")
+        if substantive:
+            by_key[k] = p
+        elif k not in by_key:
+            by_key[k] = p
+    preferred = ["when", "who", "from", "vibe", "budget", "duration"]
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for k in preferred:
+        if k in by_key:
+            out.append(by_key[k])
+            seen.add(k)
+    for k, row in by_key.items():
+        if k not in seen:
+            out.append(row)
+    return out
