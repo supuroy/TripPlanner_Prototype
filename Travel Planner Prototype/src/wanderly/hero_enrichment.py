@@ -64,7 +64,7 @@ def _llm_search_hints(destinations: list[dict[str, Any]], session_id: str | None
             client,
             prompt,
             model_id_override=light,
-            **cursor_run_persist_kwargs(session_id or "", light),
+            **cursor_run_persist_kwargs(session_id or "", light, trace_path="hero_enrichment.llm_hints"),
         )
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     log_hero_image(f"TIMELINE llm_hints_end cards={len(destinations)} elapsed_ms={elapsed_ms:.1f}")

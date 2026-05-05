@@ -844,9 +844,11 @@ export function ProfilePanel() {
           <span className="text-[11px] text-white/30 uppercase tracking-widest">Traveler Profile</span>
         </div>
         <div className="flex flex-col gap-1.5">
-          {profile.map((p) => (
-            <EditablePill key={p.key} pill={p} />
-          ))}
+          {profile
+            .filter((p) => p.key !== "tags")
+            .map((p) => (
+              <EditablePill key={p.key} pill={p} />
+            ))}
         </div>
       </div>
 

@@ -1,5 +1,10 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from "react";
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
+import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO } from "../../types/workspace";
+import { planReview } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
+import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
+import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
+import { planReviewMarkdownForUi } from "../lib/planReviewMarkdown";
 
 export type Phase = "idle" | "thinking" | "streaming" | "refining" | "complete";
 
@@ -46,6 +51,8 @@ export interface DestCard {
   weather_summary?: string;
   /** v5: commerce placeholder metadata */
   commerce?: { disclaimer?: string; typical_range_usd?: number | null; destination?: string };
+  /** Rough budget bands from lazy itinerary build (LLM), optional. */
+  budget_guidance?: ItineraryBudgetGuidance;
   /** True when trip criteria changed and lazy itinerary should refresh on open / background for pinned. */
   itinerary_dirty?: boolean;
   /** Destination-scoped chat (expanded card conversation panel). */
@@ -171,6 +178,11 @@ interface TripStoreType {
   setSelectedDest: (id: string | null) => void;
   expandedDest: string | null;
   setExpandedDest: (id: string | null) => void;
+  // Main-canvas presentation mode: collapse destination cards into compact chips to maximize chat space.
+  isCanvasCollapsed: boolean;
+  setIsCanvasCollapsed: (v: boolean) => void;
+  /** Count of lazy itinerary HTTP jobs queued or running (serialized lane); for UI hints only — does not block opening cards. */
+  itineraryLaneQueueDepth: number;
   hasStarted: boolean;
   setHasStarted: (v: boolean) => void;
   sessionId: string;
@@ -180,9 +192,14 @@ interface TripStoreType {
   /** When set (and workspace has destinations), CommandBar runs a refine with this text. */
   pendingRefineText: string | null;
   setPendingRefineText: (t: string | null) => void;
+  /** One-shot: main bar input is filled from advisor “Try asking” chips, then cleared. */
+  composerPrefill: string | null;
+  setComposerPrefill: (t: string | null) => void;
   undoStack: UndoEntry[];
   pushUndo: (label: string) => void;
   performUndo: (id: string) => void;
+  /** Queue advisor plan_review after lazy itineraries settle; cancels prior queued runs. */
+  queuePlanReviewAfterItineraries: (sessionId: string) => void;
 }
 
 const Ctx = createContext<TripStoreType | null>(null);
@@ -203,7 +220,7 @@ const DESTINATIONS: DestCard[] = [
     ],
     temp: "82°F",
     flight: "20h",
-    cost: "$3.2k pp",
+    cost: "",
     vibe: ["Culture", "Food", "Beach", "Spiritual"],
     score: 94,
     dismissed: false,
@@ -248,7 +265,7 @@ const DESTINATIONS: DestCard[] = [
     ],
     temp: "68°F",
     flight: "12h",
-    cost: "$4.1k pp",
+    cost: "",
     vibe: ["Romance", "Wine", "History", "Scenic"],
     score: 82,
     dismissed: false,
@@ -288,7 +305,7 @@ const DESTINATIONS: DestCard[] = [
     ],
     temp: "64°F",
     flight: "7h",
-    cost: "$2.5k pp",
+    cost: "",
     vibe: ["Food", "History", "Nightlife", "Art"],
     score: 88,
     dismissed: false,
@@ -328,7 +345,7 @@ const RESERVE_DESTINATIONS: DestCard[] = [
     image: "https://images.unsplash.com/photo-1742648778984-36dea890552a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxDYXJ0YWdlbmElMjBDb2xvbWJpYSUyMGNvbG9yZnVsJTIwY29sb25pYWwlMjBzdHJlZXRzfGVufDF8fHx8MTc3MjUxMDIwOXww&ixlib=rb-4.1.0&q=80&w=1080",
     temp: "86°F",
     flight: "5.5h",
-    cost: "$1.8k pp",
+    cost: "",
     vibe: ["Culture", "Food", "Beach", "History"],
     score: 91,
     dismissed: false,
@@ -362,7 +379,7 @@ const RESERVE_DESTINATIONS: DestCard[] = [
     image: "https://images.unsplash.com/photo-1760076000027-b4391b83850b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxNZXhpY28lMjBDaXR5JTIwYWVyaWFsJTIwdmlldyUyMHVyYmFuJTIwc2t5bGluZXxlbnwxfHx8fDE3NzI1MTAyMTB8MA&ixlib=rb-4.1.0&q=80&w=1080",
     temp: "72°F",
     flight: "5h",
-    cost: "$1.5k pp",
+    cost: "",
     vibe: ["Food", "Culture", "History", "Art"],
     score: 93,
     dismissed: false,
@@ -413,10 +430,13 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [agentStatus, setAgentStatus] = useState("");
   const [selectedDest, setSelectedDest] = useState<string | null>(null);
   const [expandedDest, setExpandedDest] = useState<string | null>(null);
+  const [isCanvasCollapsed, setIsCanvasCollapsed] = useState(false);
+  const [itineraryLaneQueueDepth, setItineraryLaneQueueDepth] = useState(0);
   const [hasStarted, setHasStarted] = useState(false);
   const [sessionId, setSessionId] = useState<string>(readOrCreateSessionId);
   const [enrichmentPending, setEnrichmentPending] = useState(false);
   const [pendingRefineText, setPendingRefineText] = useState<string | null>(null);
+  const [composerPrefill, setComposerPrefill] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
 
   // Use refs to avoid stale closures in pushUndo
@@ -525,6 +545,46 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     [destinations],
   );
 
+  const itineraryLaneDepthRef = useRef(itineraryLaneQueueDepth);
+  itineraryLaneDepthRef.current = itineraryLaneQueueDepth;
+  const planReviewGenRef = useRef(0);
+
+  const queuePlanReviewAfterItineraries = useCallback(
+    (sid: string) => {
+      const gen = ++planReviewGenRef.current;
+      void (async () => {
+        logItin("plan_review_defer_wait_begin", { sessionId: sid.slice(0, 12) });
+        await waitForItinerariesBeforePlanReview(() => ({
+          destinations: destinationsRef.current,
+          itineraryLaneQueueDepth: itineraryLaneDepthRef.current,
+        }));
+        if (gen !== planReviewGenRef.current) return;
+        logItin("plan_review_defer_wait_done", { sessionId: sid.slice(0, 12) });
+        try {
+          const pills = profileRef.current as unknown as WanderlyProfilePillDTO[];
+          const dests = destinationsRef.current as unknown as Record<string, unknown>[];
+          const r = await planReview(sid, pills, dests);
+          if (gen !== planReviewGenRef.current) return;
+          const rev = r.review;
+          if (!rev || rev.skipped) return;
+          const md = planReviewMarkdownForUi(rev.assistant_markdown);
+          if (md) addResponse({ type: "message", role: "agent", text: `**Trip review (advisor)**\n\n${md}` });
+          for (const pr of rev.suggested_prompts || []) {
+            if (typeof pr === "string" && pr.trim()) addResponse({ type: "tip", text: `Try asking: ${pr}` });
+          }
+        } catch {
+          /* non-fatal */
+        }
+      })();
+    },
+    [addResponse],
+  );
+
+  useEffect(() => {
+    registerItineraryLaneDepthSink(setItineraryLaneQueueDepth);
+    return () => registerItineraryLaneDepthSink(null);
+  }, []);
+
   return (
     <Ctx.Provider
       value={{
@@ -541,11 +601,16 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         agentStatus, setAgentStatus,
         selectedDest, setSelectedDest,
         expandedDest, setExpandedDest,
+        isCanvasCollapsed,
+        setIsCanvasCollapsed,
+        itineraryLaneQueueDepth,
         hasStarted, setHasStarted,
         sessionId, setSessionId,
         enrichmentPending, setEnrichmentPending,
         pendingRefineText, setPendingRefineText,
+        composerPrefill, setComposerPrefill,
         undoStack, pushUndo, performUndo,
+        queuePlanReviewAfterItineraries,
       }}
     >
       {children}

@@ -1,4 +1,9 @@
-"""Optional debug logging for lazy itinerary builds (Cursor → JSON → ItinDay rows)."""
+"""Optional debug logging for lazy itinerary builds and Cursor Cloud Agent traces.
+
+Lines prefixed ``CURSOR path=…`` come from ``cursor_agent_client`` (409 reuse, SSE errors).
+Filter ``itinerary_debug.log`` by ``path=cursor_advisor.advisor_feed`` (or other ids) to see
+which app path triggered a Cursor call.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +26,11 @@ def itinerary_file_log_enabled() -> bool:
 
 
 def log_itinerary_build(msg: str) -> None:
-    """Console + ``.cache/itinerary_debug.log`` when ``WANDERLY_ITIN_LOG`` is not disabled (default on)."""
+    """Console + ``.cache/itinerary_debug.log`` when ``WANDERLY_ITIN_LOG`` is not disabled (default on).
+
+    Wanderly uses this for itinerary rows, HTTP milestones (``path=http.…``), advisor failures
+    (``path=cursor_advisor.…``), and Cursor transport (``CURSOR path=…``).
+    """
     if not itinerary_file_log_enabled():
         return
     now = datetime.now(timezone.utc)

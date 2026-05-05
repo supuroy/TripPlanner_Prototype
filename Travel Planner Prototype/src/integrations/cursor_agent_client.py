@@ -10,14 +10,61 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
+from contextlib import nullcontext
 from typing import Any, Callable, Iterator
 from urllib.parse import urlparse
 
 import httpx
 from dotenv import load_dotenv
 
+try:
+    from src.wanderly.itinerary_debug_log import log_itinerary_build as _itinerary_log
+except Exception:
+    _itinerary_log = None
+
 CURSOR_API_BASE = "https://api.cursor.com"
+
+_cursor_lane_locks: dict[str, threading.Lock] = {}
+_cursor_lane_locks_guard = threading.Lock()
+
+
+def _cursor_lane_run_lock(lock_key: str | None):
+    """
+    Serialize Cloud Agent usage for one Wanderly session + persistence lane.
+
+    ThreadingHTTPServer can run two ``advisor_feed`` (or smoke + advisor) handlers concurrently; without
+    this, two ``POST …/agents/{id}/runs`` calls race and Cursor returns 409.
+    """
+    k = (lock_key or "").strip()
+    if not k:
+        return nullcontext()
+    with _cursor_lane_locks_guard:
+        if k not in _cursor_lane_locks:
+            _cursor_lane_locks[k] = threading.Lock()
+        lk = _cursor_lane_locks[k]
+    return lk
+
+
+def _trace_cursor(msg: str, *, path: str | None = None) -> None:
+    """Writes to ``.cache/itinerary_debug.log`` when ``WANDERLY_ITIN_LOG`` is on (same as itinerary traces)."""
+    if _itinerary_log is None:
+        return
+    try:
+        pfx = f"path={path} " if (path or "").strip() else ""
+        _itinerary_log(f"CURSOR {pfx}{msg}")
+    except Exception:
+        pass
+
+
+def _httpx_err_snip(e: httpx.HTTPStatusError) -> str:
+    try:
+        if e.response is None:
+            return ""
+        return (e.response.text or "").replace("\n", " ").strip()[:280]
+    except Exception:
+        return ""
 
 
 def load_env_from_roots(extra_roots: list[str] | None = None) -> None:
@@ -400,29 +447,54 @@ def _begin_cloud_agent_run(
     existing_agent_id: str | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
+    cursor_trace_path: str | None = None,
 ) -> tuple[str, str]:
+    tp = (cursor_trace_path or "").strip() or None
     aid_in = (existing_agent_id or "").strip()
     if cursor_reuse_agents_enabled() and aid_in:
+        _trace_cursor(f"reuse_attempt agent_tail={aid_in[-8:]!r} reuse=1", path=tp)
         last_err: httpx.HTTPStatusError | None = None
-        for busy_try in range(2):
+        max_busy_tries = 6
+        for busy_try in range(max_busy_tries):
             try:
                 run_id = create_followup_run(client, aid_in, prompt_text)
+                _trace_cursor(f"reuse_ok agent_tail={aid_in[-8:]!r} run_tail={str(run_id)[-8:]!r}", path=tp)
                 return aid_in, run_id
             except httpx.HTTPStatusError as e:
                 last_err = e
                 sc = e.response.status_code if e.response is not None else 0
-                if sc == 409 and busy_try == 0:
-                    time.sleep(3.0)
-                    continue
+                snip = _httpx_err_snip(e)
+                _trace_cursor(
+                    f"reuse_http_error agent_tail={aid_in[-8:]!r} status={sc} try={busy_try + 1} body_snip={snip!r}",
+                    path=tp,
+                )
+                if sc == 409:
+                    if busy_try + 1 < max_busy_tries:
+                        time.sleep(min(12.0, 1.25 * (2**busy_try)))
+                        continue
+                    break
                 if sc in (404, 410):
                     if on_agent_cleared:
                         on_agent_cleared()
+                    _trace_cursor(f"reuse_agent_gone agent_tail={aid_in[-8:]!r} status={sc}", path=tp)
                     break
                 raise
-        if last_err is not None and (last_err.response is None or last_err.response.status_code == 409):
+        if last_err is not None and last_err.response is not None and last_err.response.status_code == 409:
+            _trace_cursor(
+                f"reuse_409_fallback_new_agent agent_tail={aid_in[-8:]!r} body_snip={_httpx_err_snip(last_err)!r}",
+                path=tp,
+            )
+            if on_agent_cleared:
+                on_agent_cleared()
+            agent_id, run_id = create_agent_run(client, prompt_text, model_id_override=model_id_override)
+            if on_new_agent:
+                on_new_agent(agent_id)
+            return agent_id, run_id
+        if last_err is not None and last_err.response is None:
             raise last_err
 
     agent_id, run_id = create_agent_run(client, prompt_text, model_id_override=model_id_override)
+    _trace_cursor(f"new_agent_run agent_tail={agent_id[-8:]!r} run_tail={run_id[-8:]!r} reuse=0", path=tp)
     if on_new_agent:
         on_new_agent(agent_id)
     return agent_id, run_id
@@ -465,31 +537,49 @@ def run_prompt_collect_assistant_text(
     existing_agent_id: str | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
+    cursor_trace_path: str | None = None,
+    cursor_run_lock_key: str | None = None,
 ) -> str:
     """Create or continue a Cloud Agent run, consume the assistant SSE stream, return full text."""
-    agent_id, run_id = _begin_cloud_agent_run(
-        client,
-        prompt_text,
-        model_id_override=model_id_override,
-        existing_agent_id=existing_agent_id,
-        on_new_agent=on_new_agent,
-        on_agent_cleared=on_agent_cleared,
-    )
-    time.sleep(1.0)
-    last_err: Exception | None = None
-    for attempt in range(8):
-        try:
-            text = consume_sse_assistant(client, agent_id, run_id)
-            return _assistant_text_or_retry_sse(client, agent_id, run_id, text)
-        except httpx.HTTPStatusError as e:
-            last_err = e
-            if e.response is not None and e.response.status_code in (404, 425):
-                time.sleep(0.75 * (attempt + 1))
-                continue
-            raise
-    if last_err:
-        raise last_err
-    return ""
+    tp = (cursor_trace_path or "").strip() or None
+    with _cursor_lane_run_lock(cursor_run_lock_key):
+        agent_id, run_id = _begin_cloud_agent_run(
+            client,
+            prompt_text,
+            model_id_override=model_id_override,
+            existing_agent_id=existing_agent_id,
+            on_new_agent=on_new_agent,
+            on_agent_cleared=on_agent_cleared,
+            cursor_trace_path=tp,
+        )
+        time.sleep(1.0)
+        last_err: Exception | None = None
+        for attempt in range(8):
+            try:
+                text = consume_sse_assistant(client, agent_id, run_id)
+                return _assistant_text_or_retry_sse(client, agent_id, run_id, text)
+            except httpx.HTTPStatusError as e:
+                last_err = e
+                sc = e.response.status_code if e.response is not None else 0
+                _trace_cursor(
+                    f"sse_http_error mode=buffered run_tail={run_id[-8:]!r} status={sc} attempt={attempt + 1} "
+                    f"body_snip={_httpx_err_snip(e)!r}",
+                    path=tp,
+                )
+                if e.response is not None and e.response.status_code in (404, 425):
+                    time.sleep(0.75 * (attempt + 1))
+                    continue
+                raise
+            except Exception as e:
+                _trace_cursor(
+                    f"sse_transport_error mode=buffered run_tail={run_id[-8:]!r} "
+                    f"type={type(e).__name__} message={str(e)[:180]!r}",
+                    path=tp,
+                )
+                raise
+        if last_err:
+            raise last_err
+        return ""
 
 
 def run_prompt_collect_assistant_text_streaming(
@@ -501,47 +591,65 @@ def run_prompt_collect_assistant_text_streaming(
     existing_agent_id: str | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
+    cursor_trace_path: str | None = None,
+    cursor_run_lock_key: str | None = None,
 ) -> str:
     """Create or continue a Cloud Agent run, stream assistant SSE, invoke emit() for progress, return full text."""
+    tp = (cursor_trace_path or "").strip() or None
 
     def _emit(obj: dict[str, Any]) -> None:
         if emit:
             emit(obj)
 
-    _emit({"type": "phase", "message": "Understanding what you want from this trip…"})
-    agent_id, run_id = _begin_cloud_agent_run(
-        client,
-        prompt_text,
-        model_id_override=model_id_override,
-        existing_agent_id=existing_agent_id,
-        on_new_agent=on_new_agent,
-        on_agent_cleared=on_agent_cleared,
-    )
-    _emit({"type": "phase", "message": "Exploring destinations and tradeoffs for you…"})
-    time.sleep(1.0)
-    last_err: Exception | None = None
-    for attempt in range(8):
-        try:
-            _emit({"type": "phase", "message": "Listening to the model as it works…"})
-            text = consume_sse_assistant_streaming(client, agent_id, run_id, emit=emit)
-            if not (text or "").strip():
-                _emit({"type": "phase", "message": "Almost there — wrapping up…"})
-            return _assistant_text_or_retry_sse(client, agent_id, run_id, text)
-        except httpx.HTTPStatusError as e:
-            last_err = e
-            if e.response is not None and e.response.status_code in (404, 425):
-                _emit(
-                    {
-                        "type": "phase",
-                        "message": "Still connecting — trying again in a moment…",
-                    }
+    with _cursor_lane_run_lock(cursor_run_lock_key):
+        _emit({"type": "phase", "message": "Understanding what you want from this trip…"})
+        agent_id, run_id = _begin_cloud_agent_run(
+            client,
+            prompt_text,
+            model_id_override=model_id_override,
+            existing_agent_id=existing_agent_id,
+            on_new_agent=on_new_agent,
+            on_agent_cleared=on_agent_cleared,
+            cursor_trace_path=tp,
+        )
+        _emit({"type": "phase", "message": "Exploring destinations and tradeoffs for you…"})
+        time.sleep(1.0)
+        last_err: Exception | None = None
+        for attempt in range(8):
+            try:
+                _emit({"type": "phase", "message": "Listening to the model as it works…"})
+                text = consume_sse_assistant_streaming(client, agent_id, run_id, emit=emit)
+                if not (text or "").strip():
+                    _emit({"type": "phase", "message": "Almost there — wrapping up…"})
+                return _assistant_text_or_retry_sse(client, agent_id, run_id, text)
+            except httpx.HTTPStatusError as e:
+                last_err = e
+                sc = e.response.status_code if e.response is not None else 0
+                _trace_cursor(
+                    f"sse_http_error mode=streaming run_tail={run_id[-8:]!r} status={sc} attempt={attempt + 1} "
+                    f"body_snip={_httpx_err_snip(e)!r}",
+                    path=tp,
                 )
-                time.sleep(0.75 * (attempt + 1))
-                continue
-            raise
-    if last_err:
-        raise last_err
-    return ""
+                if e.response is not None and e.response.status_code in (404, 425):
+                    _emit(
+                        {
+                            "type": "phase",
+                            "message": "Still connecting — trying again in a moment…",
+                        }
+                    )
+                    time.sleep(0.75 * (attempt + 1))
+                    continue
+                raise
+            except Exception as e:
+                _trace_cursor(
+                    f"sse_transport_error mode=streaming run_tail={run_id[-8:]!r} "
+                    f"type={type(e).__name__} message={str(e)[:180]!r}",
+                    path=tp,
+                )
+                raise
+        if last_err:
+            raise last_err
+        return ""
 
 
 def run_auth_only_impl(client: httpx.Client) -> None:

@@ -2,15 +2,16 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
-  DollarSign, Star, Hotel, Zap, AlertTriangle, ChevronLeft, ArrowRight,
-  MapPin, Calendar, CheckCircle2, Loader2,
+  DollarSign, Hotel, Zap, AlertTriangle, ChevronLeft, ArrowRight,
+  MapPin, Calendar, CheckCircle2, Loader2, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTrip } from "./TripStore";
-import type { DestCard } from "./TripStore";
-import { syncUi, buildItinerary, buildItineraryStream, planReview } from "../../api/wanderly";
-import type { WanderlyProfilePillDTO } from "../../types/workspace";
+import type { DestCard, ItinDay } from "./TripStore";
+import { syncUi, buildItineraryStream } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
+import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
+import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
 import { ConversationPanel } from "./ConversationPanel";
 
 /** Auto-advance hero slideshow when multiple URLs (enrich / planner). */
@@ -29,6 +30,34 @@ const VIBE_COLORS: Record<string, string> = {
   Art: "bg-rose-500/20 text-rose-300",
   Adventure: "bg-green-500/20 text-green-300",
 };
+
+type ExpandedItinErrorKind = "empty_response" | "request_failed";
+
+function expandedItineraryErrorMessage(kind: ExpandedItinErrorKind, hasPriorOutline: boolean): string {
+  if (kind === "request_failed") {
+    return hasPriorOutline
+      ? "We could not refresh the day-by-day plan just now (the planner was busy or the connection dropped—often a momentary conflict when several trip cards update at once). The outline below is unchanged; try again in a few seconds."
+      : "We could not load a day-by-day plan (planner busy or connection issue). Try again in a few seconds.";
+  }
+  return hasPriorOutline
+    ? "The latest run did not return usable day rows, so we kept your previous outline below. You can try again or use a shorter ask."
+    : "The planner did not return usable day rows. Try a shorter ask or check the planner service.";
+}
+
+/** Shown in commerce strips until the itinerary pass fills ``cost`` / ``budget_guidance`` — no fake ranges. */
+function estimateOrDash(s: string | undefined | null): string {
+  let t = (s ?? "").trim();
+  if (/^tbd\s*\(placeholder\)$/i.test(t) || /^tbd$/i.test(t)) t = "";
+  return t || "-";
+}
+
+/** True when we should show itinerary-pass copy (not empty / dash / TBD noise). */
+function hasMeaningfulEstimateText(s: string | undefined | null): boolean {
+  let t = (s ?? "").trim();
+  if (!t || t === "-") return false;
+  if (/^tbd\s*\(placeholder\)$/i.test(t) || /^tbd$/i.test(t)) return false;
+  return true;
+}
 
 function destHeroUrls(dest: DestCard): string[] {
   const imgs = (dest.images || []).filter((u): u is string => typeof u === "string" && u.trim().length > 0);
@@ -72,14 +101,15 @@ function ScoreBadge({ score }: { score: number }) {
 
 function MiniItinerary({ dest }: { dest: DestCard }) {
   const { profile } = useTrip();
-  
-  if (!dest.itinerary) return null;
+  /** Per day number: show all activity bullets vs first two only. */
+  const [expandedDayNums, setExpandedDayNums] = useState<Record<number, boolean>>({});
+  const itinerary = dest.itinerary ?? [];
 
   // Parse trip dates from profile
   const tripDates = useMemo(() => {
     const whenPill = profile.find(p => p.key === "when");
-    if (!whenPill) return null;
-    
+    if (!whenPill?.value) return null;
+
     // Parse "Mar 15–22" format
     const match = whenPill.value.match(/(\w+)\s+(\d+)(?:–|-)(\d+)/);
     if (!match) return null;
@@ -98,25 +128,25 @@ function MiniItinerary({ dest }: { dest: DestCard }) {
     
     // Calculate end date based on itinerary length
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + (dest.itinerary?.length || 7) - 1);
-    
-    return { 
-      startDate, 
+    endDate.setDate(endDate.getDate() + (itinerary.length || 7) - 1);
+
+    return {
+      startDate,
       endDate,
-      month, 
-      startDay: parseInt(startDay), 
+      month,
+      startDay: parseInt(startDay),
       endDay: endDate.getDate(),
       displayMonth: month,
     };
-  }, [profile, dest.itinerary]);
+  }, [profile, itinerary]);
 
   // Generate calendar dates for each day
   const daysWithDates = useMemo(() => {
-    if (!tripDates) return dest.itinerary;
-    
-    return dest.itinerary?.map((day) => {
+    if (!tripDates) return itinerary;
+
+    return itinerary.map((day) => {
       const date = new Date(tripDates.startDate);
-      date.setDate(date.getDate() + (day.day - 1));
+      date.setDate(date.getDate() + ((day.day ?? 1) - 1));
       
       return {
         ...day,
@@ -124,13 +154,15 @@ function MiniItinerary({ dest }: { dest: DestCard }) {
         month: date.toLocaleString('en', { month: 'short' }),
       };
     });
-  }, [dest.itinerary, tripDates]);
+  }, [itinerary, tripDates]);
+
+  if (!itinerary.length) return null;
 
   return (
     <div className="mt-4">
       <div className="flex items-center justify-between mb-3">
         <p className="text-[11px] text-white/30 uppercase tracking-widest">
-          {dest.itinerary.length}-Day Plan
+          {itinerary.length}-Day Plan
           {tripDates && (
             <span className="ml-2 text-white/20">
               {tripDates.displayMonth} {tripDates.startDay}–{tripDates.endDay}
@@ -140,196 +172,142 @@ function MiniItinerary({ dest }: { dest: DestCard }) {
       </div>
 
       <div className="space-y-1">
-        {daysWithDates?.map((day) => (
-          <div key={day.day} className="flex items-start gap-3 group">
-            <div className="w-9 h-9 rounded-md bg-white/[0.06] flex flex-col items-center justify-center shrink-0 mt-0.5 border border-white/[0.04]">
-              {'date' in day && day.date ? (
-                <>
-                  <span className="text-[9px] text-white/20 uppercase leading-none">{'month' in day && day.month}</span>
-                  <span className="text-[13px] text-white/60 font-medium leading-none mt-0.5">{day.date}</span>
-                </>
-              ) : (
-                <span className="text-[11px] text-white/30">{day.day}</span>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] text-white/70">{day.label}</p>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {day.items.slice(0, 2).map((item, i) => (
-                  <span key={i} className="text-[11px] text-white/30">{item}{i < 1 && day.items.length > 1 ? " ·" : ""}</span>
-                ))}
-                {day.items.length > 2 && (
-                  <span className="text-[11px] text-white/20">+{day.items.length - 2} more</span>
+        {daysWithDates?.map((day) => {
+          const items = day.items ?? [];
+          const expanded = Boolean(expandedDayNums[day.day]);
+          const extra = items.length - 2;
+          const toggle = () =>
+            setExpandedDayNums((prev) => ({ ...prev, [day.day]: !prev[day.day] }));
+          return (
+            <div key={day.day} className="flex items-start gap-3 group">
+              <div className="w-9 h-9 rounded-md bg-white/[0.06] flex flex-col items-center justify-center shrink-0 mt-0.5 border border-white/[0.04]">
+                {'date' in day && day.date ? (
+                  <>
+                    <span className="text-[9px] text-white/20 uppercase leading-none">{'month' in day && day.month}</span>
+                    <span className="text-[13px] text-white/60 font-medium leading-none mt-0.5">{day.date}</span>
+                  </>
+                ) : (
+                  <span className="text-[11px] text-white/30">{day.day}</span>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] text-white/70">{day.label ?? ""}</p>
+                {expanded ? (
+                  <ul className="mt-1.5 space-y-1.5 pl-0.5" role="list">
+                    {items.map((item, i) => (
+                      <li
+                        key={i}
+                        className="text-[11px] text-white/40 leading-relaxed border-l border-white/[0.12] pl-2.5"
+                      >
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 mt-1">
+                    {items.slice(0, 2).map((item, i) => (
+                      <span key={i} className="text-[11px] text-white/30">
+                        {item}
+                        {i < 1 && items.length > 1 ? " ·" : ""}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {items.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={toggle}
+                    aria-expanded={expanded}
+                    className="mt-1 flex items-center gap-1 rounded-md py-0.5 pr-1 text-left text-[11px] text-sky-400/90 hover:text-sky-300 hover:underline underline-offset-2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-sky-400/50"
+                  >
+                    {expanded ? (
+                      <>
+                        <ChevronUp className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+                        Show less
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+                        +{extra} more
+                      </>
+                    )}
+                  </button>
                 )}
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function FlightStrip({ dest, currentIndex, onPrev, onNext }: { 
-  dest: DestCard; 
-  currentIndex: number;
-  onPrev: () => void;
-  onNext: () => void;
-}) {
+/** Planning-level flight band only (same when pinned — real inventory will be an explicit action later). */
+function FlightStrip({ dest }: { dest: DestCard }) {
   if (!dest.flights || dest.flights.length === 0) return null;
-  
-  const flight = dest.flights[currentIndex];
-  const showActual = dest.pinned;
-  
+
+  const flightBallpark = (
+    dest.budget_guidance?.flight_ballpark || dest.budget_guidance?.flight_band_short || ""
+  ).trim();
+  const showFlightGuidance = hasMeaningfulEstimateText(flightBallpark);
+
   return (
-    <motion.div 
+    <motion.div
       className="mt-4"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: showActual ? 0.6 : 0.3 }}
+      transition={{ delay: 0.3 }}
     >
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[11px] text-white/30 uppercase tracking-widest">
-          {showActual ? "Flight" : "Flight Options"}
-        </p>
-        {!showActual && (
-          <span className="text-[10px] text-white/20">Researching...</span>
-        )}
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-widest text-white/30">Flight Options</p>
       </div>
-      
-      <div className="relative group">
-        {showActual ? (
-          // Actual flight with details
-          <motion.div 
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06]"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.7 }}
-          >
-            <Plane className="w-4 h-4 text-blue-400 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] text-white/70">{flight.airline}</p>
-              <p className="text-[11px] text-white/30">{flight.route} · {flight.duration}</p>
-            </div>
-            <span className="text-[14px] text-white/80">{flight.price}</span>
-            {flight.best && <Star className="w-3.5 h-3.5 text-amber-400" />}
-          </motion.div>
-        ) : (
-          // Generic placeholder while researching
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] border-dashed">
-            <Plane className="w-4 h-4 text-white/20 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] text-white/40">Multiple airlines available</p>
-              <p className="text-[11px] text-white/20">Searching best routes & times</p>
-            </div>
-            <span className="text-[14px] text-white/50">$950-$1,200</span>
-          </div>
-        )}
 
-        {/* Navigation controls - only show when pinned and multiple options */}
-        {showActual && dest.flights.length > 1 && (
-          <>
-            <button
-              onClick={onPrev}
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 w-6 h-6 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white/40 hover:text-white hover:bg-white/20 transition-all"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={onNext}
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 w-6 h-6 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white/40 hover:text-white hover:bg-white/20 transition-all"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-            <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] text-white/30">
-              {currentIndex + 1} of {dest.flights.length} options
-            </div>
-          </>
+      <div className="relative group">
+        {showFlightGuidance ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-3 py-2.5">
+            <p className="break-words text-[11px] leading-snug text-white/70">{flightBallpark}</p>
+          </div>
+        ) : (
+          <div
+            className="min-h-[44px] rounded-xl border border-white/[0.05] bg-white/[0.02]"
+            aria-label="Flight estimate pending"
+          />
         )}
       </div>
     </motion.div>
   );
 }
 
-function HotelStrip({ dest, currentIndex, onPrev, onNext }: { 
-  dest: DestCard;
-  currentIndex: number;
-  onPrev: () => void;
-  onNext: () => void;
-}) {
+/** Planning-level lodging band only (same when pinned). */
+function HotelStrip({ dest }: { dest: DestCard }) {
   if (!dest.hotels || dest.hotels.length === 0) return null;
-  
-  const hotel = dest.hotels[currentIndex];
-  const showActual = dest.pinned;
-  
+
+  const lodgingNote = (
+    dest.budget_guidance?.lodging_style || dest.budget_guidance?.lodging_band_short || ""
+  ).trim();
+  const showLodgingGuidance = hasMeaningfulEstimateText(lodgingNote);
+
   return (
-    <motion.div 
+    <motion.div
       className="mt-4"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: showActual ? 0.8 : 0.4 }}
+      transition={{ delay: 0.4 }}
     >
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[11px] text-white/30 uppercase tracking-widest">
-          {showActual ? "Stay" : "Stay Options"}
-        </p>
-        {!showActual && (
-          <span className="text-[10px] text-white/20">Searching...</span>
-        )}
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-widest text-white/30">Stay Options</p>
       </div>
-      
-      <div className="relative group">
-        {showActual ? (
-          // Actual hotel with details
-          <motion.div 
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06]"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.9 }}
-          >
-            <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
-              <ImageWithFallback src={hotel.image} alt={hotel.name} className="w-full h-full object-cover" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] text-white/70">{hotel.name}</p>
-              <p className="text-[11px] text-white/30">{hotel.area} · {hotel.nights} nights</p>
-            </div>
-            <span className="text-[13px] text-white/60">{hotel.price}</span>
-            {hotel.best && <Star className="w-3.5 h-3.5 text-amber-400" />}
-          </motion.div>
-        ) : (
-          // Generic placeholder while searching
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] border-dashed">
-            <div className="w-10 h-10 rounded-lg bg-white/[0.06] shrink-0 flex items-center justify-center">
-              <Hotel className="w-4 h-4 text-white/20" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] text-white/40">Various accommodations</p>
-              <p className="text-[11px] text-white/20">Comparing hotels & areas</p>
-            </div>
-            <span className="text-[13px] text-white/50">$90-$180/n</span>
-          </div>
-        )}
 
-        {/* Navigation controls - only show when pinned and multiple options */}
-        {showActual && dest.hotels.length > 1 && (
-          <>
-            <button
-              onClick={onPrev}
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 w-6 h-6 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white/40 hover:text-white hover:bg-white/20 transition-all"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={onNext}
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 w-6 h-6 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white/40 hover:text-white hover:bg-white/20 transition-all"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-            <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] text-white/30">
-              {currentIndex + 1} of {dest.hotels.length} options
-            </div>
-          </>
+      <div className="relative group">
+        {showLodgingGuidance ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-3 py-2.5">
+            <p className="break-words text-[11px] leading-snug text-white/70">{lodgingNote}</p>
+          </div>
+        ) : (
+          <div
+            className="min-h-[44px] rounded-xl border border-white/[0.05] bg-white/[0.02]"
+            aria-label="Lodging estimate pending"
+          />
         )}
       </div>
     </motion.div>
@@ -353,7 +331,15 @@ function ActivityStrip({ dest }: { dest: DestCard }) {
 }
 
 /* ── Comparison Mini Card (shown in sidebar when another card is expanded) ── */
-function ComparisonMiniCard({ dest, onExpand }: { dest: DestCard; onExpand: () => void }) {
+function ComparisonMiniCard({
+  dest,
+  onExpand,
+  expandLocked,
+}: {
+  dest: DestCard;
+  onExpand: () => void;
+  expandLocked: boolean;
+}) {
   const { setDestinations } = useTrip();
   const { src: heroSrc, count: heroCount, index: heroIndex } = useRotatingHeroSrc(dest, HERO_SLIDE_MS);
   const bestFlight = dest.flights?.find(f => f.best) || dest.flights?.[0];
@@ -365,9 +351,17 @@ function ComparisonMiniCard({ dest, onExpand }: { dest: DestCard; onExpand: () =
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 20 }}
-      onClick={onExpand}
-      className={`relative rounded-xl overflow-hidden border cursor-pointer transition-all group hover:border-white/[0.15] ${
-        dest.pinned ? "border-indigo-500/30 bg-indigo-500/[0.04]" : "border-white/[0.06] bg-white/[0.02]"
+      onClick={() => {
+        if (expandLocked) return;
+        onExpand();
+      }}
+      title={expandLocked ? "Planner is updating trip cards—try again in a moment." : undefined}
+      className={`relative rounded-xl overflow-hidden border transition-all group ${
+        expandLocked
+          ? "cursor-not-allowed opacity-55 border-white/[0.06] bg-white/[0.02]"
+          : `cursor-pointer hover:border-white/[0.15] ${
+              dest.pinned ? "border-indigo-500/30 bg-indigo-500/[0.04]" : "border-white/[0.06] bg-white/[0.02]"
+            }`
       }`}
     >
       {/* Warning badge */}
@@ -405,34 +399,54 @@ function ComparisonMiniCard({ dest, onExpand }: { dest: DestCard; onExpand: () =
         )}
       </div>
 
-      {/* Quick stats row */}
+      {/* Quick stats row — short bands in price rows; icons separated so text never overlaps. */}
       <div className="px-2.5 py-2">
         <div className="grid grid-cols-3 gap-1 text-[10px]">
-          <div className="flex flex-col items-center px-1.5 py-1.5 rounded-lg bg-white/[0.03]">
-            <Plane className="w-3 h-3 text-blue-400 mb-0.5" />
-            <span className="text-white/50">{dest.flight}</span>
-            <span className="text-white/25">{bestFlight?.price || "—"}</span>
+          <div className="flex min-w-0 flex-col items-stretch gap-1 px-1 py-1.5 rounded-lg bg-white/[0.03]">
+            <div className="flex justify-center">
+              <Plane className="w-3 h-3 shrink-0 text-blue-400" aria-hidden />
+            </div>
+            <div className="min-w-0 text-center">
+              <p className="text-[9px] leading-tight text-white/40 line-clamp-1">{estimateOrDash(dest.flight)}</p>
+              <p className="mt-0.5 text-[9px] leading-snug text-white/55 line-clamp-3 break-words">
+                {bestFlight?.price?.trim() || "-"}
+              </p>
+            </div>
           </div>
-          <div className="flex flex-col items-center px-1.5 py-1.5 rounded-lg bg-white/[0.03]">
-            <Hotel className="w-3 h-3 text-purple-400 mb-0.5" />
-            <span className="text-white/50">{bestHotel?.price || "—"}</span>
-            <span className="text-white/25">{bestHotel?.nights || "—"}n</span>
+          <div className="flex min-w-0 flex-col items-stretch gap-1 px-1 py-1.5 rounded-lg bg-white/[0.03]">
+            <div className="flex justify-center">
+              <Hotel className="w-3 h-3 shrink-0 text-purple-400" aria-hidden />
+            </div>
+            <div className="min-w-0 text-center">
+              <p className="text-[9px] leading-snug text-white/55 line-clamp-3 break-words">
+                {bestHotel?.price?.trim() || "-"}
+              </p>
+              <p className="mt-0.5 text-[9px] text-white/35">{bestHotel?.nights != null ? `${bestHotel.nights}n` : "-"}</p>
+            </div>
           </div>
-          <div className="flex flex-col items-center px-1.5 py-1.5 rounded-lg bg-white/[0.03]">
-            <DollarSign className="w-3 h-3 text-emerald-400 mb-0.5" />
-            <span className="text-white/50">{dest.cost}</span>
-            <span className="text-white/25">total</span>
+          <div className="flex min-w-0 flex-col items-stretch gap-1 px-1 py-1.5 rounded-lg bg-white/[0.03]">
+            <div className="flex justify-center">
+              <DollarSign className="w-3 h-3 shrink-0 text-emerald-400" aria-hidden />
+            </div>
+            <div className="min-w-0 text-center">
+              <p className="text-[9px] leading-snug text-white/55 line-clamp-3 break-words">
+                {estimateOrDash(dest.cost)}
+              </p>
+              <p className="mt-0.5 text-[9px] text-white/35">total</p>
+            </div>
           </div>
         </div>
 
         {/* Vibes - compact */}
         <div className="flex flex-wrap gap-1 mt-2">
-          {dest.vibe.slice(0, 3).map(v => (
+          {(dest.vibe ?? []).slice(0, 3).map((v) => (
             <span key={v} className={`px-1.5 py-0.5 rounded text-[9px] ${VIBE_COLORS[v] || "bg-white/5 text-white/40"}`}>
               {v}
             </span>
           ))}
-          {dest.vibe.length > 3 && <span className="text-[9px] text-white/20">+{dest.vibe.length - 3}</span>}
+          {(dest.vibe ?? []).length > 3 && (
+            <span className="text-[9px] text-white/20">+{(dest.vibe ?? []).length - 3}</span>
+          )}
         </div>
 
         {/* Warning inline */}
@@ -454,18 +468,24 @@ function ComparisonMiniCard({ dest, onExpand }: { dest: DestCard; onExpand: () =
 
 /* ── Expanded card view (detailed itinerary, flights, hotels) ── */
 function ExpandedCard({ dest }: { dest: DestCard }) {
-  const { setDestinations, setExpandedDest, addResponse, sessionId, profile } = useTrip();
+  const {
+    setDestinations,
+    setExpandedDest,
+    addResponse,
+    sessionId,
+    profile,
+    itineraryLaneQueueDepth,
+    queuePlanReviewAfterItineraries,
+  } = useTrip();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [currentFlightIndex, setCurrentFlightIndex] = useState(0);
-  const [currentHotelIndex, setCurrentHotelIndex] = useState(0);
   const [conversationMode, setConversationMode] = useState<"minimized" | "footer" | "panel">("minimized");
   const [itinLoading, setItinLoading] = useState(false);
-  const [itinError, setItinError] = useState(false);
+  const [itinErrorKind, setItinErrorKind] = useState<ExpandedItinErrorKind | null>(null);
   const [itinThought, setItinThought] = useState("");
 
   useEffect(() => {
     setItinThought("");
-    setItinError(false);
+    setItinErrorKind(null);
   }, [dest.id]);
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
@@ -483,7 +503,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
       setItinLoading(false);
       return;
     }
-    setItinError(false);
+    setItinErrorKind(null);
     setItinThought("");
     const ac = new AbortController();
     const requestId =
@@ -506,28 +526,34 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     const startTimer = window.setTimeout(() => {
       if (ac.signal.aborted) return;
       setItinLoading(true);
-      void buildItineraryStream(
-        sessionId,
-        dest as unknown as Record<string, unknown>,
-        profile,
-        (ev) => {
-          if (ac.signal.aborted) return;
-          if (ev.type === "phase" && typeof ev.message === "string") {
-            const line = ev.message.trim();
-            if (line) setItinThought((t) => `${(t + "\n\n" + line).trim()}\n`.slice(-14000));
-          }
-          if (ev.type === "thinking_delta" && typeof ev.delta === "string") {
-            setItinThought((t) => (t + ev.delta).slice(-14000));
-          }
-        },
-        { signal: ac.signal, requestId },
-      )
-        .then((res) => {
+      enqueueItineraryLane(async () => {
+        if (ac.signal.aborted) {
+          setItinLoading(false);
+          return;
+        }
+        try {
+          const res = await buildItineraryStream(
+            sessionId,
+            dest as unknown as Record<string, unknown>,
+            profile,
+            (ev) => {
+              if (ac.signal.aborted) return;
+              if (ev.type === "phase" && typeof ev.message === "string") {
+                const line = ev.message.trim();
+                if (line) setItinThought((t) => `${(t + "\n\n" + line).trim()}\n`.slice(-14000));
+              }
+              if (ev.type === "thinking_delta" && typeof ev.delta === "string") {
+                setItinThought((t) => (t + ev.delta).slice(-14000));
+              }
+            },
+            { signal: ac.signal, requestId },
+          );
           if (ac.signal.aborted) {
             logItin("expanded_fetch_aborted_after_resolve", { requestId, destId: dest.id });
             return;
           }
           const rows = res.itinerary || [];
+          const budget = res.budget_guidance ?? null;
           logItin("expanded_fetch_done", {
             requestId,
             destId: dest.id,
@@ -535,48 +561,35 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             destMatch: res.destination_id === dest.id,
           });
           if (rows.length === 0) {
-            setItinError(true);
+            setItinErrorKind("empty_response");
             setDestinations((prev) =>
               prev.map((d) => (d.id === dest.id ? { ...d, itinerary_dirty: false } : d)),
             );
             return;
           }
+          setItinErrorKind(null);
           setDestinations((prev) => {
-            const next = prev.map((d) =>
-              d.id === dest.id ? { ...d, itinerary: rows, itinerary_dirty: false } : d,
-            );
+            const next = prev.map((d) => {
+              if (d.id !== dest.id) return d;
+              return mergeItineraryBuildIntoDest(d, rows, budget);
+            });
             queueMicrotask(() => {
               void syncUi(sessionId, next as unknown[]).catch(() => {});
-              void planReview(
-                sessionId,
-                profile as unknown as WanderlyProfilePillDTO[],
-                next as unknown as Record<string, unknown>[],
-              )
-                .then((r) => {
-                  const rev = r.review;
-                  if (!rev || rev.skipped) return;
-                  const md = (rev.assistant_markdown || "").trim();
-                  if (md) addResponse({ type: "message", role: "agent", text: `**Trip review (advisor)**\n\n${md}` });
-                  for (const pr of rev.suggested_prompts || []) {
-                    if (typeof pr === "string" && pr.trim()) addResponse({ type: "tip", text: `Try asking: ${pr}` });
-                  }
-                })
-                .catch(() => {});
+              queuePlanReviewAfterItineraries(sessionId);
             });
             return next;
           });
-        })
-        .catch((err: unknown) => {
+        } catch (err: unknown) {
           if (ac.signal.aborted) {
             logItin("expanded_fetch_abort_error", { requestId, destId: dest.id, name: (err as Error)?.name });
             return;
           }
           logItin("expanded_fetch_error", { requestId, destId: dest.id, message: String(err) });
-          setItinError(true);
-        })
-        .finally(() => {
+          setItinErrorKind("request_failed");
+        } finally {
           if (!ac.signal.aborted) setItinLoading(false);
-        });
+        }
+      }, dest.id);
     }, debounceMs);
     return () => {
       window.clearTimeout(startTimer);
@@ -585,7 +598,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     };
     // Keep deps minimal so a long-running build is not aborted by redundant identity churn
     // (e.g. ``profile`` ref vs stable ``profileSig``).
-  }, [sessionId, dest.id, needsItinFetch, profileSig, addResponse, setDestinations]);
+  }, [sessionId, dest.id, needsItinFetch, profileSig, addResponse, setDestinations, queuePlanReviewAfterItineraries]);
 
   const images = useMemo(() => {
     const imgs = (dest.images || []).filter((u): u is string => typeof u === "string" && u.trim().length > 0);
@@ -634,14 +647,14 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
   // Extract location flow for trip visualization
   const locationFlow = useMemo(() => {
-    if (!dest.itinerary) return null;
-    
+    if (!dest.itinerary?.length) return null;
+
     const locations: Array<{ name: string; isTransfer?: boolean }> = [{ name: "Home" }];
-    
+
     dest.itinerary.forEach((day) => {
-      // Look for location indicators in the label
-      if (day.label.includes("→")) {
-        const parts = day.label.split("→").map(p => p.trim());
+      const label = typeof day.label === "string" ? day.label : "";
+      if (label.includes("→")) {
+        const parts = label.split("→").map(p => p.trim());
         parts.forEach((loc) => {
           // Skip "Arrive" and other action words
           if (!loc.match(/arrive|fly|depart/i) && loc) {
@@ -823,12 +836,12 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           <div className="flex items-center gap-3 mt-3 text-[11px] text-white/30">
             <span className="flex items-center gap-1"><Thermometer className="w-3 h-3" />{dest.temp}</span>
             <span className="flex items-center gap-1"><Plane className="w-3 h-3" />{dest.flight}</span>
-            <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />{dest.cost}</span>
+            <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />{estimateOrDash(dest.cost)}</span>
           </div>
 
           {/* Vibes */}
           <div className="flex flex-wrap gap-1 mt-3">
-            {dest.vibe.map(v => (
+            {(dest.vibe ?? []).map((v) => (
               <span key={v} className={`px-2 py-0.5 rounded-md text-[10px] ${VIBE_COLORS[v] || "bg-white/5 text-white/40"}`}>
                 {v}
               </span>
@@ -861,7 +874,13 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                         <Loader2 className="w-4 h-4 animate-spin shrink-0 text-indigo-400/80" aria-hidden />
                         <span className="text-[12px] text-white/45">Building itinerary</span>
                       </div>
-                      <div className="px-3 py-2">
+                      <div className="px-3 py-2 space-y-2">
+                        {itineraryLaneQueueDepth > 1 ? (
+                          <p className="text-[10px] text-indigo-300/55 leading-snug border border-indigo-500/15 rounded-lg px-2 py-1.5 bg-indigo-500/[0.06]">
+                            {itineraryLaneQueueDepth} day-by-day updates are in the server queue (one at a time so plans
+                            don’t collide). You can browse other cards; this one will fill in when its turn runs.
+                          </p>
+                        ) : null}
                         {itinThought.trim() ? (
                           <p className="text-[11px] text-white/35 leading-relaxed whitespace-pre-wrap font-sans">
                             {itinThought.trim()}
@@ -873,11 +892,13 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                         )}
                       </div>
                     </div>
-                  ) : itinError ? (
+                  ) : itinErrorKind ? (
                     <div className="mt-4 space-y-3">
                       <p className="text-[12px] text-amber-400/80">
-                        Could not refresh the day-by-day plan (the model returned no usable days). Your previous
-                        outline is unchanged. Try a shorter ask or check the planner service.
+                        {expandedItineraryErrorMessage(
+                          itinErrorKind,
+                          Boolean(dest.itinerary && dest.itinerary.length > 0),
+                        )}
                       </p>
                       {dest.itinerary && dest.itinerary.length > 0 ? <MiniItinerary dest={dest} /> : null}
                     </div>
@@ -887,43 +908,40 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                   <ActivityStrip dest={dest} />
                 </div>
                 <div>
-                  <FlightStrip 
-                    dest={dest} 
-                    currentIndex={currentFlightIndex}
-                    onPrev={() => setCurrentFlightIndex((prev) => (prev - 1 + dest.flights!.length) % dest.flights!.length)}
-                    onNext={() => setCurrentFlightIndex((prev) => (prev + 1) % dest.flights!.length)}
-                  />
-                  <HotelStrip 
-                    dest={dest} 
-                    currentIndex={currentHotelIndex}
-                    onPrev={() => setCurrentHotelIndex((prev) => (prev - 1 + dest.hotels!.length) % dest.hotels!.length)}
-                    onNext={() => setCurrentHotelIndex((prev) => (prev + 1) % dest.hotels!.length)}
-                  />
+                  <FlightStrip dest={dest} />
+                  <HotelStrip dest={dest} />
 
-                  {/* Total */}
+                  {/* Total — stacked so long LLM bands never collide with the label (mobile). */}
                   <motion.div 
                     className="mt-6 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 }}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[12px] text-white/40">
-                        {dest.pinned ? "Total Cost (2 pax)" : "Estimated Range (2 pax)"}
-                      </span>
-                      <span className="text-[18px] text-white/90">
-                        {dest.pinned ? (
-                          // Actual price when pinned
-                          `$${dest.id === "bali" ? "4,850" : dest.id === "santorini" ? "5,600" : "3,800"}`
-                        ) : (
-                          // Range when unpinned  
-                          "$4,200-$6,500"
-                        )}
-                      </span>
-                    </div>
-                    {dest.pinned && (
-                      <p className="text-[10px] text-indigo-300/50 mt-1">Includes all flights, hotels & activities</p>
-                    )}
+                    {(() => {
+                      const bg = dest.budget_guidance;
+                      let costLine = (bg?.trip_ballpark_usd_pp ?? "").trim();
+                      if (!costLine) costLine = (dest.cost ?? "").trim();
+                      if (/^tbd\s*\(placeholder\)$/i.test(costLine) || /^tbd$/i.test(costLine)) costLine = "";
+                      const hasCost = hasMeaningfulEstimateText(costLine);
+                      return (
+                        <>
+                          <span className="block text-[12px] text-white/40">
+                            {dest.pinned ? "Total Cost (2 pax)" : "Estimated Range (2 pax)"}
+                          </span>
+                          {hasCost ? (
+                            <p className="mt-1.5 text-[12px] sm:text-[13px] leading-snug text-white/85 break-words">
+                              {costLine}
+                            </p>
+                          ) : (
+                            <div className="mt-1.5 min-h-[2.25rem]" aria-label="Trip total estimate pending" />
+                          )}
+                          {dest.pinned && (
+                            <p className="text-[10px] text-indigo-300/50 mt-2">Includes all flights, hotels & activities</p>
+                          )}
+                        </>
+                      );
+                    })()}
                   </motion.div>
                 </div>
               </div>
@@ -979,7 +997,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 }
 
 /* ── Grid card (collapsed view) ── */
-function GridCard({ dest }: { dest: DestCard }) {
+function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolean }) {
   const { setDestinations, setExpandedDest, addResponse } = useTrip();
   const { src: heroSrc, count: heroCount, index: heroIndex } = useRotatingHeroSrc(dest, HERO_SLIDE_MS);
 
@@ -1010,12 +1028,26 @@ function GridCard({ dest }: { dest: DestCard }) {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9, y: -20 }}
       transition={{ type: "spring", damping: 25, stiffness: 200 }}
-      className={`relative rounded-2xl overflow-hidden border transition-all cursor-pointer group ${
-        dest.pinned
-          ? "border-indigo-500/40 bg-indigo-500/[0.05]"
-          : "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.15]"
+      title={
+        expandLocked
+          ? "Trip planner is updating your shortlist—try again when the status bar is idle."
+          : dest.itinerary_dirty
+            ? "Day-by-day may still be rebuilding in the background; you can open this card anytime."
+            : undefined
+      }
+      className={`relative rounded-2xl overflow-hidden border transition-all group ${
+        expandLocked
+          ? "cursor-not-allowed opacity-60 border-white/[0.08] bg-white/[0.03]"
+          : `cursor-pointer ${
+              dest.pinned
+                ? "border-indigo-500/40 bg-indigo-500/[0.05]"
+                : "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.15]"
+            }`
       }`}
-      onClick={() => setExpandedDest(dest.id)}
+      onClick={() => {
+        if (expandLocked) return;
+        setExpandedDest(dest.id);
+      }}
     >
       {/* Warning badge */}
       {dest.warnings && dest.warnings.length > 0 && (
@@ -1027,8 +1059,17 @@ function GridCard({ dest }: { dest: DestCard }) {
         </div>
       )}
 
+      {dest.itinerary_dirty && !expandLocked ? (
+        <div className="absolute bottom-2 left-2 z-10 max-w-[85%]">
+          <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-500/15 border border-indigo-400/25 backdrop-blur-sm">
+            <Loader2 className="w-3 h-3 shrink-0 animate-spin text-indigo-300/90" aria-hidden />
+            <span className="text-[9px] text-indigo-200/80 leading-tight">Plan updating…</span>
+          </div>
+        </div>
+      ) : null}
+
       {/* Image */}
-      <div className="relative h-40 overflow-hidden">
+      <div className="relative h-36 overflow-hidden sm:h-40">
         <ImageWithFallback src={heroSrc} alt={dest.name} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
         {heroCount > 1 && (
@@ -1059,20 +1100,20 @@ function GridCard({ dest }: { dest: DestCard }) {
 
         {/* Name overlay */}
         <div className="absolute bottom-3 left-3 right-3">
-          <h3 className="text-white text-[18px]">{dest.name}</h3>
-          <p className="text-white/50 text-[12px]">{dest.country}</p>
+          <h3 className="text-[16px] text-white sm:text-[18px]">{dest.name}</h3>
+          <p className="text-[11px] text-white/50 sm:text-[12px]">{dest.country}</p>
         </div>
       </div>
 
       {/* Content */}
-      <div className="p-4">
-        <p className="text-[13px] text-white/50 leading-relaxed">{dest.hook}</p>
+      <div className="p-3 sm:p-4">
+        <p className="text-[12px] leading-relaxed text-white/50 sm:text-[13px]">{dest.hook}</p>
 
         {/* Quick stats */}
         <div className="flex items-center gap-3 mt-3 text-[11px] text-white/30">
           <span className="flex items-center gap-1"><Thermometer className="w-3 h-3" />{dest.temp}</span>
           <span className="flex items-center gap-1"><Plane className="w-3 h-3" />{dest.flight}</span>
-          <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />{dest.cost}</span>
+          <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />{estimateOrDash(dest.cost)}</span>
         </div>
         {dest.weather_summary && (
           <p className="text-[10px] text-sky-300/80 mt-2 leading-snug">{dest.weather_summary}</p>
@@ -1083,7 +1124,7 @@ function GridCard({ dest }: { dest: DestCard }) {
 
         {/* Vibes */}
         <div className="flex flex-wrap gap-1 mt-3">
-          {dest.vibe.map(v => (
+          {(dest.vibe ?? []).map((v) => (
             <span key={v} className={`px-2 py-0.5 rounded-md text-[10px] ${VIBE_COLORS[v] || "bg-white/5 text-white/40"}`}>
               {v}
             </span>
@@ -1099,7 +1140,7 @@ function GridCard({ dest }: { dest: DestCard }) {
 
         {/* Expand hint */}
         <div className="mt-3 flex items-center gap-1 text-[11px] text-white/20">
-          <span>Tap to see full plan</span>
+          <span>{expandLocked ? "Wait for planner—then tap to open" : "Tap to see full plan"}</span>
           <ChevronRight className="w-3 h-3" />
         </div>
       </div>
@@ -1113,10 +1154,76 @@ function GridCard({ dest }: { dest: DestCard }) {
 }
 
 /* ── Main Canvas ── */
+function CollapsedDestinationStrip({
+  destinations,
+  onExpand,
+}: {
+  destinations: DestCard[];
+  onExpand: () => void;
+}) {
+  const { setExpandedDest } = useTrip();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      exit={{ opacity: 0, height: 0 }}
+      className="mb-4"
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        {destinations.map((dest) => (
+          <motion.button
+            key={dest.id}
+            layout
+            onClick={() => setExpandedDest(dest.id)}
+            className={`group flex items-center gap-2 rounded-xl px-3 py-2 transition-all ${
+              dest.pinned
+                ? "border border-indigo-500/40 bg-indigo-500/20 text-white/90"
+                : "border border-white/[0.08] bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white/80"
+            }`}
+          >
+            <div className="h-6 w-6 shrink-0 overflow-hidden rounded-md">
+              <ImageWithFallback src={dest.image} alt={dest.name} className="h-full w-full object-cover" />
+            </div>
+            <span className="text-[13px] font-medium">{dest.name}</span>
+            <span className={`text-[11px] ${dest.pinned ? "text-indigo-300" : "text-white/30"}`}>{dest.score}%</span>
+            {dest.pinned ? <Pin className="h-3 w-3 text-indigo-400" /> : null}
+            {dest.warnings && dest.warnings.length > 0 ? <AlertTriangle className="h-3 w-3 text-amber-400" /> : null}
+          </motion.button>
+        ))}
+        <button
+          onClick={onExpand}
+          className="flex items-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-white/40 transition-all hover:bg-white/[0.05] hover:text-white/60"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+          <span className="text-[12px]">Show cards</span>
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+/* ── Main Canvas ── */
 export function DestinationCanvas() {
-  const { destinations, expandedDest, setExpandedDest, sessionId, profile, setDestinations } = useTrip();
+  const {
+    destinations,
+    expandedDest,
+    setExpandedDest,
+    isCanvasCollapsed,
+    setIsCanvasCollapsed,
+    sessionId,
+    profile,
+    setDestinations,
+    phase,
+  } = useTrip();
   const [comparisonStartIndex, setComparisonStartIndex] = useState(0);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Only the main planner (command bar / refine) locks navigation — background itinerary builds stay serialized but you can still open cards. */
+  const expandInteractionsLocked = useMemo(
+    () => phase === "thinking" || phase === "streaming" || phase === "refining",
+    [phase],
+  );
 
   useEffect(() => {
     if (!sessionId || destinations.length === 0) return;
@@ -1132,57 +1239,18 @@ export function DestinationCanvas() {
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
 
   useEffect(() => {
-    if (!sessionId) return;
-    const targets = destinations.filter(
-      (d) => d.pinned && d.itinerary_dirty === true && d.id !== expandedDest,
-    );
-    if (targets.length === 0) return;
-    const ac = new AbortController();
-    logItin("background_prefetch_scheduled", {
-      sessionId: sessionId.slice(0, 12),
-      delayMs: 800,
-      targetIds: targets.map((x) => x.id),
-      expandedDest: expandedDest ?? null,
-    });
+    if (!sessionId || destinations.length === 0) return;
     const t = window.setTimeout(() => {
-      void (async () => {
-        for (const d of targets) {
-          if (ac.signal.aborted) return;
-          const requestId =
-            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-              ? `itin-bg-${crypto.randomUUID()}`
-              : `itin-bg-${Date.now()}`;
-          logItin("background_prefetch_start", { requestId, destId: d.id, expandedDest: expandedDest ?? null });
-          try {
-            const res = await buildItinerary(sessionId, d as unknown as Record<string, unknown>, profile, {
-              signal: ac.signal,
-              requestId,
-            });
-            if (ac.signal.aborted) return;
-            const rows = res.itinerary || [];
-            logItin("background_prefetch_done", { requestId, destId: d.id, rowCount: rows.length });
-            setDestinations((prev) =>
-              prev.map((x) => {
-                if (x.id !== d.id) return x;
-                if (rows.length === 0) return { ...x, itinerary_dirty: false };
-                return { ...x, itinerary: rows, itinerary_dirty: false };
-              }),
-            );
-          } catch (err: unknown) {
-            if (ac.signal.aborted) {
-              logItin("background_prefetch_aborted", { destId: d.id });
-              return;
-            }
-            logItin("background_prefetch_error", { destId: d.id, message: String(err) });
-            break;
-          }
-        }
-      })();
-    }, 800);
-    return () => {
-      clearTimeout(t);
-      ac.abort();
-    };
+      scheduleCardsItineraryPrefetch({
+        sessionId,
+        cards: destinations,
+        profile,
+        setDestinations,
+        excludeDestinationId: expandedDest ?? null,
+        delayMs: 0,
+      });
+    }, 650);
+    return () => clearTimeout(t);
   }, [sessionId, destinations, expandedDest, profileSig, profile, setDestinations]);
 
   // Reset pagination when expanded card changes - MUST be before early returns
@@ -1221,15 +1289,30 @@ export function DestinationCanvas() {
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={expandedDest ? "h-full flex flex-col" : "mt-6"}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-white/80 text-[16px]">Destinations</h2>
-          <span className="text-[11px] text-white/20">{visible.length} options · {visible.filter(d => d.pinned).length} pinned</span>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className={expandedDest ? "flex h-full min-h-0 flex-col" : "mt-0 sm:mt-1"}
+    >
+      {isCanvasCollapsed && !expandedDest ? (
+        <CollapsedDestinationStrip destinations={sorted} onExpand={() => setIsCanvasCollapsed(false)} />
+      ) : !expandedDest ? (
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <h2 className="text-[16px] text-white/80">Destinations</h2>
+            <span className="text-[11px] text-white/20">
+              {visible.length} options · {visible.filter((d) => d.pinned).length} pinned
+            </span>
+            {expandInteractionsLocked && (
+              <span className="max-w-[min(100%,28rem)] text-[11px] text-amber-300/75 sm:ml-auto">
+                Planner busy—destination cards are paused from opening so runs do not overlap.
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      {expandedDest && expandedCard ? (
+      {!isCanvasCollapsed && expandedDest && expandedCard ? (
         /* ── Expanded: main card + comparison sidebar ── */
         <div className="flex gap-4 flex-1 min-h-0">
           {/* Main expanded card */}
@@ -1276,6 +1359,7 @@ export function DestinationCanvas() {
                     <ComparisonMiniCard
                       key={d.id}
                       dest={d}
+                      expandLocked={expandInteractionsLocked}
                       onExpand={() => setExpandedDest(d.id)}
                     />
                   ))}
@@ -1295,15 +1379,15 @@ export function DestinationCanvas() {
             </motion.div>
           )}
         </div>
-      ) : (
-        /* ── Horizontal Carousel view ── */
-        <div className="relative -mx-6 px-6">
-          <div className="overflow-x-auto overflow-y-visible pb-4 scrollbar-thin">
-            <div className="flex gap-4" style={{ minWidth: 'min-content' }}>
+      ) : !isCanvasCollapsed ? (
+        /* ── Horizontal Carousel view — card width scales with viewport (narrow phones). ── */
+        <div className="relative -mx-3 px-3 sm:-mx-6 sm:px-6">
+          <div className="overflow-x-auto overflow-y-visible pb-3 scrollbar-thin sm:pb-4">
+            <div className="flex gap-3 sm:gap-4" style={{ minWidth: "min-content" }}>
               <AnimatePresence>
                 {sorted.map(d => (
-                  <div key={d.id} className="w-[340px] flex-shrink-0">
-                    <GridCard dest={d} />
+                  <div key={d.id} className="w-[clamp(220px,min(76vw,340px),340px)] flex-shrink-0">
+                    <GridCard dest={d} expandLocked={expandInteractionsLocked} />
                   </div>
                 ))}
               </AnimatePresence>
@@ -1315,7 +1399,7 @@ export function DestinationCanvas() {
             <div className="absolute right-0 top-0 bottom-4 w-20 bg-gradient-to-l from-[#0a0a0f] to-transparent pointer-events-none" />
           )}
         </div>
-      )}
+      ) : null}
     </motion.div>
   );
 }

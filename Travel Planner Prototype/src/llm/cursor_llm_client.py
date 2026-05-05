@@ -222,7 +222,9 @@ class CursorLlmClient:
         self._throttle_if_needed(cache_key)
         key = self._key()
         with basic_client(key) as client:
-            return run_prompt_collect_assistant_text(client, prompt)
+            return run_prompt_collect_assistant_text(
+                client, prompt, cursor_trace_path="cursor_llm_client.invoke"
+            )
 
     def _call_cursor_with_retries(self, prompt: str, cache_key: str) -> str:
         last_exc: Exception | None = None

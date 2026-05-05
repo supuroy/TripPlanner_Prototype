@@ -8,7 +8,6 @@ import {
   refineTurn,
   planWithOrchestrator,
   enrichHeroes,
-  planReview,
 } from "../../api/wanderly";
 import {
   applyWanderlyWorkspace,
@@ -19,7 +18,9 @@ import {
   needsHeroImageEnrichment,
 } from "../lib/applyWorkspaceDto";
 import { logItin } from "../lib/itineraryDebug";
+import { scheduleWorkspaceItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
+import { newWanderlyTraceId, setWanderlyTurnTrace } from "../../api/traceContext";
 
 const SUGGESTIONS = [
   "My partner and I want a warm beach trip in mid-March, about a week. We love food and culture.",
@@ -124,11 +125,16 @@ export function CommandBar() {
     destinations,
     profile,
     addResponse,
+    addInsight,
     sessionId,
     setSessionId,
     setEnrichmentPending,
     pendingRefineText,
     setPendingRefineText,
+    composerPrefill,
+    setComposerPrefill,
+    expandedDest,
+    queuePlanReviewAfterItineraries,
   } = useTrip();
   const [input, setInput] = useState("");
   const [streamCaption, setStreamCaption] = useState("");
@@ -136,13 +142,22 @@ export function CommandBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const streamDraftRef = useRef({ text: "" });
   const thinkingDraftRef = useRef({ text: "" });
-
   useEffect(() => {
     if (!hasStarted) {
       const t = setTimeout(() => setShowSuggestions(true), 600);
       return () => clearTimeout(t);
     }
   }, [hasStarted]);
+
+  useEffect(() => {
+    if (composerPrefill == null || !String(composerPrefill).trim()) return;
+    const t = String(composerPrefill).trim();
+    setInput(t);
+    setComposerPrefill(null);
+    setHasStarted(true);
+    setShowSuggestions(false);
+    queueMicrotask(() => inputRef.current?.focus());
+  }, [composerPrefill, setComposerPrefill, setHasStarted]);
 
   const runRefinePipeline = useCallback(
     async (text: string, priorDestinations: DestCard[], priorProfile: ProfilePill[]) => {
@@ -152,13 +167,24 @@ export function CommandBar() {
       thinkingDraftRef.current = { text: "" };
       setStreamCaption("Starting refine…");
       try {
+        setWanderlyTurnTrace(newWanderlyTraceId());
         const prior = priorDestinations;
         const out = useGeminiFirst
           ? await refineTurn(sessionId, text)
           : await refineTurnStream(sessionId, text, (ev) => {
-              if (ev.type === "advisor_profile" && Array.isArray((ev as { profile_pills?: unknown }).profile_pills)) {
-                const raw = (ev as { profile_pills: { key: string; label: string; value: string; icon?: string }[] }).profile_pills;
-                setProfile((cur) => mergeProfilePillsFromDto(cur, raw));
+              if (ev.type === "advisor_profile") {
+                const pills = (ev as { profile_pills?: unknown }).profile_pills;
+                if (Array.isArray(pills)) {
+                  const sans = pills.filter(
+                    (p) =>
+                      p &&
+                      typeof p === "object" &&
+                      String((p as { key?: unknown }).key ?? "").trim() !== "tags",
+                  );
+                  setProfile((cur) => mergeProfilePillsFromDto(cur, sans as WanderlyWorkspaceDTO["profile_pills"]));
+                }
+                const note = (ev as { advisor_note?: unknown }).advisor_note;
+                if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
               }
               const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
               if (cap) setStreamCaption(cap);
@@ -180,34 +206,31 @@ export function CommandBar() {
           priorProfile: priorProfile,
           markItinerariesStale: markStale,
         });
+        /* Hero fetch is async and does not block the refine response or itinerary prefetch. */
         scheduleHeroEnrichment({
           sessionId: out.session_id || sessionId,
           wanderly: out.wanderly,
           priorDestinations: prior,
           setDestinations,
         });
+        scheduleWorkspaceItineraryPrefetch({
+          sessionId: out.session_id || sessionId,
+          wanderly: out.wanderly,
+          priorDestinations: prior,
+          priorProfile: priorProfile,
+          setDestinations,
+          excludeDestinationId: expandedDest ?? null,
+          delayMs: 400,
+        });
         const sidR = out.session_id || sessionId;
-        void planReview(
-          sidR,
-          out.wanderly.profile_pills ?? [],
-          (out.wanderly.destinations ?? []) as Record<string, unknown>[],
-        )
-          .then((r) => {
-            const rev = r.review;
-            if (!rev || rev.skipped) return;
-            const md = (rev.assistant_markdown || "").trim();
-            if (md) addResponse({ type: "message", role: "agent", text: `**Trip review (advisor)**\n\n${md}` });
-            for (const pr of rev.suggested_prompts || []) {
-              if (typeof pr === "string" && pr.trim()) addResponse({ type: "tip", text: `Try asking: ${pr}` });
-            }
-          })
-          .catch(() => {});
+        queuePlanReviewAfterItineraries(sidR);
       } catch (err) {
         addResponse({
           type: "warning",
           text: `Refine request failed: ${String(err)}`,
         });
       } finally {
+        setWanderlyTurnTrace(null);
         setPhase("complete");
         setAgentStatus("");
         setStreamCaption("");
@@ -221,7 +244,10 @@ export function CommandBar() {
       setProfile,
       setDestinations,
       addResponse,
+      addInsight,
       setEnrichmentPending,
+      expandedDest,
+      queuePlanReviewAfterItineraries,
     ],
   );
 
@@ -261,6 +287,7 @@ export function CommandBar() {
     thinkingDraftRef.current = { text: "" };
     setStreamCaption(useGeminiFirst ? "Running full planner (may take a few minutes)…" : "Getting your trip ready…");
     try {
+      setWanderlyTurnTrace(newWanderlyTraceId());
       if (useGeminiFirst) {
         const out = await planWithOrchestrator(sessionId, text);
         if (out.session_id) setSessionId(out.session_id);
@@ -271,16 +298,37 @@ export function CommandBar() {
           setEnrichmentPending,
           priorProfile: profile,
         });
+        /* Hero enrichment is fire-and-forget; does not gate planner completion. */
         scheduleHeroEnrichment({
           sessionId: out.session_id || sessionId,
           wanderly: out.wanderly,
           setDestinations,
         });
+        scheduleWorkspaceItineraryPrefetch({
+          sessionId: out.session_id || sessionId,
+          wanderly: out.wanderly,
+          priorDestinations: [],
+          priorProfile: profile,
+          setDestinations,
+          excludeDestinationId: expandedDest ?? null,
+          delayMs: 400,
+        });
+        queuePlanReviewAfterItineraries(out.session_id || sessionId);
       } else {
         const out = await smokeTurnStream(sessionId, text, (ev) => {
-          if (ev.type === "advisor_profile" && Array.isArray((ev as { profile_pills?: unknown }).profile_pills)) {
-            const raw = (ev as { profile_pills: { key: string; label: string; value: string; icon?: string }[] }).profile_pills;
-            setProfile((cur) => mergeProfilePillsFromDto(cur, raw));
+          if (ev.type === "advisor_profile") {
+            const pills = (ev as { profile_pills?: unknown }).profile_pills;
+            if (Array.isArray(pills)) {
+              const sans = pills.filter(
+                (p) =>
+                  p &&
+                  typeof p === "object" &&
+                  String((p as { key?: unknown }).key ?? "").trim() !== "tags",
+              );
+              setProfile((cur) => mergeProfilePillsFromDto(cur, sans as WanderlyWorkspaceDTO["profile_pills"]));
+            }
+            const note = (ev as { advisor_note?: unknown }).advisor_note;
+            if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
           }
           const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
           if (cap) setStreamCaption(cap);
@@ -293,27 +341,23 @@ export function CommandBar() {
           setEnrichmentPending,
           priorProfile: profile,
         });
+        /* Hero fetch is async and does not block smoke response or itinerary prefetch. */
         scheduleHeroEnrichment({
           sessionId: out.session_id || sessionId,
           wanderly: out.wanderly,
           setDestinations,
         });
+        scheduleWorkspaceItineraryPrefetch({
+          sessionId: out.session_id || sessionId,
+          wanderly: out.wanderly,
+          priorDestinations: destinations,
+          priorProfile: profile,
+          setDestinations,
+          excludeDestinationId: expandedDest ?? null,
+          delayMs: 400,
+        });
         const sidS = out.session_id || sessionId;
-        void planReview(
-          sidS,
-          out.wanderly.profile_pills ?? [],
-          (out.wanderly.destinations ?? []) as Record<string, unknown>[],
-        )
-          .then((r) => {
-            const rev = r.review;
-            if (!rev || rev.skipped) return;
-            const md = (rev.assistant_markdown || "").trim();
-            if (md) addResponse({ type: "message", role: "agent", text: `**Trip review (advisor)**\n\n${md}` });
-            for (const pr of rev.suggested_prompts || []) {
-              if (typeof pr === "string" && pr.trim()) addResponse({ type: "tip", text: `Try asking: ${pr}` });
-            }
-          })
-          .catch(() => {});
+        queuePlanReviewAfterItineraries(sidS);
       }
     } catch (err) {
       addResponse({
@@ -321,6 +365,7 @@ export function CommandBar() {
         text: `Planner request failed: ${String(err)}`,
       });
     } finally {
+      setWanderlyTurnTrace(null);
       setPhase("complete");
       setAgentStatus("");
       setStreamCaption("");
@@ -345,14 +390,14 @@ export function CommandBar() {
   })();
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40">
+    <div className="relative z-40 w-full shrink-0 border-t border-white/[0.06] bg-[#0a0a0f]/95 backdrop-blur-xl">
       <AnimatePresence>
         {showSuggestions && !hasStarted && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
-            className="max-w-2xl mx-auto px-6 mb-3"
+            className="mx-auto mb-3 max-w-2xl px-4 sm:px-6"
           >
             <p className="text-[11px] text-white/30 mb-2 px-1 uppercase tracking-widest">Try saying</p>
             <div className="flex flex-col gap-2">
@@ -382,7 +427,7 @@ export function CommandBar() {
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="max-w-2xl mx-auto px-6 mb-2"
+            className="mx-auto mb-2 max-w-2xl px-4 sm:px-6"
           >
             <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.05] backdrop-blur-md border border-white/[0.08] w-fit">
               <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
@@ -394,8 +439,8 @@ export function CommandBar() {
         )}
       </AnimatePresence>
 
-      <div className="bg-gradient-to-t from-[#0a0a0f] via-[#0a0a0f]/95 to-transparent pt-6 pb-5 px-6">
-        <div className="max-w-2xl mx-auto">
+      <div className="bg-gradient-to-t from-[#0a0a0f] via-[#0a0a0f]/95 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5 sm:pt-4">
+        <div className="mx-auto w-full max-w-2xl">
           <div className="flex items-center gap-3 bg-white/[0.07] border border-white/[0.1] rounded-2xl px-5 py-3 backdrop-blur-xl focus-within:border-white/[0.2] transition-all">
             <input
               ref={inputRef}

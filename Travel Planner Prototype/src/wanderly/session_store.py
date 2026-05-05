@@ -104,18 +104,33 @@ def clear_cursor_agent_id(session_id: str, lane: str) -> None:
             del agents[lane]
 
 
-def cursor_run_persist_kwargs(session_id: str, model_id_override: str | None) -> dict[str, Any]:
+def cursor_run_persist_kwargs(
+    session_id: str, model_id_override: str | None, *, trace_path: str | None = None
+) -> dict[str, Any]:
     """
     Optional kwargs for ``run_prompt_collect_assistant_text*`` when
     ``cursor_reuse_agents_enabled()`` and session_id are set.
+
+    ``trace_path`` is copied into ``cursor_trace_path`` for ``.cache/itinerary_debug.log`` lines
+    (which Wanderly code path hit Cursor / 409).
+
+    ``cursor_run_lock_key`` serializes Cursor HTTP for ``session_id`` + persistence lane (avoids 409 when
+    two HTTP handlers start runs concurrently).
     """
     from src.integrations.cursor_agent_client import cursor_reuse_agents_enabled
 
     sid = (session_id or "").strip()
-    if not sid or not cursor_reuse_agents_enabled():
-        return {}
     lane = cursor_lane_key(model_id_override)
+    if not sid or not cursor_reuse_agents_enabled():
+        tp0 = (trace_path or "").strip()
+        out: dict[str, Any] = {}
+        if tp0:
+            out["cursor_trace_path"] = tp0
+        if sid:
+            out["cursor_run_lock_key"] = f"{sid}\t{lane}"
+        return out
     existing = get_cursor_agent_id(sid, lane)
+    tp = (trace_path or "").strip() or f"wanderly.persist:{lane}"
 
     def on_new(aid: str, _sid: str = sid, _lane: str = lane) -> None:
         set_cursor_agent_id(_sid, _lane, aid)
@@ -127,21 +142,36 @@ def cursor_run_persist_kwargs(session_id: str, model_id_override: str | None) ->
         "existing_agent_id": existing,
         "on_new_agent": on_new,
         "on_agent_cleared": on_clear,
+        "cursor_trace_path": tp,
+        "cursor_run_lock_key": f"{sid}\t{lane}",
     }
 
 
-def cursor_run_persist_kwargs_for_lane(session_id: str, lane: str) -> dict[str, Any]:
+def cursor_run_persist_kwargs_for_lane(
+    session_id: str, lane: str, *, trace_path: str | None = None
+) -> dict[str, Any]:
     """
     Like ``cursor_run_persist_kwargs`` but uses an explicit persistence lane key
     (e.g. ``itinerary_lazy``) so callers do not share a Cloud Agent with unrelated flows.
+
+    ``trace_path`` → ``cursor_trace_path`` for log correlation (see ``cursor_run_persist_kwargs``).
+
+    ``cursor_run_lock_key`` — same serialization contract as ``cursor_run_persist_kwargs``.
     """
     from src.integrations.cursor_agent_client import cursor_reuse_agents_enabled
 
     sid = (session_id or "").strip()
     lane_k = (lane or "").strip() or "default"
     if not sid or not cursor_reuse_agents_enabled():
-        return {}
+        tp0 = (trace_path or "").strip()
+        out: dict[str, Any] = {}
+        if tp0:
+            out["cursor_trace_path"] = tp0
+        if sid:
+            out["cursor_run_lock_key"] = f"{sid}\t{lane_k}"
+        return out
     existing = get_cursor_agent_id(sid, lane_k)
+    tp = (trace_path or "").strip() or f"wanderly.persist_lane:{lane_k}"
 
     def on_new(aid: str, _sid: str = sid, _lk: str = lane_k) -> None:
         set_cursor_agent_id(_sid, _lk, aid)
@@ -153,4 +183,6 @@ def cursor_run_persist_kwargs_for_lane(session_id: str, lane: str) -> dict[str, 
         "existing_agent_id": existing,
         "on_new_agent": on_new,
         "on_agent_cleared": on_clear,
+        "cursor_trace_path": tp,
+        "cursor_run_lock_key": f"{sid}\t{lane_k}",
     }

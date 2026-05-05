@@ -57,9 +57,9 @@ def _option_to_dest_card(opt: dict[str, Any]) -> dict[str, Any]:
     oid = str(opt.get("option_id") or _slug(dest_name))
     hook = opt.get("trip_highlight") or opt.get("name") or "Option from planner session."
     est = opt.get("estimated_trip_cost_usd")
-    cost = f"~${float(est):,.0f} pp est." if isinstance(est, (int, float)) else "TBD (placeholder)"
+    cost = f"~${float(est):,.0f} pp est." if isinstance(est, (int, float)) else ""
     hours = opt.get("estimated_travel_time_hours")
-    flight = f"{float(hours):.0f}h est." if isinstance(hours, (int, float)) else "TBD"
+    flight = f"{float(hours):.0f}h est." if isinstance(hours, (int, float)) else "—"
     enrich = opt.get("destination_enrichment") or {}
     weather = enrich.get("weather_summary")
     temp = "—"
@@ -90,7 +90,7 @@ def _option_to_dest_card(opt: dict[str, Any]) -> dict[str, Any]:
                 "airline": "Placeholder",
                 "route": "Origin → Destination",
                 "duration": flight,
-                "price": "TBD",
+                "price": "",
                 "best": True,
             }
         ],
@@ -98,7 +98,7 @@ def _option_to_dest_card(opt: dict[str, Any]) -> dict[str, Any]:
             {
                 "name": "Hotel placeholder",
                 "area": "City center",
-                "price": "TBD/n",
+                "price": "",
                 "nights": int(opt.get("recommended_length_days") or 5),
                 "image": placeholder_img,
                 "best": True,

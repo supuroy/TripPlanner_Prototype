@@ -1,8 +1,43 @@
 import { useTrip, type AgentResponse } from "./TripStore";
 import { useRef, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Bot, User, Lightbulb, AlertTriangle, CheckCircle, Info, X, Play, RotateCcw } from "lucide-react";
+import { Bot, User, Lightbulb, AlertTriangle, CheckCircle, Info, X, Play, RotateCcw, Loader2 } from "lucide-react";
 import { renderInlineBold } from "../lib/markdownBold";
+
+/** Advisor plan-review tips use this prefix; payload is inserted into the main bar when clicked. */
+function tryAskingPromptFromTip(text: string): string | null {
+  const m = text.trim().match(/^Try asking:\s*(.+)$/is);
+  return m?.[1]?.trim() ? m[1].trim() : null;
+}
+
+function TryAskingTipBody({ text, onUsePrompt }: { text: string; onUsePrompt: (prompt: string) => void }) {
+  const payload = tryAskingPromptFromTip(text);
+  if (!payload) {
+    return (
+      <div className="text-white/80 text-[13px] leading-relaxed space-y-1">
+        {text.split("\n").map((line, i) => (
+          <span key={i} className="block">
+            {renderInlineBold(line)}
+          </span>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="text-[13px] leading-relaxed">
+      <span className="text-white/45">Try asking: </span>
+      <button
+        type="button"
+        onClick={() => onUsePrompt(payload)}
+        className="inline max-w-none cursor-pointer border-0 bg-transparent p-0 text-left font-sans text-[13px] font-normal leading-relaxed text-indigo-300 underline decoration-dotted decoration-indigo-500/35 underline-offset-2 hover:text-indigo-200 hover:decoration-indigo-400/60 hover:decoration-solid"
+        aria-label="Insert this prompt into the chat bar below"
+      >
+        {renderInlineBold(payload, "font-semibold text-indigo-200")}
+      </button>
+      <p className="mt-2 text-[10px] text-white/35">Click the suggestion to copy it into the input below. Edit before sending if you like.</p>
+    </div>
+  );
+}
 
 // Markdown parser - simple implementation
 function parseMarkdown(text: string) {
@@ -59,8 +94,28 @@ function parseMarkdown(text: string) {
   return elements;
 }
 
+/** Shimmer blocks while the main planner / refine stream has not yet returned workspace JSON. */
+function AgentPlanningSkeleton() {
+  return (
+    <div className="space-y-3 py-1" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className="animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
+          style={{ animationDelay: `${i * 120}ms` }}
+        >
+          <div className="mb-3 h-3 w-40 rounded bg-white/15" />
+          <div className="mb-2 h-2.5 w-full rounded bg-white/[0.07]" />
+          <div className="mb-2 h-2.5 w-[92%] rounded bg-white/[0.06]" />
+          <div className="h-2.5 w-[70%] rounded bg-white/[0.05]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ResponseCard({ response }: { response: AgentResponse }) {
-  const { dismissResponse, performUndo, undoStack } = useTrip();
+  const { dismissResponse, performUndo, undoStack, setComposerPrefill } = useTrip();
   const [isExpanded, setIsExpanded] = useState(false);
   
   // Determine styling based on type
@@ -221,6 +276,8 @@ function ResponseCard({ response }: { response: AgentResponse }) {
                 )}
               </button>
             </div>
+          ) : response.type === "tip" && tryAskingPromptFromTip(response.text) ? (
+            <TryAskingTipBody text={response.text} onUsePrompt={(p) => setComposerPrefill(p)} />
           ) : (
             <div className="text-white/80 text-[13px] leading-relaxed space-y-1">
               {response.text.split("\n").map((line, i) => (
@@ -276,8 +333,9 @@ function ResponseCard({ response }: { response: AgentResponse }) {
 }
 
 export function AgentResponses() {
-  const { responses } = useTrip();
+  const { responses, phase, agentStatus } = useTrip();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isWorking = phase === "thinking" || phase === "streaming" || phase === "refining";
   
   // Auto-scroll to bottom on new response
   useEffect(() => {
@@ -293,22 +351,43 @@ export function AgentResponses() {
   const activeResponses = responses.filter(r => !r.dismissed);
   
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto px-6 py-6 bg-[#0a0a0f]/50">
-      {activeResponses.length === 0 ? (
-        <div className="flex items-center justify-center h-full">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto bg-[#0a0a0f]/50 px-4 py-4 sm:px-6 sm:py-6">
+      {activeResponses.length === 0 && isWorking ? (
+        <div className="flex min-h-[min(60vh,420px)] flex-col justify-center">
+          <p className="mb-1 text-[13px] text-white/40">
+            {agentStatus || "Getting your trip ready…"}
+          </p>
+          <p className="mb-5 text-[12px] text-white/25">Hang tight—the first shortlist can take a little while.</p>
+          <AgentPlanningSkeleton />
+        </div>
+      ) : activeResponses.length === 0 ? (
+        <div className="flex h-full items-center justify-center">
           <div className="text-center">
-            <Bot className="w-8 h-8 text-white/10 mx-auto mb-3" />
-            <p className="text-white/20 text-[13px]">
-              The agent will respond here...
-            </p>
+            <Bot className="mx-auto mb-3 h-8 w-8 text-white/10" />
+            <p className="text-[13px] text-white/20">The agent will respond here…</p>
           </div>
         </div>
       ) : (
-        <AnimatePresence>
-          {activeResponses.map((response) => (
-            <ResponseCard key={response.id} response={response} />
-          ))}
-        </AnimatePresence>
+        <>
+          <AnimatePresence>
+            {activeResponses.map((response) => (
+              <ResponseCard key={response.id} response={response} />
+            ))}
+          </AnimatePresence>
+          {isWorking && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-4 rounded-xl border border-indigo-500/20 bg-indigo-500/[0.05] px-4 py-3"
+            >
+              <div className="mb-3 flex items-center gap-2 text-[12px] text-indigo-200/85">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-indigo-400" aria-hidden />
+                <span>{agentStatus || "Still working…"}</span>
+              </div>
+              <AgentPlanningSkeleton />
+            </motion.div>
+          )}
+        </>
       )}
     </div>
   );

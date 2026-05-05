@@ -1,3 +1,5 @@
+import { wanderlyActiveTraceHeaders } from "./traceContext";
+
 function baseUrl(): string {
   const raw = import.meta.env.VITE_API_BASE as string | undefined;
   return (raw || "").replace(/\/$/, "");
@@ -19,6 +21,7 @@ export async function apiPostSseJson(
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
+      ...wanderlyActiveTraceHeaders(),
       ...(options?.headers || {}),
     },
     body: JSON.stringify(body),
@@ -77,6 +80,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   const url = `${baseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
   const headers: HeadersInit = {
     Accept: "application/json",
+    ...wanderlyActiveTraceHeaders(),
     ...(init?.headers || {}),
   };
   if (init?.body && !(headers as Record<string, string>)["Content-Type"]) {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import traceback
 import uuid
@@ -14,10 +15,12 @@ from src.ui.web import HTML_SCAFFOLD
 from src.wanderly.mapper import map_workspace_to_wanderly
 from src.wanderly.hero_enrichment import enrich_destinations_hero_images
 from src.wanderly.stock_photo_heroes import log_hero_image
+from src.wanderly.itinerary_debug_log import log_itinerary_build
 from src.wanderly.itinerary_lazy import (
     build_itinerary_for_destination,
     build_itinerary_for_destination_streaming,
     default_trip_days_from_pills,
+    itinerary_build_lock_key,
 )
 from src.wanderly.cursor_advisor import (
     run_advisor_chat_cursor,
@@ -46,6 +49,43 @@ def _itinerary_request_id(handler: BaseHTTPRequestHandler) -> str:
     return f"itin-{uuid.uuid4().hex[:16]}"
 
 
+def _trace_itin_web(stage: str, **fields: Any) -> None:
+    """Mirror itinerary traces into `.cache/itinerary_debug.log` for endpoint-level debugging."""
+    bits: list[str] = [f"WEB {stage}"]
+    trace = fields.pop("trace", None)
+    if trace:
+        bits.append(f"trace={trace!r}")
+    for k, v in fields.items():
+        try:
+            bits.append(f"{k}={v!r}")
+        except Exception:
+            bits.append(f"{k}=<unrepr>")
+    log_itinerary_build(" ".join(bits))
+
+
+def _wanderly_trace_id(handler: BaseHTTPRequestHandler) -> str:
+    for hdr in ("X-Wanderly-Trace-Id", "X-Wanderly-Request-Id"):
+        v = (handler.headers.get(hdr) or "").strip()
+        if v:
+            return v[:128]
+    return f"tr-{uuid.uuid4().hex[:20]}"
+
+
+def _timeline(msg: str) -> None:
+    log_itinerary_build(msg)
+
+
+_itinerary_build_locks: dict[str, threading.Lock] = {}
+_itinerary_build_locks_guard = threading.Lock()
+
+
+def _itinerary_build_lock(key: str) -> threading.Lock:
+    with _itinerary_build_locks_guard:
+        if key not in _itinerary_build_locks:
+            _itinerary_build_locks[key] = threading.Lock()
+        return _itinerary_build_locks[key]
+
+
 def _cors_headers(handler: BaseHTTPRequestHandler) -> dict[str, str]:
     origin = (handler.headers.get("Origin") or "").strip()
     raw = os.environ.get(
@@ -59,7 +99,7 @@ def _cors_headers(handler: BaseHTTPRequestHandler) -> dict[str, str]:
     if origin in allowed or origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:"):
         h["Access-Control-Allow-Origin"] = origin
         h["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        h["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Wanderly-Request-Id"
+        h["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Wanderly-Request-Id, X-Wanderly-Trace-Id"
         h["Access-Control-Max-Age"] = "86400"
     return h
 
@@ -153,7 +193,22 @@ def run_web_server(
                         self._send_json({"error": "Missing 'message'."}, status=400)
                         return
                     try:
+                        tid = _wanderly_trace_id(self)
+                        t0 = time.perf_counter()
+                        _timeline(
+                            f"TIMELINE smoke_turn_begin trace={tid!r} sid={sid[:12]!r} msg_len={len(msg)}"
+                        )
                         out = run_smoke_turn(msg, sid)
+                        wly0 = out.get("wanderly")
+                        nd = (
+                            len(wly0["destinations"])
+                            if isinstance(wly0, dict) and isinstance(wly0.get("destinations"), list)
+                            else -1
+                        )
+                        _timeline(
+                            f"TIMELINE smoke_turn_end trace={tid!r} sid={sid[:12]!r} "
+                            f"elapsed_ms={(time.perf_counter() - t0) * 1000:.1f} dest_n={nd}"
+                        )
                         self._send_json({"session_id": sid, **out}, status=200)
                     except ValueError as ve:
                         self._send_json({"error": str(ve)}, status=400)
@@ -181,15 +236,32 @@ def run_web_server(
                             self._write_sse(obj)
 
                         emit({"type": "phase", "message": "Connected — preparing request…"})
-                        out = run_smoke_turn_streaming(msg, sid, emit=emit)
-                        emit(
-                            {
-                                "type": "done",
-                                "session_id": sid,
-                                "wanderly": out["wanderly"],
-                                "parse_ok": out.get("parse_ok"),
-                            }
+                        tid = _wanderly_trace_id(self)
+                        t0 = time.perf_counter()
+                        out = None
+                        _timeline(
+                            f"TIMELINE smoke_stream_begin trace={tid!r} sid={sid[:12]!r} msg_len={len(msg)}"
                         )
+                        try:
+                            out = run_smoke_turn_streaming(msg, sid, emit=emit)
+                            emit(
+                                {
+                                    "type": "done",
+                                    "session_id": sid,
+                                    "wanderly": out["wanderly"],
+                                    "parse_ok": out.get("parse_ok"),
+                                }
+                            )
+                        finally:
+                            nd = -1
+                            if isinstance(out, dict):
+                                wly = out.get("wanderly")
+                                if isinstance(wly, dict) and isinstance(wly.get("destinations"), list):
+                                    nd = len(wly["destinations"])
+                            _timeline(
+                                f"TIMELINE smoke_stream_end trace={tid!r} sid={sid[:12]!r} "
+                                f"elapsed_ms={(time.perf_counter() - t0) * 1000:.1f} dest_n={nd}"
+                            )
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         return
                     except ValueError as ve:
@@ -213,7 +285,22 @@ def run_web_server(
                         self._send_json({"error": "Missing 'message' or 'session_id'."}, status=400)
                         return
                     try:
+                        tid = _wanderly_trace_id(self)
+                        t0 = time.perf_counter()
+                        _timeline(
+                            f"TIMELINE refine_turn_begin trace={tid!r} sid={sid[:12]!r} msg_len={len(msg)}"
+                        )
                         out = run_refine_turn(msg, sid)
+                        wly_r = out.get("wanderly")
+                        nd_r = (
+                            len(wly_r["destinations"])
+                            if isinstance(wly_r, dict) and isinstance(wly_r.get("destinations"), list)
+                            else -1
+                        )
+                        _timeline(
+                            f"TIMELINE refine_turn_end trace={tid!r} sid={sid[:12]!r} "
+                            f"elapsed_ms={(time.perf_counter() - t0) * 1000:.1f} dest_n={nd_r}"
+                        )
                         self._send_json({"session_id": sid, **out}, status=200)
                     except ValueError as ve:
                         self._send_json({"error": str(ve)}, status=400)
@@ -241,15 +328,32 @@ def run_web_server(
                             self._write_sse(obj)
 
                         emit_r({"type": "phase", "message": "Connected — preparing refine…"})
-                        out = run_refine_turn_streaming(msg, sid, emit=emit_r)
-                        emit_r(
-                            {
-                                "type": "done",
-                                "session_id": sid,
-                                "wanderly": out["wanderly"],
-                                "parse_ok": out.get("parse_ok"),
-                            }
+                        tid_r = _wanderly_trace_id(self)
+                        t0_r = time.perf_counter()
+                        out_r: dict | None = None
+                        _timeline(
+                            f"TIMELINE refine_stream_begin trace={tid_r!r} sid={sid[:12]!r} msg_len={len(msg)}"
                         )
+                        try:
+                            out_r = run_refine_turn_streaming(msg, sid, emit=emit_r)
+                            emit_r(
+                                {
+                                    "type": "done",
+                                    "session_id": sid,
+                                    "wanderly": out_r["wanderly"],
+                                    "parse_ok": out_r.get("parse_ok"),
+                                }
+                            )
+                        finally:
+                            nd_rs = -1
+                            if isinstance(out_r, dict):
+                                wly_rs = out_r.get("wanderly")
+                                if isinstance(wly_rs, dict) and isinstance(wly_rs.get("destinations"), list):
+                                    nd_rs = len(wly_rs["destinations"])
+                            _timeline(
+                                f"TIMELINE refine_stream_end trace={tid_r!r} sid={sid[:12]!r} "
+                                f"elapsed_ms={(time.perf_counter() - t0_r) * 1000:.1f} dest_n={nd_rs}"
+                            )
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         return
                     except ValueError as ve:
@@ -384,26 +488,63 @@ def run_web_server(
                     if days <= 0:
                         days = default_trip_days_from_pills(pills)
                     rid = _itinerary_request_id(self)
+                    tid_b = _wanderly_trace_id(self)
                     print(f"[web] /api/wanderly/build_itinerary rid={rid} sid={sid!r} dest_id={did!r} days={days}", flush=True)
+                    _trace_itin_web(
+                        "build_itinerary_begin",
+                        trace=tid_b,
+                        rid=rid,
+                        sid=sid[:12],
+                        dest_id=did,
+                        days=days,
+                        pills=len(pills),
+                    )
                     try:
-                        rows = build_itinerary_for_destination(
-                            destination=dest,
-                            profile_pills=pills,
-                            days=days,
-                            session_id=sid,
-                            request_id=rid,
-                        )
+                        lk_key = itinerary_build_lock_key(sid, did)
+                        with _itinerary_build_lock(lk_key):
+                            itin_out = build_itinerary_for_destination(
+                                destination=dest,
+                                profile_pills=pills,
+                                days=days,
+                                session_id=sid,
+                                request_id=rid,
+                            )
+                        rows = itin_out.get("itinerary") or []
+                        bg = itin_out.get("budget_guidance")
                         print(
                             f"[web] /api/wanderly/build_itinerary ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
                         )
+                        _trace_itin_web(
+                            "build_itinerary_ok",
+                            trace=tid_b,
+                            rid=rid,
+                            sid=sid[:12],
+                            dest_id=did,
+                            rows=len(rows),
+                            budget=bool(bg),
+                        )
                         self._send_json(
-                            {"session_id": sid, "destination_id": did, "itinerary": rows},
+                            {
+                                "session_id": sid,
+                                "destination_id": did,
+                                "itinerary": rows,
+                                "budget_guidance": bg,
+                            },
                             status=200,
                         )
                     except Exception as exc:
                         print(f"[web] /api/wanderly/build_itinerary error: {exc!r}")
                         traceback.print_exc()
+                        _trace_itin_web(
+                            "build_itinerary_error",
+                            trace=tid_b,
+                            rid=rid,
+                            sid=sid[:12],
+                            dest_id=did,
+                            exc_type=type(exc).__name__,
+                            message=str(exc)[:260],
+                        )
                         self._send_json({"error": str(exc)}, status=500)
                     return
 
@@ -429,9 +570,19 @@ def run_web_server(
                     if days <= 0:
                         days = default_trip_days_from_pills(pills)
                     rid = _itinerary_request_id(self)
+                    tid_bs = _wanderly_trace_id(self)
                     print(
                         f"[web] /api/wanderly/build_itinerary_stream rid={rid} sid={sid!r} dest_id={did!r} days={days}",
                         flush=True,
+                    )
+                    _trace_itin_web(
+                        "build_itinerary_stream_begin",
+                        trace=tid_bs,
+                        rid=rid,
+                        sid=sid[:12],
+                        dest_id=did,
+                        days=days,
+                        pills=len(pills),
                     )
                     try:
                         self.send_response(200)
@@ -445,17 +596,30 @@ def run_web_server(
                             self._write_sse(obj)
 
                         emit_itin({"type": "phase", "message": "Building your day-by-day outline…"})
-                        rows = build_itinerary_for_destination_streaming(
-                            destination=dest,
-                            profile_pills=pills,
-                            days=days,
-                            emit=emit_itin,
-                            session_id=sid,
-                            request_id=rid,
-                        )
+                        lk_key_s = itinerary_build_lock_key(sid, did)
+                        with _itinerary_build_lock(lk_key_s):
+                            itin_out = build_itinerary_for_destination_streaming(
+                                destination=dest,
+                                profile_pills=pills,
+                                days=days,
+                                emit=emit_itin,
+                                session_id=sid,
+                                request_id=rid,
+                            )
+                        rows = itin_out.get("itinerary") or []
+                        bg = itin_out.get("budget_guidance")
                         print(
                             f"[web] /api/wanderly/build_itinerary_stream ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
+                        )
+                        _trace_itin_web(
+                            "build_itinerary_stream_ok",
+                            trace=tid_bs,
+                            rid=rid,
+                            sid=sid[:12],
+                            dest_id=did,
+                            rows=len(rows),
+                            budget=bool(bg),
                         )
                         emit_itin(
                             {
@@ -463,11 +627,27 @@ def run_web_server(
                                 "session_id": sid,
                                 "destination_id": did,
                                 "itinerary": rows,
+                                "budget_guidance": bg,
                             }
                         )
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                        _trace_itin_web(
+                            "build_itinerary_stream_client_disconnect",
+                            trace=tid_bs,
+                            rid=rid,
+                            sid=sid[:12],
+                            dest_id=did,
+                        )
                         return
                     except ValueError as ve:
+                        _trace_itin_web(
+                            "build_itinerary_stream_value_error",
+                            trace=tid_bs,
+                            rid=rid,
+                            sid=sid[:12],
+                            dest_id=did,
+                            message=str(ve)[:260],
+                        )
                         try:
                             self._write_sse({"type": "error", "message": str(ve)})
                         except OSError:
@@ -475,6 +655,15 @@ def run_web_server(
                     except Exception as exc:
                         print(f"[web] /api/wanderly/build_itinerary_stream error: {exc!r}")
                         traceback.print_exc()
+                        _trace_itin_web(
+                            "build_itinerary_stream_error",
+                            trace=tid_bs,
+                            rid=rid,
+                            sid=sid[:12],
+                            dest_id=did,
+                            exc_type=type(exc).__name__,
+                            message=str(exc)[:260],
+                        )
                         try:
                             self._write_sse({"type": "error", "message": str(exc)})
                         except OSError:
@@ -533,6 +722,9 @@ def run_web_server(
                     msg = (payload.get("message") or "").strip()
                     sid = (payload.get("session_id") or "").strip()
                     focus_dest = (payload.get("focus_destination_id") or "").strip()
+                    log_itinerary_build(
+                        f"BEGIN path=http.advisor_feed sid={sid[:12]!r} focus={focus_dest[:24]!r} msg_chars={len(msg)}"
+                    )
                     try:
                         pills: list = []
                         dests: list = []
@@ -597,10 +789,21 @@ def run_web_server(
                         else snapshot_destinations_for_model(sid)
                     )
                     try:
+                        tid_pr = _wanderly_trace_id(self)
+                        t0_pr = time.perf_counter()
+                        _timeline(
+                            f"TIMELINE plan_review_begin trace={tid_pr!r} sid={sid[:12]!r} "
+                            f"pills={len(pills)} dests={len(dests)}"
+                        )
                         review = run_plan_review_cursor(
                             profile_pills=pills,
                             destinations=dests,
                             session_id=sid,
+                        )
+                        _timeline(
+                            f"TIMELINE plan_review_end trace={tid_pr!r} sid={sid[:12]!r} "
+                            f"elapsed_ms={(time.perf_counter() - t0_pr) * 1000:.1f} "
+                            f"skipped={bool(isinstance(review, dict) and review.get('skipped'))}"
                         )
                         self._send_json({"session_id": sid, "review": review}, status=200)
                     except Exception as exc:

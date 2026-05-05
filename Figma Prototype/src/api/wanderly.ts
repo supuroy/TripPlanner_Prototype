@@ -1,6 +1,32 @@
 import { apiFetch, apiPostSseJson } from "./client";
-import type { WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../types/workspace";
+import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../types/workspace";
 import type { ItinDay, ProfilePill } from "../app/components/TripStore";
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isLikely409Conflict(err: unknown): boolean {
+  const msg = String(err instanceof Error ? err.message : err);
+  return /\b409\b/i.test(msg) || /conflict/i.test(msg);
+}
+
+async function apiFetchWith409Retry<T>(path: string, init: RequestInit | undefined, attempts: number): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await apiFetch<T>(path, init);
+    } catch (e) {
+      last = e;
+      if (i < attempts - 1 && isLikely409Conflict(e)) {
+        await sleepMs(2000 + Math.floor(Math.random() * 1500));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw last;
+}
 
 export async function smokeTurn(sessionId: string, message: string) {
   return apiFetch<{ session_id: string; wanderly: WanderlyWorkspaceDTO; parse_ok?: boolean }>(
@@ -139,7 +165,12 @@ export async function buildItinerary(
   if (days != null && days > 0) body.days = days;
   const headers: Record<string, string> = {};
   if (options?.requestId) headers["X-Wanderly-Request-Id"] = options.requestId;
-  return apiFetch<{ session_id: string; destination_id: string; itinerary: ItinDay[] }>(
+  return apiFetchWith409Retry<{
+    session_id: string;
+    destination_id: string;
+    itinerary: ItinDay[];
+    budget_guidance?: ItineraryBudgetGuidance | null;
+  }>(
     "/api/wanderly/build_itinerary",
     {
       method: "POST",
@@ -147,6 +178,7 @@ export async function buildItinerary(
       headers: Object.keys(headers).length ? headers : undefined,
       signal: options?.signal,
     },
+    2,
   );
 }
 
@@ -157,7 +189,12 @@ export async function buildItineraryStream(
   profilePills: ProfilePill[],
   onEvent: (e: Record<string, unknown>) => void,
   options?: { days?: number; signal?: AbortSignal; requestId?: string },
-): Promise<{ session_id: string; destination_id: string; itinerary: ItinDay[] }> {
+): Promise<{
+  session_id: string;
+  destination_id: string;
+  itinerary: ItinDay[];
+  budget_guidance?: ItineraryBudgetGuidance | null;
+}> {
   const body: Record<string, unknown> = {
     session_id: sessionId,
     destination,
@@ -167,26 +204,51 @@ export async function buildItineraryStream(
   if (days != null && days > 0) body.days = days;
   const headers: Record<string, string> = {};
   if (options?.requestId) headers["X-Wanderly-Request-Id"] = options.requestId;
-  let result: { session_id: string; destination_id: string; itinerary: ItinDay[] } | undefined;
-  await apiPostSseJson(
-    "/api/wanderly/build_itinerary_stream",
-    body,
-    (obj) => {
-      onEvent(obj);
-      if (obj.type === "error" || obj.type === "stream_error") {
-        throw new Error(String((obj as { message?: string }).message || "Stream error"));
+  let result:
+    | {
+        session_id: string;
+        destination_id: string;
+        itinerary: ItinDay[];
+        budget_guidance?: ItineraryBudgetGuidance | null;
       }
-      if (obj.type === "done" && obj.session_id != null && obj.destination_id != null) {
-        const it = obj.itinerary;
-        result = {
-          session_id: String(obj.session_id),
-          destination_id: String(obj.destination_id),
-          itinerary: Array.isArray(it) ? (it as ItinDay[]) : [],
-        };
+    | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    result = undefined;
+    try {
+      await apiPostSseJson(
+        "/api/wanderly/build_itinerary_stream",
+        body,
+        (obj) => {
+          onEvent(obj);
+          if (obj.type === "error" || obj.type === "stream_error") {
+            throw new Error(String((obj as { message?: string }).message || "Stream error"));
+          }
+          if (obj.type === "done" && obj.session_id != null && obj.destination_id != null) {
+            const it = obj.itinerary;
+            const bgRaw = (obj as { budget_guidance?: unknown }).budget_guidance;
+            let budget_guidance: ItineraryBudgetGuidance | undefined;
+            if (bgRaw && typeof bgRaw === "object" && !Array.isArray(bgRaw)) {
+              budget_guidance = bgRaw as ItineraryBudgetGuidance;
+            }
+            result = {
+              session_id: String(obj.session_id),
+              destination_id: String(obj.destination_id),
+              itinerary: Array.isArray(it) ? (it as ItinDay[]) : [],
+              budget_guidance,
+            };
+          }
+        },
+        { signal: options?.signal, headers: Object.keys(headers).length ? headers : undefined },
+      );
+      if (result) return result;
+    } catch (e) {
+      if (attempt === 0 && isLikely409Conflict(e)) {
+        await sleepMs(2000 + Math.floor(Math.random() * 1500));
+        continue;
       }
-    },
-    { signal: options?.signal, headers: Object.keys(headers).length ? headers : undefined },
-  );
+      throw e;
+    }
+  }
   if (!result) throw new Error("Itinerary stream closed before completion");
   return result;
 }

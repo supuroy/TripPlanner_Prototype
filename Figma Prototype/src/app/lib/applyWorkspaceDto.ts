@@ -6,6 +6,12 @@ function asDestCards(raw: unknown[]): DestCard[] {
   return raw.filter(Boolean).map((d) => {
     const o = { ...(d as object) } as Record<string, unknown>;
     if ("id" in o && o.id != null) o.id = String(o.id).trim();
+    /* Streaming / partial JSON often omits arrays; UI assumes arrays (map/slice) and stable hook counts. */
+    if (!Array.isArray(o.vibe)) o.vibe = [];
+    if (!Array.isArray(o.itinerary)) o.itinerary = [];
+    if (!Array.isArray(o.flights)) o.flights = [];
+    if (!Array.isArray(o.hotels)) o.hotels = [];
+    if (!Array.isArray(o.images)) o.images = [];
     return o;
   }) as DestCard[];
 }
@@ -25,11 +31,18 @@ function isPlaceholderishImage(url: string): boolean {
  * Merge pin/dismiss from the client for matching ids, and itinerary_dirty:
  * stays true if the client already marked stale, or server says dirty / empty itinerary.
  * Preserves hero URLs and existing itineraries when the server sends placeholder-only rows (refine/smoke).
+ * When ``bypassItineraryPreserve`` is true (itineraries marked stale), do not keep a prior itinerary if the
+ * server omitted or cleared days — otherwise the UI keeps showing the old plan until a manual refresh.
  */
-export function mergeDestinationUiState(next: DestCard[], prior: DestCard[]): DestCard[] {
+export function mergeDestinationUiState(
+  next: DestCard[],
+  prior: DestCard[],
+  opts?: { bypassItineraryPreserve?: boolean },
+): DestCard[] {
   if (!prior.length) {
     return next.map((d) => ({ ...d, itinerary_dirty: inferItineraryDirtyFromPayload(d) }));
   }
+  const bypassPreserve = Boolean(opts?.bypassItineraryPreserve);
   const priorById = new Map(prior.map((pd) => [String(pd.id), pd]));
   return next.map((d) => {
     const p = priorById.get(String(d.id));
@@ -47,7 +60,7 @@ export function mergeDestinationUiState(next: DestCard[], prior: DestCard[]): De
       }
       const curIt = row.itinerary?.length ?? 0;
       const pIt = p.itinerary?.length ?? 0;
-      if (curIt === 0 && pIt > 0 && p.itinerary) {
+      if (!bypassPreserve && curIt === 0 && pIt > 0 && p.itinerary) {
         preservedItinerary = true;
         row = {
           ...row,
@@ -143,14 +156,16 @@ export function mergeHeroOneCard(cards: DestCard[], row: Record<string, unknown>
 }
 
 export function mapDtoPillsToProfile(raw: WanderlyWorkspaceDTO["profile_pills"]): ProfilePill[] {
-  return (raw || []).map((p) => ({
-    key: p.key,
-    label: p.label,
-    value: p.value,
-    icon: p.icon || "📌",
-    editable: p.editable !== false,
-    options: p.options,
-  }));
+  return (raw || [])
+    .filter((p) => String(p.key ?? "").trim() !== "tags")
+    .map((p) => ({
+      key: p.key,
+      label: p.label,
+      value: p.value,
+      icon: p.icon || "📌",
+      editable: p.editable !== false,
+      options: p.options,
+    }));
 }
 
 /** Overlay server pills onto the current sidebar so partial JSON never drops keys like ``from``. */
@@ -171,16 +186,33 @@ export function mergeProfilePillsFromDto(
   for (const p of mapped) {
     if (!order.includes(p.key)) order.push(p.key);
   }
-  return order.map((k) => byKey.get(k)).filter((x): x is ProfilePill => Boolean(x));
+  return order
+    .map((k) => byKey.get(k))
+    .filter((x): x is ProfilePill => Boolean(x))
+    .filter((p) => p.key !== "tags");
 }
 
 /** Regex: user message explicitly asks to change day-by-day / schedule wording. */
 const ITINERARY_INVALIDATE_MESSAGE_RE =
-  /\b(itinerary|schedule|day-by-day|day\s*\d|days\s*\d|replace\s+day|change\s+day|revise(\s+the)?\s+plan|update\s+the\s+plan|edit\s+days|swap\s+day|adjust\s+days|move\s+day|replan|redo\s+days)\b/i;
+  /\b(itinerary|schedule|day-by-day|day\s*\d|days\s*\d|replace\s+day|change\s+day|revise(\s+the)?\s+plan|update\s+the\s+plan|update\s+(the\s+)?(itinerary|trip)|edit\s+days|swap\s+day|adjust\s+days|move\s+day|replan|redo\s+days|rebuild|regenerate|refresh\s+(the\s+)?(itinerary|plan)|shorten|extend|fewer\s+days|more\s+days)\b/i;
+
+/** Normalize pill text so LLM dash/whitespace churn does not force itinerary rebuild. */
+function normalizePillValueForSig(raw: string): string {
+  let s = raw.trim().replace(/\s+/g, " ");
+  s = s.replace(/\u2013|\u2014/g, "-");
+  return s;
+}
+
+function profilePillsSignature(rows: ProfilePill[]): string {
+  return [...rows]
+    .map((x) => `${x.key}=${normalizePillValueForSig(x.value)}`)
+    .sort()
+    .join("|");
+}
 
 /**
  * Explains why a refine turn will mark every merged destination with ``itinerary_dirty: true``
- * (see ``applyWanderlyWorkspace``), which triggers lazy ``buildItinerary*`` on expanded / pinned cards.
+ * (see ``applyWanderlyWorkspace``), which triggers lazy ``buildItinerary*`` for dirty cards (main-screen prefetch + expanded view).
  */
 export function explainItineraryInvalidate(
   message: string,
@@ -194,12 +226,7 @@ export function explainItineraryInvalidate(
   }
   if (incomingPills?.length) {
     const merged = mergeProfilePillsFromDto(priorProfile, incomingPills);
-    const sig = (rows: ProfilePill[]) =>
-      [...rows]
-        .map((x) => `${x.key}=${x.value}`)
-        .sort()
-        .join("|");
-    if (sig(merged) !== sig(priorProfile)) {
+    if (profilePillsSignature(merged) !== profilePillsSignature(priorProfile)) {
       reasons.push("profile_pills_changed_vs_prior");
     }
   }
@@ -243,11 +270,13 @@ export function applyWanderlyWorkspace(
     // from when the pipeline started.
     setDestinations((prev) => {
       const mergeBase = prev.length > 0 ? prev : priorDestinations ?? [];
-      const merged = mergeDestinationUiState(incoming, mergeBase);
+      const merged = mergeDestinationUiState(incoming, mergeBase, {
+        bypassItineraryPreserve: Boolean(markItinerariesStale),
+      });
       const final = markItinerariesStale ? merged.map((d) => ({ ...d, itinerary_dirty: true })) : merged;
       if (markItinerariesStale) {
         logItin("apply_workspace_mark_itineraries_stale", {
-          note: "All merged destinations get itinerary_dirty=true → ExpandedCard / background prefetch will call buildItinerary*",
+          note: "All merged destinations get itinerary_dirty=true → CommandBar + canvas schedule serialized build_itinerary prefetch",
           destCount: final.length,
           perCard: final.map((d) => ({
             id: d.id,

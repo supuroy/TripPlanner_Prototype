@@ -16,6 +16,18 @@ export interface WanderlyCommerceStub {
   disclaimer?: string;
 }
 
+/** Rough bands from lazy itinerary LLM — not quotes or live fares. */
+export interface ItineraryBudgetGuidance {
+  trip_ballpark_usd_pp?: string;
+  lodging_style?: string;
+  flight_ballpark?: string;
+  notes?: string;
+  /** ≤~40 chars for compact destination cards (parallel to long fields). */
+  trip_usd_pp_short?: string;
+  flight_band_short?: string;
+  lodging_band_short?: string;
+}
+
 export interface WanderlyWorkspaceDTO {
   assistant_markdown: string;
   profile_pills: WanderlyProfilePillDTO[];

@@ -13,12 +13,19 @@ import os
 import re
 from typing import Any
 
-from pydantic import ValidationError
-
 from src.integrations.cursor_agent_client import basic_client, get_api_key, load_env_from_roots, run_prompt_collect_assistant_text
 from src.wanderly.refinement_cursor import refinement_model_id
-from src.wanderly.schemas import SmokeProfilePillDTO
-from src.wanderly.session_store import cursor_run_persist_kwargs
+from src.wanderly.schemas import coerce_profile_pill
+from src.wanderly.itinerary_debug_log import log_itinerary_build
+from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
+
+# Separate Cloud Agent lanes so cheap follow-ups never POST /runs on the same agent as
+# smoke/refine (which also use ``m:<CURSOR_REFINEMENT_MODEL_ID>`` when set) — Cursor returns 409
+# if a run is still active on that agent.
+_CURSOR_LANE_PROFILE_LISTENER = "profile_listener"
+_CURSOR_LANE_PLAN_REVIEW = "plan_review"
+_CURSOR_LANE_ADVISOR_FEED = "advisor_feed"
+_CURSOR_LANE_PROFILE_CHANGE = "profile_change_advisor"
 
 
 def advisor_model_id() -> str | None:
@@ -37,27 +44,37 @@ def structured_followup_model_id() -> str | None:
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
-    t = text.strip()
+    """
+    Parse the first complete JSON object in ``text``.
+
+    Models sometimes emit two objects back-to-back; greedy ``{``..``}`` would fail or merge badly.
+    """
+    t = (text or "").strip()
+    if not t:
+        return None
+    dec = json.JSONDecoder()
     try:
-        out = json.loads(t)
+        out, _ = dec.raw_decode(t)
         return out if isinstance(out, dict) else None
     except json.JSONDecodeError:
         pass
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", t, re.IGNORECASE)
     if m:
+        inner = m.group(1).strip()
         try:
-            o = json.loads(m.group(1).strip())
-            return o if isinstance(o, dict) else None
+            out, _ = dec.raw_decode(inner)
+            return out if isinstance(out, dict) else None
         except json.JSONDecodeError:
             pass
-    start = t.find("{")
-    end = t.rfind("}")
-    if start >= 0 and end > start:
+    for i, ch in enumerate(t):
+        if ch != "{":
+            continue
         try:
-            o = json.loads(t[start : end + 1])
-            return o if isinstance(o, dict) else None
+            out, _end = dec.raw_decode(t, i)
+            if isinstance(out, dict):
+                return out
         except json.JSONDecodeError:
-            return None
+            continue
     return None
 
 
@@ -74,15 +91,15 @@ Schema:
     {"key": "budget", "label": "Budget", "value": "short text", "icon": "💰", "editable": true},
     {"key": "duration", "label": "Duration", "value": "short text", "icon": "⏱", "editable": true}
   ],
-  "advisor_note": "One short sentence acknowledging what you captured for the traveler, or empty string"
+  "advisor_note": "One short optional sentence — your concise read / coaching for the sidebar only (transient). Not a profile field. Empty string if nothing useful."
 }
 
 Rules:
-- Always include all six keys in profile_pills in this order.
+- Always include exactly these six keys in profile_pills in this order. Never add ``tags`` or any other pill — interpretive or \"inner voice\" content belongs **only** in ``advisor_note``.
+- ``advisor_note``: brief sidebar whisper (e.g. what you noticed about tension, pace, or unstated needs). Do **not** duplicate the six pill values as prose; do not list destinations. Max ~220 chars. Empty if redundant with prior context.
 - Infer from the latest user message; use prior pills + context only to disambiguate (prefer new facts over stale values).
-- If unknown, use concise placeholders (e.g. "Flexible dates", "Not specified").
+- If unknown, use concise placeholders (e.g. "Flexible dates", "Not specified") for the six required pills only.
 - If the user names a home city or airport (e.g. "from Seattle", "SEA"), set "from" accordingly.
-- advisor_note must be empty if there is nothing new beyond prior context.
 """.strip()
 
 
@@ -105,6 +122,7 @@ Schema:
 Rules:
 - Use only the JSON context; do not invent bookings or live prices.
 - If plans fit the profile well, say so briefly and keep issues minimal.
+- Treat the six profile slots as the only persisted traveler facts (no separate tags field).
 - suggested_prompts: 0–3 strings, each actionable (start with a verb).
 - severity "warning" for real trip friction (pace, budget, weather fit, mobility, party size vs activities); "info" for mild notes.
 """.strip()
@@ -117,11 +135,9 @@ def _validate_profile_pills(raw: Any) -> list[dict[str, Any]]:
     for p in raw:
         if not isinstance(p, dict):
             continue
-        try:
-            dto = SmokeProfilePillDTO.model_validate(p)
+        dto = coerce_profile_pill(p)
+        if dto is not None:
             out.append(dto.model_dump())
-        except ValidationError:
-            continue
     return out
 
 
@@ -169,9 +185,14 @@ def run_profile_listener_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
-                **cursor_run_persist_kwargs(session_id or "", mid),
+                **cursor_run_persist_kwargs_for_lane(
+                    session_id or "", _CURSOR_LANE_PROFILE_LISTENER, trace_path="cursor_advisor.profile_listener"
+                ),
             )
     except Exception as exc:
+        log_itinerary_build(
+            f"FAIL path=cursor_advisor.profile_listener sid={(session_id or '')[:12]!r} exc={type(exc).__name__}: {exc!s}"
+        )
         print(f"[cursor_advisor] profile_listener failed: {exc!r}")
         return [], None
     parsed = _extract_json_object(raw_text)
@@ -248,9 +269,14 @@ def run_plan_review_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
-                **cursor_run_persist_kwargs(session_id or "", mid),
+                **cursor_run_persist_kwargs_for_lane(
+                    session_id or "", _CURSOR_LANE_PLAN_REVIEW, trace_path="cursor_advisor.plan_review"
+                ),
             )
     except Exception as exc:
+        log_itinerary_build(
+            f"FAIL path=cursor_advisor.plan_review sid={(session_id or '')[:12]!r} exc={type(exc).__name__}: {exc!s}"
+        )
         print(f"[cursor_advisor] plan_review failed: {exc!r}")
         return {
             "assistant_markdown": "",
@@ -261,7 +287,7 @@ def run_plan_review_cursor(
     parsed = _extract_json_object(raw_text)
     if not parsed:
         return {
-            "assistant_markdown": (raw_text or "")[:4000].strip(),
+            "assistant_markdown": (raw_text or "")[:4000].strip().replace("\x00", ""),
             "issues": [],
             "suggested_prompts": [],
             "parse_ok": False,
@@ -284,7 +310,14 @@ def run_plan_review_cursor(
         for x in prompts_raw[:5]:
             if isinstance(x, str) and x.strip():
                 prompts.append(x.strip()[:400])
-    md = str(parsed.get("assistant_markdown") or "").strip()
+    md = str(parsed.get("assistant_markdown") or "").strip().replace("\x00", "")
+    # Model occasionally nests another JSON object inside assistant_markdown.
+    if md.startswith("{") and '"assistant_markdown"' in md:
+        nested = _extract_json_object(md)
+        if nested and isinstance(nested.get("assistant_markdown"), str):
+            inner = str(nested["assistant_markdown"]).strip().replace("\x00", "")
+            if inner:
+                md = inner
     return {
         "assistant_markdown": md[:8000],
         "issues": issues,
@@ -304,6 +337,7 @@ Schema:
 
 Rules:
 - Destinations may include "itinerary" (day, label, items) — cite it when answering about the plan.
+- profile_pills are the six main slots only (when, who, from, vibe, budget, duration).
 - refine_prompt: only when applying that change would clearly improve the trip per the user's ask; keep it self-contained (the app will prepend focus destination). null for pure information, validation, or "I don't have live data" replies.
 - Do not claim live prices, availability, or bookings.
 """.strip()
@@ -436,9 +470,15 @@ def run_advisor_chat_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
-                **cursor_run_persist_kwargs(session_id or "", mid),
+                **cursor_run_persist_kwargs_for_lane(
+                    session_id or "", _CURSOR_LANE_ADVISOR_FEED, trace_path="cursor_advisor.advisor_feed"
+                ),
             )
     except Exception as exc:
+        log_itinerary_build(
+            f"FAIL path=cursor_advisor.advisor_feed sid={(session_id or '')[:12]!r} "
+            f"focus={(focus_destination_id or '')[:24]!r} exc={type(exc).__name__}: {exc!s}"
+        )
         return {"assistant_markdown": f"(Advisor unavailable: {exc})", "refine_prompt": None}
     return _advisor_chat_parse_response(raw_text)
 
@@ -546,9 +586,15 @@ def run_profile_change_advisor_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
-                **cursor_run_persist_kwargs(session_id or "", mid),
+                **cursor_run_persist_kwargs_for_lane(
+                    session_id or "", _CURSOR_LANE_PROFILE_CHANGE, trace_path="cursor_advisor.profile_change"
+                ),
             )
     except Exception as exc:
+        log_itinerary_build(
+            f"FAIL path=cursor_advisor.profile_change sid={(session_id or '')[:12]!r} "
+            f"pill_key={pill_key!r} exc={type(exc).__name__}: {exc!s}"
+        )
         print(f"[cursor_advisor] profile_change_advisor failed: {exc!r}")
         return {
             "skipped": True,
@@ -613,12 +659,15 @@ def merge_profile_pills_advisor_precedence(
     by_key: dict[str, dict[str, Any]] = {}
     for p in main_pills:
         if isinstance(p, dict) and p.get("key"):
-            by_key[str(p["key"])] = dict(p)
+            mk = str(p["key"])
+            if mk == "tags":
+                continue
+            by_key[mk] = dict(p)
     for p in advisor_pills:
         if not isinstance(p, dict):
             continue
         k = str(p.get("key") or "").strip()
-        if not k:
+        if not k or k == "tags":
             continue
         v = str(p.get("value") or "").strip()
         substantive = bool(v) and v.lower() not in ("not specified", "tbd", "unknown", "n/a", "flexible dates")

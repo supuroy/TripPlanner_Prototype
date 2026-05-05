@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { Send, X, MessageSquare, ChevronDown, Sparkles } from "lucide-react";
 import { advisorFeed } from "../../api/wanderly";
 import { renderInlineBold } from "../lib/markdownBold";
+import { logItin } from "../lib/itineraryDebug";
 import { useTrip, type ConversationMessage } from "./TripStore";
 
 /** Same inline `**bold**` handling as the main agent thread (`AgentResponses`). */
@@ -36,11 +37,12 @@ function wantsWorkspaceRefine(raw: string): boolean {
   if (/^(>|!plan|\/trip)\s+/i.test(t)) return true;
 
   const tripObject =
-    /\b(itinerary|day\s*\d+|the plan|my plan|this trip|schedule|trip|hotels?|flights?|activities|booking|destination|shortlist)\b/i.test(
+    /\b(itinerary|day\s*\d+|the plan|my plan|this trip|schedule|trip|hotels?|flights?|activities|booking|destinations|shortlist)\b/i.test(
       t,
     );
+  /* Avoid treating "how different are…" / compare-only asks as planner work: no bare ``different``. */
   const action =
-    /\b(change|update|modify|adjust|swap|replace|remove|add|delete|move|shift|reschedule|replan|redo|tweak|revise|shorten|extend|refresh|rebuild|regenerate|slow|faster|pace|include|exclude|skip|drop|cancel|upgrade|downgrade|cheaper|affordable|different|free day|rest day)\b/i.test(
+    /\b(change|update|modify|adjust|swap|replace|remove|add|delete|move|shift|reschedule|replan|redo|tweak|revise|shorten|extend|refresh|rebuild|regenerate|slow|faster|pace|include|exclude|skip|drop|cancel|upgrade|downgrade|cheaper|affordable|free day|rest day)\b/i.test(
       t,
     );
   const imperative =
@@ -94,7 +96,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
       addConversationMessage(
         destId,
         "agent",
-        "I sent that to the trip planner. Your workspace, profile, and itineraries update when the model returns changes — scroll the card to see the new day-by-day plan when it lands.",
+        "I sent that to the trip planner. Workspace and profile update from the model; if you changed trip length or day-by-day details, the card may clear the old plan briefly while the itinerary rebuilds — scroll the card for the new days.",
       );
     }
   }, [phase, destId, addConversationMessage]);
@@ -128,12 +130,29 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
         return;
       }
       const stripped = userMessage.replace(/^(>|!plan|\/trip)\s+/i, "").trim() || userMessage;
-      const refinePayload = `The traveler is focused on destination "${destName}" (id: ${destId}). ${stripped}`;
+      const forceImmediate = /^(>|!plan|\/trip)\s+/i.test(userMessage);
 
-      refineAwaitingReplyRef.current = true;
-      sawRefiningPhaseRef.current = false;
-      setIsTyping(true);
-      setPendingRefineText(refinePayload);
+      logItin("conversation_panel_route", {
+        branch: "planner_candidate",
+        forceImmediate,
+        messagePreview: userMessage.slice(0, 160),
+      });
+
+      if (forceImmediate) {
+        const refinePayload = `The traveler is focused on destination "${destName}" (id: ${destId}). ${stripped}`;
+        refineAwaitingReplyRef.current = true;
+        sawRefiningPhaseRef.current = false;
+        setIsTyping(true);
+        setPendingRefineText(refinePayload);
+        return;
+      }
+
+      addConversationMessage(
+        destId,
+        "agent",
+        "That wording will run the **full trip planner** (day-by-day plans on your cards may refresh). For a quick comparison only, tap **Not now** and ask again in neutral wording — or start your message with `/trip` next time to skip this check.\n\nTap **Yes, update trip** to run the planner with your last message.",
+        { refinePrompt: stripped },
+      );
       return;
     }
 

@@ -20,16 +20,31 @@ from src.wanderly.itinerary_debug_log import itinerary_debug_verbose, log_itiner
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane, get_cursor_agent_id
 
 _ITINERARY_PROMPT = """
-You are Wanderly. Build a day-by-day trip outline for ONE destination.
-Return ONLY a JSON array (no markdown, no prose). Each element must be:
-{"day": <int 1..N>, "label": "Short title → optional area", "items": ["3-5 concrete bullets"], "accent": "emerald|blue|purple|amber"}
+You are Wanderly. Build a day-by-day trip outline for ONE destination plus rough planning-level budget guidance (ranges / bands only — not quotes or live fares).
+
+Return ONLY one JSON object (no markdown fences, no prose before or after). Shape:
+{
+  "itinerary": [
+    {"day": <int 1..N>, "label": "Short title → optional area", "items": ["3-5 concrete bullets"], "accent": "emerald|blue|purple|amber"}
+  ],
+  "budget_guidance": {
+    "trip_ballpark_usd_pp": "e.g. ≈ $2.2–3.8k pp all-in (ballpark; say if intl flights excluded)",
+    "lodging_style": "e.g. mid-range boutique + one splurge night",
+    "flight_ballpark": "e.g. economy return from a major US hub often ~$600–1.1k pp (very rough)",
+    "notes": "1–2 sentences on what widens or tightens the band (season, pace, dining); never claim availability.",
+    "trip_usd_pp_short": "≤40 chars for small UI cards, e.g. ≈ $3.5–5k pp",
+    "flight_band_short": "≤40 chars for small UI cards, e.g. ~$700–1.1k rt pp",
+    "lodging_band_short": "≤40 chars for small UI cards, e.g. mid guesthouse ~$90–180/n"
+  }
+}
 
 Rules:
-- Exactly N days where N is given below (integer).
-- day runs 1..N inclusive; last day is travel-out / fly home style.
-- items are short strings (activities, meals, transfers) — no prices, no booking claims.
-- Use the traveler profile to pace the trip (e.g. fewer hikes if pace is relaxed).
+- itinerary: exactly N days; day 1..N inclusive; last day travel-out / fly home style.
+- items: short strings — no exact prices inside day bullets.
+- budget_guidance: include all seven keys with non-empty strings. The four long fields are for detail panels; the three *_short fields MUST be concise (hard cap ~40 characters each, no newlines) so they fit destination mini-cards — compress ranges and drop filler words.
 - Optional accent on 1-2 highlight days only; omit accent on most days.
+
+Legacy: if you cannot produce the object, a bare JSON array of days is accepted but budget_guidance will be missing.
 
 N (number of days):
 """.strip()
@@ -71,36 +86,179 @@ def _extract_json_array(text: str) -> list[dict[str, Any]] | None:
     return None
 
 
+def _strip_code_fences(text: str) -> str:
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE).strip()
+        if "```" in t:
+            t = t[: t.rfind("```")].strip()
+    return t
+
+
+_BUDGET_GUIDANCE_KEYS = (
+    "trip_ballpark_usd_pp",
+    "lodging_style",
+    "flight_ballpark",
+    "notes",
+    "trip_usd_pp_short",
+    "flight_band_short",
+    "lodging_band_short",
+)
+_BUDGET_GUIDANCE_CAP: dict[str, int] = {
+    "trip_usd_pp_short": 44,
+    "flight_band_short": 44,
+    "lodging_band_short": 44,
+}
+
+
+def _normalize_budget_guidance(raw: Any) -> dict[str, str] | None:
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, str] = {}
+    for k in _BUDGET_GUIDANCE_KEYS:
+        v = raw.get(k)
+        if isinstance(v, str) and v.strip():
+            cap = _BUDGET_GUIDANCE_CAP.get(k, 500)
+            out[str(k)] = " ".join(v.strip().split())[:cap]
+    return out or None
+
+
+def _extract_itinerary_payload(raw_text: str) -> tuple[list[Any], dict[str, str] | None]:
+    """Prefer wrapped ``{itinerary, budget_guidance}``; fall back to bare JSON array."""
+    t = _strip_code_fences(raw_text).lstrip("\ufeff")
+    if not t:
+        return [], None
+    # Skip leading noise (models sometimes print a preamble before the JSON object)
+    lead = t.lstrip()
+    if lead and not lead.startswith(("{", "[")):
+        cut = lead.find("{")
+        if cut > 0:
+            t = lead[cut:]
+    dec = json.JSONDecoder()
+    # Parse the first complete JSON value from the buffer. This reliably picks up a
+    # top-level ``{"itinerary":[...],"budget_guidance":{...}}`` object (with optional
+    # trailing prose) instead of mis-parsing the first ``{`` inside a legacy array.
+    try:
+        top, _end = dec.raw_decode(t, 0)
+        if isinstance(top, dict) and isinstance(top.get("itinerary"), list):
+            bg = _normalize_budget_guidance(top.get("budget_guidance"))
+            return list(top["itinerary"]), bg
+        if isinstance(top, list):
+            return top, None
+    except json.JSONDecodeError:
+        pass
+    for i, ch in enumerate(t):
+        if ch != "{":
+            continue
+        try:
+            obj, _end = dec.raw_decode(t, i)
+            if isinstance(obj, dict) and isinstance(obj.get("itinerary"), list):
+                bg = _normalize_budget_guidance(obj.get("budget_guidance"))
+                return list(obj["itinerary"]), bg
+        except json.JSONDecodeError:
+            continue
+    legacy = _extract_json_array(raw_text) or []
+    return legacy, None
+
+
+def _parse_itinerary_day_number(raw: Any) -> int | None:
+    """Accept ``1``, ``1.0``, ``"1"``, ``"Day 3"`` from model JSON."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float):
+        try:
+            d = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return d if abs(raw - d) < 1e-9 else None
+    s = str(raw).strip()
+    if not s:
+        return None
+    m = re.match(r"^day\s*(\d+)\s*$", s, flags=re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    try:
+        return int(float(s))
+    except ValueError:
+        m2 = re.search(r"(\d+)", s)
+        return int(m2.group(1)) if m2 else None
+
+
+def _string_to_item_bullets(s: str) -> list[str]:
+    """Turn a single prose / semicolon / bullet string into discrete items."""
+    t = s.strip()
+    if not t:
+        return []
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+    if len(lines) > 1:
+        return [ln[:200] for ln in lines[:8]]
+    one = lines[0] if lines else t
+    if "•" in one:
+        parts = [p.strip() for p in one.split("•") if p.strip()]
+        return [p[:200] for p in parts[:8]]
+    if ";" in one:
+        parts = [p.strip() for p in one.split(";") if p.strip()]
+        return [p[:200] for p in parts[:8]]
+    if " | " in one:
+        parts = [p.strip() for p in one.split(" | ") if p.strip()]
+        return [p[:200] for p in parts[:8]]
+    return [one[:200]]
+
+
+def _item_cell_to_str(it: Any) -> str | None:
+    if isinstance(it, str) and it.strip():
+        return it.strip()[:200]
+    if isinstance(it, dict):
+        s = str(
+            it.get("text")
+            or it.get("item")
+            or it.get("title")
+            or it.get("label")
+            or it.get("description")
+            or it.get("bullet")
+            or it.get("summary")
+            or it.get("headline")
+            or it.get("name")
+            or it.get("activity")
+            or "",
+        ).strip()
+        return s[:200] if s else None
+    return None
+
+
 def _normalize_itinerary_rows(raw: list[Any], *, max_days: int) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     allowed_accents = {"emerald", "blue", "purple", "amber"}
     for row in raw:
         if not isinstance(row, dict):
             continue
-        try:
-            day = int(row.get("day"))
-        except (TypeError, ValueError):
-            continue
-        if day < 1 or day > max_days:
+        raw_day = row.get("day")
+        if raw_day is None:
+            raw_day = row.get("day_num") or row.get("dayNumber") or row.get("index")
+        day = _parse_itinerary_day_number(raw_day)
+        if day is None or day < 1 or day > max_days:
             continue
         label = str(row.get("label") or f"Day {day}")[:120]
         items_in = row.get("items")
+        if items_in is None:
+            items_in = (
+                row.get("bullets")
+                or row.get("highlights")
+                or row.get("activities")
+                or row.get("Activities")
+            )
         items: list[str] = []
         if isinstance(items_in, list):
-            for it in items_in[:8]:
-                if isinstance(it, str) and it.strip():
-                    items.append(it.strip()[:200])
-                elif isinstance(it, dict):
-                    s = str(
-                        it.get("text")
-                        or it.get("item")
-                        or it.get("title")
-                        or it.get("label")
-                        or it.get("description")
-                        or "",
-                    ).strip()
-                    if s:
-                        items.append(s[:200])
+            for it in items_in[:12]:
+                cell = _item_cell_to_str(it)
+                if cell:
+                    items.append(cell)
+        elif isinstance(items_in, str) and items_in.strip():
+            items.extend(_string_to_item_bullets(items_in)[:8])
+        if len(items) < 1 and label.strip():
+            items = [label.strip()[:200]]
         if len(items) < 1:
             continue
         if len(items) == 1:
@@ -123,6 +281,27 @@ def _normalize_itinerary_rows(raw: list[Any], *, max_days: int) -> list[dict[str
     return deduped[:max_days]
 
 
+def _log_itinerary_normalize_all_dropped(rid: str, mode: str, extracted: list[Any]) -> None:
+    """When JSON parsed but every day row failed ``_normalize_itinerary_rows`` (helps debug UI EMPTY)."""
+    first = extracted[0] if extracted else None
+    if not isinstance(first, dict):
+        type_counts: dict[str, int] = {}
+        for row in extracted[:8]:
+            k = type(row).__name__
+            type_counts[k] = type_counts.get(k, 0) + 1
+        first_preview = repr(first)[:180] if first is not None else ""
+        log_itinerary_build(
+            f"DROPPED_ALL rid={rid} mode={mode} n_in={len(extracted)} first_type={type(first).__name__!r} "
+            f"type_counts={type_counts!r} first_preview={first_preview!r}"
+        )
+        return
+    items_v = first.get("items")
+    log_itinerary_build(
+        f"DROPPED_ALL rid={rid} mode={mode} n_in={len(extracted)} first_keys={list(first.keys())!r} "
+        f"day={first.get('day')!r} items_type={type(items_v).__name__} items_preview={repr(items_v)[:220]}"
+    )
+
+
 def _itinerary_cursor_lane(light: str | None) -> str:
     """
     Persistence lane for lazy itinerary only — must NOT reuse ``planner`` (smoke/refine)
@@ -132,11 +311,32 @@ def _itinerary_cursor_lane(light: str | None) -> str:
     return "itinerary_lazy" if not o else f"itinerary_lazy:m:{o}"
 
 
-def _itin_reuse_hint(session_id: str | None, light: str | None) -> str:
+def itinerary_parallel_dest_enabled() -> bool:
+    """When true, each destination uses its own Cursor persistence lane (parallel builds; see env README)."""
+    return (os.environ.get("WANDERLY_ITINERARY_PARALLEL_DEST") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _cursor_lane_for_itinerary_build(session_id: str, destination_id: str, light: str | None) -> str:
+    """Cursor agent lane for one itinerary build (optionally unique per destination)."""
+    base = _itinerary_cursor_lane(light)
+    if not itinerary_parallel_dest_enabled():
+        return base
+    did = re.sub(r"[^a-zA-Z0-9_.-]+", "-", (destination_id or "").strip())[:56]
+    return f"{base}:d:{did}" if did else base
+
+
+def itinerary_build_lock_key(session_id: str, destination_id: str) -> str:
+    """Serialize server-side builds for the same Cursor lane (avoids 409 on concurrent POSTs)."""
+    light = (os.environ.get("CURSOR_LIGHT_MODEL_FOR_ITINERARY") or os.environ.get("CURSOR_LIGHT_MODEL_FOR_IMAGES") or "").strip() or None
+    lane = _cursor_lane_for_itinerary_build(session_id, destination_id, light)
+    return f"{(session_id or '').strip()}\t{lane}"
+
+
+def _itin_reuse_hint(session_id: str | None, light: str | None, destination_id: str = "") -> str:
     sid = (session_id or "").strip()
     if not sid:
         return "reuse=no_session"
-    lane = _itinerary_cursor_lane(light)
+    lane = _cursor_lane_for_itinerary_build(sid, destination_id, light)
     aid = get_cursor_agent_id(sid, lane)
     if aid:
         tail = aid[-8:] if len(aid) > 8 else aid
@@ -175,9 +375,9 @@ def build_itinerary_for_destination(
     days: int,
     session_id: str | None = None,
     request_id: str | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """
-    Call Cursor once; return list of ItinDay-shaped dicts for the client.
+    Call Cursor once; return ``{"itinerary": [...], "budget_guidance": {...}|None}`` for the client.
     """
     rid = (request_id or "?").strip() or "?"
     did = str(destination.get("id") or "")
@@ -187,17 +387,19 @@ def build_itinerary_for_destination(
     light = (os.environ.get("CURSOR_LIGHT_MODEL_FOR_ITINERARY") or os.environ.get("CURSOR_LIGHT_MODEL_FOR_IMAGES") or "").strip() or None
     log_itinerary_build(
         f"BEGIN rid={rid} mode=json sid={(session_id or '')[:12]!r} dest_id={did!r} days={days} n={n} "
-        f"light_model={light!r} {_itin_reuse_hint(session_id, light)}"
+        f"light_model={light!r} {_itin_reuse_hint(session_id, light, did)}"
     )
     t0 = time.perf_counter()
     raw = ""
+    _lane = _cursor_lane_for_itinerary_build(session_id or "", did, light)
+    _tp = f"itinerary_lazy.json rid={rid} dest={did} lane={_lane}"
     try:
         with basic_client(key) as client:
             raw = run_prompt_collect_assistant_text(
                 client,
                 prompt,
                 model_id_override=light,
-                **cursor_run_persist_kwargs_for_lane(session_id or "", _itinerary_cursor_lane(light)),
+                **cursor_run_persist_kwargs_for_lane(session_id or "", _lane, trace_path=_tp),
             )
     except Exception as e:
         log_itinerary_build(
@@ -206,19 +408,21 @@ def build_itinerary_for_destination(
         )
         raise
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    extracted = _extract_json_array(raw) or []
-    out = _normalize_itinerary_rows(extracted, max_days=n)
+    extracted, budget = _extract_itinerary_payload(raw)
+    out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
     log_itinerary_build(
         f"END rid={rid} mode=json dest_id={did!r} raw_chars={len(raw or '')} extracted_len={len(extracted)} "
-        f"normalized_len={len(out)} elapsed_ms={elapsed_ms:.1f}"
+        f"normalized_len={len(out)} budget_keys={list(budget or [])} elapsed_ms={elapsed_ms:.1f}"
     )
     if not out:
         tail = (raw or "").replace("\n", " ").strip()[:500]
         log_itinerary_build(f"EMPTY rid={rid} mode=json extracted_len={len(extracted)} raw_snippet={tail!r}")
+        if extracted:
+            _log_itinerary_normalize_all_dropped(rid, "json", extracted)
     if not out and itinerary_debug_verbose():
         snippet = (raw or "").strip().replace("\r", "")[:2000]
         log_itinerary_build(f"DEBUG_EMPTY rid={rid} raw_head={snippet!r}")
-    return out
+    return {"itinerary": out, "budget_guidance": budget}
 
 
 def build_itinerary_for_destination_streaming(
@@ -229,7 +433,7 @@ def build_itinerary_for_destination_streaming(
     emit: Callable[[dict[str, Any]], None] | None = None,
     session_id: str | None = None,
     request_id: str | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """
     Same as ``build_itinerary_for_destination`` but streams Cursor SSE.
     Forwards thinking/status/tool events to ``emit``; never forwards ``assistant_delta``
@@ -251,10 +455,12 @@ def build_itinerary_for_destination_streaming(
 
     log_itinerary_build(
         f"BEGIN rid={rid} mode=sse sid={(session_id or '')[:12]!r} dest_id={did!r} days={days} n={n} "
-        f"light_model={light!r} {_itin_reuse_hint(session_id, light)}"
+        f"light_model={light!r} {_itin_reuse_hint(session_id, light, did)}"
     )
     t0 = time.perf_counter()
     raw = ""
+    _lane = _cursor_lane_for_itinerary_build(session_id or "", did, light)
+    _tp = f"itinerary_lazy.sse rid={rid} dest={did} lane={_lane}"
     try:
         with basic_client(key) as client:
             raw = run_prompt_collect_assistant_text_streaming(
@@ -262,7 +468,7 @@ def build_itinerary_for_destination_streaming(
                 prompt,
                 emit=_safe_emit if emit else None,
                 model_id_override=light,
-                **cursor_run_persist_kwargs_for_lane(session_id or "", _itinerary_cursor_lane(light)),
+                **cursor_run_persist_kwargs_for_lane(session_id or "", _lane, trace_path=_tp),
             )
     except Exception as e:
         log_itinerary_build(
@@ -271,19 +477,21 @@ def build_itinerary_for_destination_streaming(
         )
         raise
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    extracted = _extract_json_array(raw) or []
-    out = _normalize_itinerary_rows(extracted, max_days=n)
+    extracted, budget = _extract_itinerary_payload(raw)
+    out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
     log_itinerary_build(
         f"END rid={rid} mode=sse dest_id={did!r} raw_chars={len(raw or '')} extracted_len={len(extracted)} "
-        f"normalized_len={len(out)} elapsed_ms={elapsed_ms:.1f}"
+        f"normalized_len={len(out)} budget_keys={list(budget or [])} elapsed_ms={elapsed_ms:.1f}"
     )
     if not out:
         tail = (raw or "").replace("\n", " ").strip()[:500]
         log_itinerary_build(f"EMPTY rid={rid} mode=sse extracted_len={len(extracted)} raw_snippet={tail!r}")
+        if extracted:
+            _log_itinerary_normalize_all_dropped(rid, "sse", extracted)
     if not out and itinerary_debug_verbose():
         snippet = (raw or "").strip().replace("\r", "")[:2000]
         log_itinerary_build(f"DEBUG_EMPTY rid={rid} raw_head={snippet!r}")
-    return out
+    return {"itinerary": out, "budget_guidance": budget}
 
 
 def default_trip_days_from_pills(profile_pills: list[dict[str, Any]]) -> int:

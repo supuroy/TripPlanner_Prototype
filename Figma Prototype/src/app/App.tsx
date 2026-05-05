@@ -4,7 +4,7 @@ import { ProfilePanel } from "./components/ProfilePanel";
 import { DestinationCanvas } from "./components/DestinationCanvas";
 import { AgentResponses } from "./components/AgentResponses";
 import { motion, AnimatePresence } from "motion/react";
-import { Compass, Sparkles } from "lucide-react";
+import { Compass, Sparkles, Maximize2, Minimize2 } from "lucide-react";
 import { useEffect } from "react";
 import type { DestCard } from "./components/TripStore";
 import { fetchWorkspace } from "../api/wanderly";
@@ -15,7 +15,7 @@ function IdleState() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6"
+      className="flex flex-col items-center justify-center py-8 text-center"
     >
       <motion.div
         initial={{ scale: 0.8 }}
@@ -54,6 +54,34 @@ function IdleState() {
   );
 }
 
+function AgentResponsesHeader() {
+  const { isCanvasCollapsed, setIsCanvasCollapsed } = useTrip();
+  return (
+    <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-indigo-400" />
+        <h3 className="text-[13px] text-white/70">Agent Chat</h3>
+      </div>
+      <button
+        onClick={() => setIsCanvasCollapsed(!isCanvasCollapsed)}
+        className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-white/50 transition-all hover:bg-white/[0.05] hover:text-white/80"
+      >
+        {isCanvasCollapsed ? (
+          <>
+            <Minimize2 className="h-3.5 w-3.5" />
+            <span className="text-[11px]">Show cards</span>
+          </>
+        ) : (
+          <>
+            <Maximize2 className="h-3.5 w-3.5" />
+            <span className="text-[11px]">Maximize chat</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
 function Workspace() {
   const {
     hasStarted,
@@ -64,6 +92,7 @@ function Workspace() {
     enrichmentPending,
     setDestinations,
     setEnrichmentPending,
+    itineraryLaneQueueDepth,
   } = useTrip();
 
   useEffect(() => {
@@ -100,24 +129,35 @@ function Workspace() {
   const hasSidebar = hasStarted && profile.length > 0;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0a0a0f] text-white">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-30 bg-[#0a0a0f]/80 backdrop-blur-xl border-b border-white/[0.04]">
-        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between">
+      <header className="shrink-0 z-30 border-b border-white/[0.04] bg-[#0a0a0f]/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
               <Compass className="w-3.5 h-3.5 text-white" />
             </div>
             <span className="text-[15px] text-white/70">Wanderly</span>
           </div>
-          {agentStatus && (
+          {(agentStatus || itineraryLaneQueueDepth > 0) && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex items-center gap-2"
+              className="flex max-w-[min(440px,58vw)] flex-col items-end gap-0.5 text-right"
             >
-              <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-              <span className="text-[12px] text-white/30">{agentStatus}</span>
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 shrink-0 rounded-full bg-indigo-400 animate-pulse" />
+                <span className="text-[12px] text-white/30">
+                  {agentStatus ||
+                    `Refreshing day-by-day plans (${itineraryLaneQueueDepth} in queue, one at a time)…`}
+                </span>
+              </div>
+              {agentStatus && itineraryLaneQueueDepth > 0 ? (
+                <span className="text-[10px] text-white/22">
+                  Itinerary lane: {itineraryLaneQueueDepth} job{itineraryLaneQueueDepth > 1 ? "s" : ""} queued — cards
+                  stay open; updates apply as each run finishes.
+                </span>
+              ) : null}
             </motion.div>
           )}
           <div className="flex items-center gap-3">
@@ -128,76 +168,75 @@ function Workspace() {
         </div>
       </header>
 
-      {/* Main layout */}
-      <div className="pt-14 pb-32">
-        <AnimatePresence mode="wait">
-          {!hasStarted ? (
-            <div key="idle" className="max-w-[1400px] mx-auto px-6">
-              <IdleState />
-            </div>
-          ) : (
-            <motion.div
-              key="workspace"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className={expandedDest ? "h-[calc(100vh-8rem)]" : "h-[calc(100vh-14rem)]"}
-            >
-              <div className="flex gap-6 h-full max-w-[1400px] mx-auto px-6">
-                {/* Left sidebar — profile only */}
-                {hasSidebar && (
-                  <motion.aside
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="w-64 shrink-0 hidden lg:block"
-                  >
-                    <div className="sticky top-20">
-                      <ProfilePanel />
-                    </div>
-                  </motion.aside>
-                )}
-
-                {/* Main workspace — destinations + responses */}
-                <div className="flex-1 min-w-0 h-full flex flex-col">
-                  {/* Mobile profile (horizontal pills) */}
+      {/* Main + command: flex fills viewport so agent panel sits flush above the input (no dead band). */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <AnimatePresence mode="wait">
+            {!hasStarted ? (
+              <div
+                key="idle"
+                className="mx-auto flex h-full max-w-[1400px] flex-col justify-center overflow-y-auto px-4 py-6 sm:px-6"
+              >
+                <IdleState />
+              </div>
+            ) : (
+              <motion.div
+                key="workspace"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex h-full min-h-0 flex-col"
+              >
+                <div className="mx-auto flex h-full min-h-0 w-full max-w-[1400px] gap-4 px-3 sm:gap-6 sm:px-6">
+                  {/* Left sidebar — profile only */}
                   {hasSidebar && (
-                    <div className="lg:hidden mb-4">
-                      <ProfilePanel />
-                    </div>
+                    <motion.aside
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.1 }}
+                      className="hidden w-64 shrink-0 lg:block"
+                    >
+                      <div className="h-full overflow-y-auto py-4 pr-1">
+                        <ProfilePanel />
+                      </div>
+                    </motion.aside>
                   )}
 
-                  {/* When expanded, show full-height destination canvas */}
-                  {expandedDest ? (
-                    <div className="flex-1 min-h-0">
-                      <DestinationCanvas />
-                    </div>
-                  ) : (
-                    <>
-                      {/* Destination cards at top (fixed) */}
-                      <div className="flex-shrink-0">
+                  {/* Main workspace — destinations + responses */}
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col py-3 sm:py-4">
+                    {/* Mobile profile (horizontal pills) */}
+                    {hasSidebar && (
+                      <div className="mb-3 shrink-0 lg:hidden">
+                        <ProfilePanel />
+                      </div>
+                    )}
+
+                    {expandedDest ? (
+                      <div className="min-h-0 flex-1">
                         <DestinationCanvas />
                       </div>
-
-                      {/* Divider */}
-                      <div className="border-t border-white/[0.08] my-4" />
-
-                      {/* Agent responses at bottom (scrollable) */}
-                      <div className="flex-1 min-h-0 rounded-xl border border-white/[0.04] bg-[#0a0a0f]/30 overflow-hidden">
-                        <AgentResponses />
-                      </div>
-                    </>
-                  )}
+                    ) : (
+                      <>
+                        <div className="shrink-0">
+                          <DestinationCanvas />
+                        </div>
+                        <div className="my-3 shrink-0 border-t border-white/[0.08] sm:my-4" />
+                        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-white/[0.04] bg-[#0a0a0f]/30 flex flex-col">
+                          <AgentResponsesHeader />
+                          <AgentResponses />
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
-      {/* Command bar: visually hidden while a card is expanded, but stay mounted so
-          `pendingRefineText` / refine pipeline from ConversationPanel still runs. */}
-      <div hidden={!!expandedDest}>
-        <CommandBar />
+        {/* Command bar: hidden while expanded, but stay mounted for refine pipeline. */}
+        <div className="shrink-0" hidden={!!expandedDest}>
+          <CommandBar />
+        </div>
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ from src.wanderly.cursor_advisor import (
     run_profile_listener_cursor,
 )
 from src.wanderly.refinement_cursor import refinement_model_id
-from src.wanderly.schemas import SmokeDestDTO, SmokeProfilePillDTO, WanderlyWorkspaceDTO
+from src.wanderly.schemas import SmokeDestDTO, SmokeProfilePillDTO, WanderlyWorkspaceDTO, coerce_profile_pill
 from src.wanderly.session_store import (
     append_chat,
     chat_context_snippet,
@@ -34,12 +34,12 @@ from src.wanderly.session_store import (
 )
 
 
-def _refine_model_persist_kwargs(session_id: str) -> tuple[str | None, dict[str, Any]]:
+def _refine_model_persist_kwargs(session_id: str, *, trace_path: str) -> tuple[str | None, dict[str, Any]]:
     """Main refine JSON: optional mid-tier ``CURSOR_REFINEMENT_MODEL_ID``, else full planner."""
     rmid = refinement_model_id()
     if rmid:
-        return rmid, cursor_run_persist_kwargs(session_id, rmid)
-    return None, cursor_run_persist_kwargs(session_id, None)
+        return rmid, cursor_run_persist_kwargs(session_id, rmid, trace_path=trace_path)
+    return None, cursor_run_persist_kwargs(session_id, None, trace_path=trace_path)
 
 _JSON_INSTRUCTIONS = """
 You are Wanderly's travel planning assistant. Answer ONLY with a single JSON object
@@ -66,7 +66,8 @@ You are Wanderly's travel planning assistant. Answer ONLY with a single JSON obj
 }
 Rules:
 - 1 to 5 destinations; scores are integers 0–100.
-- Return profile_pills with the same keys as the template (you may use brief placeholders); a fast companion pass may refine them — prioritize assistant_markdown and destinations.
+- Return profile_pills with exactly these six keys in order: when, who, from, vibe, budget, duration (placeholders ok). A fast companion pass may refine them — prioritize assistant_markdown and destinations.
+- Do **not** include a ``tags`` pill (the app does not persist tags on the traveler profile). Put any extra nuance into the six pills or assistant_markdown.
 - If the user names a home city or airport (e.g. "flying from Seattle", "SEA"), set profile_pills key "from" accordingly.
 - Infer reasonable pills from the user message; use placeholders if unknown.
 - Do not claim real-time flight or hotel prices.
@@ -83,7 +84,8 @@ Rules:
   asks to remove or replace that place (stable id, you may refresh hook/score).
 - Do not include destinations with dismissed=true unless the user asks to bring one back.
 - For new suggestions, assign new lowercase-slug ids; when editing an existing row, keep its id.
-- Always return the full profile_pills array (when, who, from, vibe, budget, duration), not a partial list (placeholders ok; a fast companion pass may refine).
+- Always return the full profile_pills array for the six keys when, who, from, vibe, budget, duration (not a partial list; placeholders ok; a fast companion pass may refine).
+- Do **not** emit a ``tags`` pill; fold constraints into the appropriate one of the six fields or assistant_markdown.
 - Update profile_pills whenever the user states new trip facts (dates, budget, party, vibe, home airport / "flying from …").
 - You may omit per-destination "itinerary" in JSON; the UI keeps existing day-by-day plans unless the user asks to change them.
 
@@ -200,7 +202,7 @@ def _minimal_dest_card(d: dict[str, Any]) -> dict[str, Any]:
         "images": [img],
         "temp": "n/a",
         "flight": "TBD",
-        "cost": "TBD (placeholder)",
+        "cost": "-",
         "vibe": ["Explorer"],
         "score": max(0, min(100, score)),
         "dismissed": False,
@@ -328,10 +330,9 @@ def _normalize_parsed(raw: dict[str, Any]) -> WanderlyWorkspaceDTO:
     for p in pills_in if isinstance(pills_in, list) else []:
         if not isinstance(p, dict):
             continue
-        try:
-            pills.append(SmokeProfilePillDTO.model_validate(p))
-        except ValidationError:
-            continue
+        dto = coerce_profile_pill(p)
+        if dto is not None:
+            pills.append(dto)
     dests: list[dict[str, Any]] = []
     for d in dests_in if isinstance(dests_in, list) else []:
         if not isinstance(d, dict):
@@ -392,7 +393,9 @@ def run_smoke_turn(user_message: str, session_id: str) -> dict[str, Any]:
             )
         with basic_client(key) as client:
             raw_text = run_prompt_collect_assistant_text(
-                client, prompt, **cursor_run_persist_kwargs(session_id, None)
+                client,
+                prompt,
+                **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.json"),
             )
         out = _complete_smoke_turn(session_id, user_message, raw_text)
         return _maybe_merge_advisor_profile(session_id, out, fut)
@@ -449,7 +452,7 @@ def run_smoke_turn_streaming(
                 client,
                 prompt,
                 emit=safe_emit,
-                **cursor_run_persist_kwargs(session_id, None),
+                **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.sse"),
             )
         if emit:
             safe_emit({"type": "phase", "message": "Parsing JSON and building cards…"})
@@ -514,7 +517,7 @@ def run_refine_turn(user_message: str, session_id: str) -> dict[str, Any]:
                 workspace_destinations_summary=prior_dests,
                 session_id=session_id,
             )
-        mod, persist = _refine_model_persist_kwargs(session_id)
+        mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.json")
         with basic_client(key) as client:
             raw_text = run_prompt_collect_assistant_text(
                 client, prompt, model_id_override=mod, **persist
@@ -584,7 +587,7 @@ def run_refine_turn_streaming(
 
             fut.add_done_callback(_on_profile_ready)
 
-        mod, persist = _refine_model_persist_kwargs(session_id)
+        mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.sse")
         with basic_client(key) as client:
             raw_text = run_prompt_collect_assistant_text_streaming(
                 client,

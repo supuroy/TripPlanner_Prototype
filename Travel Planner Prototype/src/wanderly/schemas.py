@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
 class SmokeProfilePillDTO(BaseModel):
@@ -11,6 +11,21 @@ class SmokeProfilePillDTO(BaseModel):
     value: str
     icon: str = "📌"
     editable: bool = True
+
+
+def coerce_profile_pill(p: dict[str, Any]) -> SmokeProfilePillDTO | None:
+    """
+    Validate a raw pill dict.
+
+    The ``tags`` pill is not stored on the traveler profile (advisor nuance goes to ``advisor_note`` / UI insights).
+    """
+    try:
+        dto = SmokeProfilePillDTO.model_validate(p)
+    except ValidationError:
+        return None
+    if str(dto.key).strip() == "tags":
+        return None
+    return dto
 
 
 class SmokeDestDTO(BaseModel):
