@@ -7,16 +7,14 @@
       "profile_name": "Default",
       "is_default": true,
       "profile": {
-        "traveler_summary": "Apr 1\u20138",
+        "traveler_summary": "Mid-March",
         "group_size": 2,
         "group_type": "couple with pet",
         "trip_type": "leisure",
         "traveler_origin": "Seattle, WA",
         "budget_max_usd": 58.0,
         "destination_preferences": [
-          "Romantic",
-          "scenic",
-          "wine & fine dining"
+          "Warm beach + food & culture"
         ],
         "preferred_climate": "warm",
         "preferred_activities": [
@@ -24,12 +22,12 @@
           "scuba diving",
           "water activities"
         ],
-        "pace_preference": "7-8 days",
+        "pace_preference": "About a week",
         "accommodation_style": "somewhat luxury",
         "travel_time_tolerance": "within 12 hours of fly time",
         "dietary_or_accessibility_notes": [],
         "assumptions_used": [],
-        "editable_notes": "2 couples + pet"
+        "editable_notes": "Couple"
       }
     }
   ]

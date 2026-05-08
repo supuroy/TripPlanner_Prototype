@@ -1,6 +1,6 @@
 import { apiFetch, apiPostSseJson } from "./client";
 import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../types/workspace";
-import type { ItinDay, ProfilePill } from "../app/components/TripStore";
+import type { FlightOption, HotelOption, ItinDay, ProfilePill } from "../app/components/TripStore";
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -314,6 +314,83 @@ export async function profileChangeAdvisor(args: {
       body: JSON.stringify(args),
     },
   );
+}
+
+/**
+ * ISO dates (YYYY-MM-DD) aligned with MiniItinerary / server ``build_booking_criteria``.
+ * Optional ``adults`` (1–9) overrides passenger count for Expedia URL query params.
+ */
+export type BookingDateHints = { start_iso?: string; end_iso?: string; adults?: number };
+
+export type BookingSearchPrepareResponse = {
+  criteria_lines: string[];
+  adults: number;
+  start_date: string | null;
+  end_date: string | null;
+  route_hint: string;
+  hotel_count: number;
+  /** Resolved multi-stay rows (outline / itinerary / advisor). Client should merge into the card + sync_ui. */
+  hotels_for_session?: Array<Record<string, unknown>>;
+  booking_outline_source?: string;
+};
+
+export type BookingSearchStepResponse = {
+  ok: boolean;
+  step?: string;
+  error?: string;
+  flight?: FlightOption;
+  hotel?: HotelOption;
+  hotel_index?: number;
+  search_url?: string;
+  /** True when flight search used catalog round-trip (out + return on last trip day). */
+  round_trip?: boolean;
+  /** ``outbound`` (default) or ``return`` — separate one-way searches for each leg. */
+  flight_leg?: "outbound" | "return";
+  /** Present when server has BOOKING_SEARCH_API_DEBUG=1 — field source map for parse iteration. */
+  debug_parse?: Record<string, unknown>;
+};
+
+export async function bookingSearchPrepare(args: {
+  session_id: string;
+  destination_id: string;
+  date_hints?: BookingDateHints;
+  /** When set, overrides server session snapshot (sidebar profile for adults / LLM context). */
+  profile_pills?: WanderlyProfilePillDTO[];
+}) {
+  const body: Record<string, unknown> = {
+    session_id: args.session_id,
+    destination_id: args.destination_id,
+    date_hints: args.date_hints,
+  };
+  if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
+  return apiFetch<BookingSearchPrepareResponse>("/api/wanderly/booking_search_prepare", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function bookingSearchStep(args: {
+  session_id: string;
+  destination_id: string;
+  step: "flight" | "hotel";
+  hotel_index?: number;
+  date_hints?: BookingDateHints;
+  profile_pills?: WanderlyProfilePillDTO[];
+  flight_leg?: "outbound" | "return";
+}) {
+  const body: Record<string, unknown> = {
+    session_id: args.session_id,
+    destination_id: args.destination_id,
+    step: args.step,
+    date_hints: args.date_hints,
+  };
+  if (args.step === "hotel" && args.hotel_index != null) body.hotel_index = args.hotel_index;
+  if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
+  if (args.step === "flight" && args.flight_leg) body.flight_leg = args.flight_leg;
+  return apiFetch<BookingSearchStepResponse>("/api/wanderly/booking_search_step", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function advisorFeed(

@@ -1,9 +1,10 @@
-import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
   DollarSign, Hotel, Zap, AlertTriangle, ChevronLeft, ArrowRight,
   MapPin, Calendar, CheckCircle2, Loader2, ChevronDown, ChevronUp,
+  RefreshCw,
 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTrip } from "./TripStore";
@@ -13,9 +14,18 @@ import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
 import { ConversationPanel } from "./ConversationPanel";
+import {
+  SummaryFlightStrip,
+  SummaryHotelStrip,
+  BookingTimelineFace,
+  computeBookingDateHints,
+} from "./bookingExpandedContent";
 
 /** Auto-advance hero slideshow when multiple URLs (enrich / planner). */
 const HERO_SLIDE_MS = 4200;
+
+/** Per destination: booking timeline progressive load has completed once (session-scoped). */
+const bookingProgressDoneIds = new Set<string>();
 
 const VIBE_COLORS: Record<string, string> = {
   Culture: "bg-purple-500/20 text-purple-300",
@@ -257,78 +267,6 @@ function MiniItinerary({ dest }: { dest: DestCard }) {
   );
 }
 
-/** Planning-level flight band only (same when pinned — real inventory will be an explicit action later). */
-function FlightStrip({ dest }: { dest: DestCard }) {
-  if (!dest.flights || dest.flights.length === 0) return null;
-
-  const flightBallpark = (
-    dest.budget_guidance?.flight_ballpark || dest.budget_guidance?.flight_band_short || ""
-  ).trim();
-  const showFlightGuidance = hasMeaningfulEstimateText(flightBallpark);
-
-  return (
-    <motion.div
-      className="mt-4"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.3 }}
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-[11px] uppercase tracking-widest text-white/30">Flight Options</p>
-      </div>
-
-      <div className="relative group">
-        {showFlightGuidance ? (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-3 py-2.5">
-            <p className="break-words text-[11px] leading-snug text-white/70">{flightBallpark}</p>
-          </div>
-        ) : (
-          <div
-            className="min-h-[44px] rounded-xl border border-white/[0.05] bg-white/[0.02]"
-            aria-label="Flight estimate pending"
-          />
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-/** Planning-level lodging band only (same when pinned). */
-function HotelStrip({ dest }: { dest: DestCard }) {
-  if (!dest.hotels || dest.hotels.length === 0) return null;
-
-  const lodgingNote = (
-    dest.budget_guidance?.lodging_style || dest.budget_guidance?.lodging_band_short || ""
-  ).trim();
-  const showLodgingGuidance = hasMeaningfulEstimateText(lodgingNote);
-
-  return (
-    <motion.div
-      className="mt-4"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.4 }}
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-[11px] uppercase tracking-widest text-white/30">Stay Options</p>
-      </div>
-
-      <div className="relative group">
-        {showLodgingGuidance ? (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-3 py-2.5">
-            <p className="break-words text-[11px] leading-snug text-white/70">{lodgingNote}</p>
-          </div>
-        ) : (
-          <div
-            className="min-h-[44px] rounded-xl border border-white/[0.05] bg-white/[0.02]"
-            aria-label="Lodging estimate pending"
-          />
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
 function ActivityStrip({ dest }: { dest: DestCard }) {
   if (!dest.activities) return null;
   return (
@@ -342,6 +280,66 @@ function ActivityStrip({ dest }: { dest: DestCard }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/** Itinerary-planner flight band (until live booking search returns real offers). */
+function PlannerFlightStrip({ dest }: { dest: DestCard }) {
+  if (!dest.flights || dest.flights.length === 0) return null;
+  const flightBallpark = (
+    dest.budget_guidance?.flight_ballpark || dest.budget_guidance?.flight_band_short || ""
+  ).trim();
+  const showFlightGuidance = hasMeaningfulEstimateText(flightBallpark);
+  return (
+    <motion.div
+      className="mt-4"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3 }}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-widest text-white/30">Flight Options</p>
+      </div>
+      <div className="relative group">
+        {showFlightGuidance ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-3 py-2.5">
+            <p className="break-words text-[11px] leading-snug text-white/70">{flightBallpark}</p>
+          </div>
+        ) : (
+          <div className="min-h-[44px] rounded-xl border border-white/[0.05] bg-white/[0.02]" aria-label="Flight estimate pending" />
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+/** Itinerary-planner lodging band (until live booking search). */
+function PlannerHotelStrip({ dest }: { dest: DestCard }) {
+  if (!dest.hotels || dest.hotels.length === 0) return null;
+  const lodgingNote = (
+    dest.budget_guidance?.lodging_style || dest.budget_guidance?.lodging_band_short || ""
+  ).trim();
+  const showLodgingGuidance = hasMeaningfulEstimateText(lodgingNote);
+  return (
+    <motion.div
+      className="mt-4"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.4 }}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-widest text-white/30">Stay Options</p>
+      </div>
+      <div className="relative group">
+        {showLodgingGuidance ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-3 py-2.5">
+            <p className="break-words text-[11px] leading-snug text-white/70">{lodgingNote}</p>
+          </div>
+        ) : (
+          <div className="min-h-[44px] rounded-xl border border-white/[0.05] bg-white/[0.02]" aria-label="Lodging estimate pending" />
+        )}
+      </div>
+    </motion.div>
   );
 }
 
@@ -497,10 +495,14 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const [itinLoading, setItinLoading] = useState(false);
   const [itinErrorKind, setItinErrorKind] = useState<ExpandedItinErrorKind | null>(null);
   const [itinThought, setItinThought] = useState("");
+  const [bookingFace, setBookingFace] = useState(false);
+  const [bookingHydrated, setBookingHydrated] = useState(() => bookingProgressDoneIds.has(dest.id));
 
   useEffect(() => {
     setItinThought("");
     setItinErrorKind(null);
+    setBookingFace(false);
+    setBookingHydrated(bookingProgressDoneIds.has(dest.id));
   }, [dest.id]);
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
@@ -654,8 +656,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     if (willPin) {
       addResponse({
         type: "success",
-        text: `📌 ${dest.name} is now pinned. When you adjust your travel profile, pinned destinations stay in your workspace while unpinned ones may be swapped out.`,
-        relatedTo: dest.id
+        text: `📌 ${dest.name} is now bookmarked for comparison. Click 'Ready to Book' when you want to see detailed flight and hotel options.`,
+        relatedTo: dest.id,
       });
     }
   };
@@ -687,6 +689,20 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
       idx === 0 || idx === arr.length - 1 || loc.isTransfer
     );
   }, [dest.itinerary]);
+
+  const onBookingFirstLoad = useCallback(() => {
+    if (!bookingProgressDoneIds.has(dest.id)) {
+      bookingProgressDoneIds.add(dest.id);
+      setBookingHydrated(true);
+    }
+  }, [dest.id]);
+
+  const readyToBook = Boolean(dest.readyToBook);
+  const flipTitle = !readyToBook
+    ? "Click 'Ready to Book' to view booking details"
+    : bookingFace
+      ? "View itinerary"
+      : "View booking details";
 
   return (
     <motion.div
@@ -761,11 +777,41 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           )}
 
           {/* Controls */}
-          <div className="absolute top-2.5 right-2.5 flex gap-1.5">
-            <button onClick={togglePin} className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${dest.pinned ? "bg-indigo-500 text-white" : "bg-black/40 text-white/60 hover:text-white backdrop-blur-sm"}`}>
+          <div className="absolute top-2.5 right-2.5 z-20 flex gap-1.5">
+            <motion.button
+              type="button"
+              title={flipTitle}
+              aria-label={flipTitle}
+              disabled={!readyToBook}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!readyToBook) return;
+                setBookingFace((v) => !v);
+              }}
+              whileTap={readyToBook ? { rotate: 180, scale: 0.9 } : undefined}
+              transition={{ duration: 0.3 }}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg backdrop-blur-sm transition-all ${
+                readyToBook
+                  ? "cursor-pointer bg-indigo-500 text-white hover:bg-indigo-600"
+                  : "cursor-not-allowed bg-black/40 text-white/30 opacity-50"
+              }`}
+            >
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            </motion.button>
+            <button
+              type="button"
+              onClick={togglePin}
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${dest.pinned ? "bg-indigo-500 text-white" : "bg-black/40 text-white/60 hover:text-white backdrop-blur-sm"}`}
+              aria-label={dest.pinned ? "Unpin destination" : "Pin destination"}
+            >
               {dest.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
             </button>
-            <button onClick={dismiss} className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm">
+            <button
+              type="button"
+              onClick={dismiss}
+              className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
+              aria-label="Remove destination"
+            >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -794,6 +840,26 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <ScoreBadge score={dest.score} />
+                <motion.button
+                  type="button"
+                  title={flipTitle}
+                  aria-label={flipTitle}
+                  disabled={!readyToBook}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!readyToBook) return;
+                    setBookingFace((v) => !v);
+                  }}
+                  whileTap={readyToBook ? { rotate: 180, scale: 0.9 } : undefined}
+                  transition={{ duration: 0.3 }}
+                  className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-all ${
+                    readyToBook
+                      ? "cursor-pointer border-indigo-500/40 bg-indigo-500 text-white hover:bg-indigo-600"
+                      : "cursor-not-allowed border-white/[0.08] bg-white/[0.04] text-white/30 opacity-50"
+                  }`}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                </motion.button>
                 <button
                   type="button"
                   onClick={togglePin}
@@ -881,87 +947,160 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             )}
 
             <div className="mt-4 pt-4 border-t border-white/[0.06]">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6">
-                <div>
-                  {itinLoading ? (
-                    <div
-                      data-testid="expanded-itinerary-loading"
-                      className="mt-4 min-h-[120px] flex flex-col rounded-xl border border-white/[0.06] bg-white/[0.02]"
-                    >
-                      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.05]">
-                        <Loader2 className="w-4 h-4 animate-spin shrink-0 text-indigo-400/80" aria-hidden />
-                        <span className="text-[12px] text-white/45">Building itinerary</span>
-                      </div>
-                      <div className="px-3 py-2 space-y-2">
-                        {itineraryLaneQueueDepth > 1 ? (
-                          <p className="text-[10px] text-indigo-300/55 leading-snug border border-indigo-500/15 rounded-lg px-2 py-1.5 bg-indigo-500/[0.06]">
-                            {itineraryLaneQueueDepth} day-by-day updates are in the server queue (one at a time so plans
-                            don’t collide). You can browse other cards; this one will fill in when its turn runs.
-                          </p>
-                        ) : null}
-                        {itinThought.trim() ? (
-                          <p className="text-[11px] text-white/35 leading-relaxed whitespace-pre-wrap font-sans">
-                            {itinThought.trim()}
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-white/25 leading-relaxed">
-                            Working through pacing, highlights, and day structure…
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ) : itinErrorKind ? (
-                    <div className="mt-4 space-y-3">
-                      <p className="text-[12px] text-amber-400/80">
-                        {expandedItineraryErrorMessage(
-                          itinErrorKind,
-                          Boolean(dest.itinerary && dest.itinerary.length > 0),
-                        )}
-                      </p>
-                      {dest.itinerary && dest.itinerary.length > 0 ? <MiniItinerary dest={dest} /> : null}
-                    </div>
-                  ) : (
-                    <MiniItinerary dest={dest} />
-                  )}
-                  <ActivityStrip dest={dest} />
-                </div>
-                <div>
-                  <FlightStrip dest={dest} />
-                  <HotelStrip dest={dest} />
-
-                  {/* Total — stacked so long LLM bands never collide with the label (mobile). */}
-                  <motion.div 
-                    className="mt-6 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.5 }}
+              <div className="[perspective:1200px]">
+                <motion.div
+                  className="relative grid grid-cols-1 [transform-style:preserve-3d]"
+                  style={{ transformStyle: "preserve-3d" }}
+                  animate={{ rotateY: bookingFace ? 180 : 0 }}
+                  transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+                >
+                  {/* Normal face — same grid cell as back; height follows content; outer column scrolls only */}
+                  <div
+                    className="col-start-1 row-start-1 w-full min-w-0 [backface-visibility:hidden]"
+                    style={{
+                      WebkitBackfaceVisibility: "hidden",
+                      transform: "rotateY(0deg) translateZ(0)",
+                      pointerEvents: bookingFace ? "none" : "auto",
+                    }}
                   >
-                    {(() => {
-                      const bg = dest.budget_guidance;
-                      let costLine = (bg?.trip_ballpark_usd_pp ?? "").trim();
-                      if (!costLine) costLine = (dest.cost ?? "").trim();
-                      if (/^tbd\s*\(placeholder\)$/i.test(costLine) || /^tbd$/i.test(costLine)) costLine = "";
-                      const hasCost = hasMeaningfulEstimateText(costLine);
-                      return (
-                        <>
-                          <span className="block text-[12px] text-white/40">
-                            {dest.pinned ? "Total Cost (2 pax)" : "Estimated Range (2 pax)"}
-                          </span>
-                          {hasCost ? (
-                            <p className="mt-1.5 text-[12px] sm:text-[13px] leading-snug text-white/85 break-words">
-                              {costLine}
+                    <div className="grid grid-cols-1 gap-x-6 lg:grid-cols-2">
+                      <div>
+                        {itinLoading ? (
+                          <div
+                            data-testid="expanded-itinerary-loading"
+                            className="mt-4 min-h-[120px] flex flex-col rounded-xl border border-white/[0.06] bg-white/[0.02]"
+                          >
+                            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.05]">
+                              <Loader2 className="w-4 h-4 animate-spin shrink-0 text-indigo-400/80" aria-hidden />
+                              <span className="text-[12px] text-white/45">Building itinerary</span>
+                            </div>
+                            <div className="px-3 py-2 space-y-2">
+                              {itineraryLaneQueueDepth > 1 ? (
+                                <p className="text-[10px] text-indigo-300/55 leading-snug border border-indigo-500/15 rounded-lg px-2 py-1.5 bg-indigo-500/[0.06]">
+                                  {itineraryLaneQueueDepth} day-by-day updates are in the server queue (one at a time so plans
+                                  don’t collide). You can browse other cards; this one will fill in when its turn runs.
+                                </p>
+                              ) : null}
+                              {itinThought.trim() ? (
+                                <p className="text-[11px] text-white/35 leading-relaxed whitespace-pre-wrap font-sans">
+                                  {itinThought.trim()}
+                                </p>
+                              ) : (
+                                <p className="text-[11px] text-white/25 leading-relaxed">
+                                  Working through pacing, highlights, and day structure…
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ) : itinErrorKind ? (
+                          <div className="mt-4 space-y-3">
+                            <p className="text-[12px] text-amber-400/80">
+                              {expandedItineraryErrorMessage(
+                                itinErrorKind,
+                                Boolean(dest.itinerary && dest.itinerary.length > 0),
+                              )}
                             </p>
-                          ) : (
-                            <div className="mt-1.5 min-h-[2.25rem]" aria-label="Trip total estimate pending" />
-                          )}
-                          {dest.pinned && (
-                            <p className="text-[10px] text-indigo-300/50 mt-2">Includes all flights, hotels & activities</p>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </motion.div>
-                </div>
+                            {dest.itinerary && dest.itinerary.length > 0 ? <MiniItinerary dest={dest} /> : null}
+                          </div>
+                        ) : (
+                          <MiniItinerary dest={dest} />
+                        )}
+                        <ActivityStrip dest={dest} />
+                      </div>
+                      <div>
+                        {dest.liveBookingEstimates ? (
+                          <>
+                            <SummaryFlightStrip dest={dest} />
+                            <SummaryHotelStrip dest={dest} />
+                          </>
+                        ) : (
+                          <>
+                            <PlannerFlightStrip dest={dest} />
+                            <PlannerHotelStrip dest={dest} />
+                          </>
+                        )}
+
+                        <motion.div
+                          className="mt-6 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.5 }}
+                        >
+                          {(() => {
+                            let costLine = (dest.budget_guidance?.trip_ballpark_usd_pp ?? "").trim();
+                            if (!costLine) costLine = (dest.cost ?? "").trim();
+                            if (/^tbd\s*\(placeholder\)$/i.test(costLine) || /^tbd$/i.test(costLine)) costLine = "";
+                            const hasCost = hasMeaningfulEstimateText(costLine);
+                            return (
+                              <>
+                                <span className="block text-[12px] text-white/40">
+                                  {dest.pinned ? "Total Cost (2 pax)" : "Estimated Range (2 pax)"}
+                                </span>
+                                {hasCost ? (
+                                  <p className="mt-1.5 text-[12px] sm:text-[13px] leading-snug text-white/85 break-words">
+                                    {costLine}
+                                  </p>
+                                ) : (
+                                  <div className="mt-1.5 min-h-[2.25rem]" aria-label="Trip total estimate pending" />
+                                )}
+                                {dest.pinned && (
+                                  <p className="text-[10px] text-indigo-300/50 mt-2">Includes all flights, hotels & activities</p>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </motion.div>
+
+                        {!dest.readyToBook && (dest.flights?.length || dest.hotels?.length) ? (
+                          <button
+                            type="button"
+                            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 py-3 text-[13px] font-medium text-white transition-colors hover:from-indigo-600 hover:to-purple-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
+                            onClick={() => {
+                              bookingProgressDoneIds.delete(dest.id);
+                              setBookingHydrated(false);
+                              setDestinations((prev) =>
+                                prev.map((d) => (d.id === dest.id ? { ...d, readyToBook: true } : d)),
+                              );
+                              addResponse({
+                                type: "message",
+                                role: "agent",
+                                text: `🔍 Searching for the best flight and hotel options for ${dest.name}...`,
+                              });
+                              setBookingFace(true);
+                            }}
+                          >
+                            <Plane className="h-4 w-4 shrink-0" aria-hidden />
+                            Ready to Book
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Booking face — mount timeline only when flipped open so search runs after “Ready to Book”, not on expand */}
+                  <div
+                    className="col-start-1 row-start-1 w-full min-w-0 [backface-visibility:hidden]"
+                    style={{
+                      WebkitBackfaceVisibility: "hidden",
+                      transform: "rotateY(180deg) translateZ(0)",
+                      pointerEvents: bookingFace ? "auto" : "none",
+                    }}
+                  >
+                    {bookingFace ? (
+                      <BookingTimelineFace
+                        key={`booking-${dest.id}`}
+                        dest={dest}
+                        sessionId={sessionId}
+                        profile={profile}
+                        useCachedResults={bookingHydrated}
+                        dateHints={computeBookingDateHints(profile, dest.itinerary?.length ?? 7)}
+                        onSearchFinished={onBookingFirstLoad}
+                      />
+                    ) : (
+                      <div className="min-h-[200px]" aria-hidden />
+                    )}
+                  </div>
+                </motion.div>
               </div>
             </div>
 
@@ -1033,8 +1172,8 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
     if (willPin) {
       addResponse({
         type: "success",
-        text: `📌 ${dest.name} is now pinned. When you adjust your travel profile, pinned destinations stay in your workspace while unpinned ones may be swapped out.`,
-        relatedTo: dest.id
+        text: `📌 ${dest.name} is now bookmarked for comparison. Click 'Ready to Book' when you want to see detailed flight and hotel options.`,
+        relatedTo: dest.id,
       });
     }
   };

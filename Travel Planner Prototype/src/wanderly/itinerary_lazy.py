@@ -43,6 +43,14 @@ Rules:
 - items: short strings — no exact prices inside day bullets.
 - budget_guidance: include all seven keys with non-empty strings. The four long fields are for detail panels; the three *_short fields MUST be concise (hard cap ~40 characters each, no newlines) so they fit destination mini-cards — compress ranges and drop filler words.
 - Optional accent on 1-2 highlight days only; omit accent on most days.
+- Default pace should be comfortable, not exhausting. Avoid "run around every day" plans unless user explicitly asks for fast-paced / whirlwind / many-city hopping.
+- Keep base changes reasonable for trip length:
+  - 3-5 days: at most 2 bases
+  - 6-8 days: at most 3 bases
+  - 9-11 days: at most 4 bases
+  - 12-14 days: at most 5 bases
+- Prefer 2-3 nights per base before moving, except when explicit user intent says otherwise.
+- For mixed-region destinations (e.g., "X + Y"), choose a few anchor bases and do day trips instead of nightly relocations.
 
 Legacy: if you cannot produce the object, a bare JSON array of days is accepted but budget_guidance will be missing.
 
@@ -281,6 +289,132 @@ def _normalize_itinerary_rows(raw: list[Any], *, max_days: int) -> list[dict[str
     return deduped[:max_days]
 
 
+def _max_comfortable_bases(days: int) -> int:
+    d = max(1, int(days))
+    if d <= 5:
+        return 2
+    if d <= 8:
+        return 3
+    if d <= 11:
+        return 4
+    return 5
+
+
+def _is_explicit_fast_pace_request(profile_pills: list[dict[str, Any]], destination: dict[str, Any]) -> bool:
+    text_bits: list[str] = []
+    for p in profile_pills:
+        if not isinstance(p, dict):
+            continue
+        text_bits.append(str(p.get("value") or ""))
+    text_bits.append(str(destination.get("hook") or ""))
+    blob = " ".join(text_bits).lower()
+    return any(
+        k in blob
+        for k in (
+            "fast-paced",
+            "fast paced",
+            "whirlwind",
+            "packed itinerary",
+            "pack in",
+            "many cities",
+            "as many cities",
+            "city hopping",
+            "multi-city sprint",
+            "aggressive pace",
+            "every day a new city",
+            "road trip every day",
+        )
+    )
+
+
+def _label_base_token(label: str) -> str:
+    s = " ".join(str(label or "").split())
+    if not s:
+        return ""
+    tail = s.split("→")[-1] if "→" in s else s
+    tail = tail.split("->")[-1] if "->" in tail else tail
+    # Keep the location side of "title · location" when present.
+    if "·" in tail:
+        parts = [x.strip() for x in tail.split("·") if x.strip()]
+        if parts:
+            tail = parts[-1]
+    return tail.strip()
+
+
+def _canon_token(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def _replace_label_base(label: str, new_base: str) -> str:
+    s = " ".join(str(label or "").split())
+    if not s:
+        return label
+    if "→" in s:
+        left = s.split("→", 1)[0].strip()
+        return f"{left} → {new_base}".strip()
+    if "->" in s:
+        left = s.split("->", 1)[0].strip()
+        return f"{left} → {new_base}".strip()
+    if "·" in s:
+        parts = [x.strip() for x in s.split("·")]
+        if parts:
+            parts[-1] = new_base
+            return " · ".join([x for x in parts if x])
+    return f"{s} → {new_base}"
+
+
+def _enforce_comfortable_hops(
+    rows: list[dict[str, Any]],
+    *,
+    max_days: int,
+    profile_pills: list[dict[str, Any]],
+    destination: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not rows:
+        return rows
+    if _is_explicit_fast_pace_request(profile_pills, destination):
+        return rows
+
+    max_bases = _max_comfortable_bases(max_days)
+    kept_bases: list[str] = []
+    remap: dict[str, str] = {}
+    changed = False
+    out: list[dict[str, Any]] = []
+
+    for r in rows:
+        rr = dict(r)
+        label = str(rr.get("label") or "")
+        base = _label_base_token(label)
+        if not base:
+            out.append(rr)
+            continue
+        ck = _canon_token(base)
+        if not ck:
+            out.append(rr)
+            continue
+        if ck in remap:
+            mapped = remap[ck]
+        else:
+            if len(kept_bases) < max_bases:
+                kept_bases.append(base)
+                remap[ck] = base
+                mapped = base
+            else:
+                # Clamp additional new bases to the latest kept base to avoid daily relocations.
+                mapped = kept_bases[-1]
+                remap[ck] = mapped
+        if _canon_token(mapped) != ck:
+            rr["label"] = _replace_label_base(label, mapped)[:120]
+            changed = True
+        out.append(rr)
+
+    if changed:
+        log_itinerary_build(
+            f"HOP_GUARD applied days={len(rows)} max_bases={max_bases} kept={kept_bases!r}"
+        )
+    return out
+
+
 def _log_itinerary_normalize_all_dropped(rid: str, mode: str, extracted: list[Any]) -> None:
     """When JSON parsed but every day row failed ``_normalize_itinerary_rows`` (helps debug UI EMPTY)."""
     first = extracted[0] if extracted else None
@@ -423,6 +557,12 @@ def build_itinerary_for_destination(
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     extracted, budget = _extract_itinerary_payload(raw)
     out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
+    out = _enforce_comfortable_hops(
+        out,
+        max_days=n,
+        profile_pills=profile_pills,
+        destination=destination,
+    )
     log_itinerary_build(
         f"END rid={rid} mode=json dest_id={did!r} raw_chars={len(raw or '')} extracted_len={len(extracted)} "
         f"normalized_len={len(out)} budget_keys={list(budget or [])} elapsed_ms={elapsed_ms:.1f}"
@@ -492,6 +632,12 @@ def build_itinerary_for_destination_streaming(
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     extracted, budget = _extract_itinerary_payload(raw)
     out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
+    out = _enforce_comfortable_hops(
+        out,
+        max_days=n,
+        profile_pills=profile_pills,
+        destination=destination,
+    )
     log_itinerary_build(
         f"END rid={rid} mode=sse dest_id={did!r} raw_chars={len(raw or '')} extracted_len={len(extracted)} "
         f"normalized_len={len(out)} budget_keys={list(budget or [])} elapsed_ms={elapsed_ms:.1f}"

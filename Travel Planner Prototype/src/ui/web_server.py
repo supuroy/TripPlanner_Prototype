@@ -899,6 +899,108 @@ def run_web_server(
                         self._send_json({"error": str(exc)}, status=500)
                     return
 
+                if path == "/api/wanderly/booking_search_prepare":
+                    from src.wanderly.ota_booking_search import build_booking_criteria
+
+                    sid_bs = (payload.get("session_id") or "").strip()
+                    did_bs = (payload.get("destination_id") or "").strip()
+                    if not sid_bs or not did_bs:
+                        self._send_json({"error": "Missing session_id or destination_id."}, status=400)
+                        return
+                    dh_bs = payload.get("date_hints") if isinstance(payload.get("date_hints"), dict) else None
+                    dests_bs = snapshot_destinations_for_model(sid_bs)
+                    dest_bs = next(
+                        (x for x in dests_bs if isinstance(x, dict) and str(x.get("id") or "") == did_bs),
+                        None,
+                    )
+                    if not dest_bs:
+                        self._send_json({"error": "Destination not found in session."}, status=404)
+                        return
+                    pills_raw_bs = payload.get("profile_pills")
+                    if isinstance(pills_raw_bs, list) and any(isinstance(x, dict) for x in pills_raw_bs):
+                        pills_bs = [x for x in pills_raw_bs if isinstance(x, dict)]
+                    else:
+                        pills_bs = snapshot_profile_pills(sid_bs)
+                    try:
+                        s_prep = get_session(sid_bs)
+                        bp = s_prep.setdefault("booking_hotels_plans", {})
+                        if isinstance(bp, dict):
+                            bp.pop(did_bs, None)
+                        bi = s_prep.setdefault("booking_search_intents", {})
+                        if isinstance(bi, dict):
+                            bi.pop(did_bs, None)
+                        out_bs = build_booking_criteria(
+                            dest_bs, pills_bs, date_hints=dh_bs, session_id=sid_bs
+                        )
+                        self._send_json(out_bs, status=200)
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/booking_search_prepare error: {exc!r}")
+                        traceback.print_exc()
+                        self._send_json({"error": str(exc)}, status=500)
+                    return
+
+                if path == "/api/wanderly/booking_search_step":
+                    from src.wanderly.ota_booking_search import run_booking_search_step
+
+                    sid_st = (payload.get("session_id") or "").strip()
+                    did_st = (payload.get("destination_id") or "").strip()
+                    step_st = str(payload.get("step") or "").strip().lower()
+                    if not sid_st or not did_st or step_st not in ("flight", "hotel"):
+                        self._send_json({"error": "Missing session_id, destination_id, or invalid step."}, status=400)
+                        return
+                    hi_raw = payload.get("hotel_index")
+                    hotel_ix: int | None = None
+                    if step_st == "hotel":
+                        if hi_raw is None:
+                            self._send_json({"error": "hotel_index required for hotel step."}, status=400)
+                            return
+                        try:
+                            hotel_ix = int(hi_raw)
+                        except (TypeError, ValueError):
+                            self._send_json({"error": "hotel_index must be an integer."}, status=400)
+                            return
+                    dh_st = payload.get("date_hints") if isinstance(payload.get("date_hints"), dict) else None
+                    dests_st = snapshot_destinations_for_model(sid_st)
+                    dest_st = next(
+                        (x for x in dests_st if isinstance(x, dict) and str(x.get("id") or "") == did_st),
+                        None,
+                    )
+                    if not dest_st:
+                        self._send_json({"error": "Destination not found in session."}, status=404)
+                        return
+                    pills_raw_st = payload.get("profile_pills")
+                    if isinstance(pills_raw_st, list) and any(isinstance(x, dict) for x in pills_raw_st):
+                        pills_st = [x for x in pills_raw_st if isinstance(x, dict)]
+                    else:
+                        pills_st = snapshot_profile_pills(sid_st)
+                    fl_leg = str(payload.get("flight_leg") or "").strip().lower()
+                    flight_leg_kw = fl_leg if fl_leg in ("outbound", "return") else None
+                    try:
+                        result_st = run_booking_search_step(
+                            dest_st,
+                            step=step_st,
+                            hotel_index=hotel_ix,
+                            profile_pills=pills_st,
+                            date_hints=dh_st,
+                            session_id=sid_st,
+                            flight_leg=flight_leg_kw,
+                        )
+                        if isinstance(result_st, dict) and result_st.get("search_url"):
+                            print(
+                                f"[web] booking_search_step session={sid_st[:12]}… dest={did_st} "
+                                f"step={step_st} url={result_st.get('search_url')}",
+                                flush=True,
+                            )
+                        dbg = result_st.get("debug_parse") if isinstance(result_st, dict) else None
+                        if dbg:
+                            print(f"[web] booking_search_step debug_parse step={dbg.get('step')!r}", flush=True)
+                        self._send_json(result_st, status=200)
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/booking_search_step error: {exc!r}")
+                        traceback.print_exc()
+                        self._send_json({"ok": False, "error": str(exc)}, status=500)
+                    return
+
                 if path == "/plan":
                     user_input = (payload.get("input") or "").strip()
                     if not user_input:

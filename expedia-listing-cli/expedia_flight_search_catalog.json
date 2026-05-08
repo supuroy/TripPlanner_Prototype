@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "extracted_from_url": "https://www.expedia.com/Flights-Search?filters=%5B%7B%22numOfStopFilterValue%22%3A%7B%22stopInfo%22%3A%7B%22numberOfStops%22%3A0%2C%22stopFilterOperation%22%3A%22EQUAL%22%7D%7D%7D%2C%7B%22preferredCabinFilterValue%22%3A%7B%22cabinCode%22%3A%22BASIC_COACH%22%7D%7D%2C%7B%22carryOnBagBasedFilterValue%22%3A%7B%22carryOnBag%22%3A%22CARRY_ON_BAG%22%7D%7D%5D&leg1=from%3ASeattle%2C%20WA%20%28SEA-Seattle%20-%20Tacoma%20Intl.%29%2Cto%3AIndianapolis%2C%20IN%2C%20United%20States%20of%20America%20%28IND-Indianapolis%20Intl.%29%2Cdeparture%3A5%2F15%2F2026TANYT%2CfromType%3AU%2CtoType%3AA&leg2=from%3AIndianapolis%2C%20IN%2C%20United%20States%20of%20America%20%28IND-Indianapolis%20Intl.%29%2Cto%3ASeattle%2C%20WA%20%28SEA-Seattle%20-%20Tacoma%20Intl.%29%2Cdeparture%3A5%2F29%2F2026TANYT%2CfromType%3AA%2CtoType%3AU&mode=search&options=carrier%3A%2Ccabinclass%3A%2Cmaxhops%3A1%2Cnopenalty%3AN&passengers=adults%3A1%2Cchildren%3A0%2Cinfantinlap%3AN&trip=roundtrip",
+  "parsed_at": "2026-05-08T00:31:36Z",
+  "base_url": "https://www.expedia.com",
+  "path": "/Flights-Search",
+  "query_param_pairs": [
+    [
+      "filters",
+      "[{\"numOfStopFilterValue\":{\"stopInfo\":{\"numberOfStops\":0,\"stopFilterOperation\":\"EQUAL\"}}},{\"preferredCabinFilterValue\":{\"cabinCode\":\"BASIC_COACH\"}},{\"carryOnBagBasedFilterValue\":{\"carryOnBag\":\"CARRY_ON_BAG\"}}]"
+    ],
+    [
+      "leg1",
+      "from:Seattle, WA (SEA-Seattle - Tacoma Intl.),to:Indianapolis, IN, United States of America (IND-Indianapolis Intl.),departure:5/15/2026TANYT,fromType:U,toType:A"
+    ],
+    [
+      "leg2",
+      "from:Indianapolis, IN, United States of America (IND-Indianapolis Intl.),to:Seattle, WA (SEA-Seattle - Tacoma Intl.),departure:5/29/2026TANYT,fromType:A,toType:U"
+    ],
+    [
+      "mode",
+      "search"
+    ],
+    [
+      "options",
+      "carrier:,cabinclass:,maxhops:1,nopenalty:N"
+    ],
+    [
+      "passengers",
+      "adults:1,children:0,infantinlap:N"
+    ],
+    [
+      "trip",
+      "roundtrip"
+    ]
+  ],
+  "query_params": {
+    "filters": "[{\"numOfStopFilterValue\":{\"stopInfo\":{\"numberOfStops\":0,\"stopFilterOperation\":\"EQUAL\"}}},{\"preferredCabinFilterValue\":{\"cabinCode\":\"BASIC_COACH\"}},{\"carryOnBagBasedFilterValue\":{\"carryOnBag\":\"CARRY_ON_BAG\"}}]",
+    "leg1": "from:Seattle, WA (SEA-Seattle - Tacoma Intl.),to:Indianapolis, IN, United States of America (IND-Indianapolis Intl.),departure:5/15/2026TANYT,fromType:U,toType:A",
+    "leg2": "from:Indianapolis, IN, United States of America (IND-Indianapolis Intl.),to:Seattle, WA (SEA-Seattle - Tacoma Intl.),departure:5/29/2026TANYT,fromType:A,toType:U",
+    "mode": "search",
+    "options": "carrier:,cabinclass:,maxhops:1,nopenalty:N",
+    "passengers": "adults:1,children:0,infantinlap:N",
+    "trip": "roundtrip"
+  }
+}

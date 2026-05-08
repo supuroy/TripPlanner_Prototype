@@ -61,6 +61,12 @@ export interface DestCard {
   itinerary_dirty?: boolean;
   /** Destination-scoped chat (expanded card conversation panel). */
   conversation?: ConversationMessage[];
+  /** User confirmed "Ready to Book" — enables flip to detailed booking view. */
+  readyToBook?: boolean;
+  /** When true, normal-view flight/hotel strips use live search summaries; otherwise planner ``budget_guidance`` bands. */
+  liveBookingEstimates?: boolean;
+  /** Optional explicit lodging outline for OTA booking (mirrors server ``booking_search_outline``). */
+  booking_search_outline?: { stays?: Array<{ area?: string; nights?: number; label?: string }> };
 }
 
 export interface ItinDay {
@@ -76,6 +82,14 @@ export interface FlightOption {
   duration: string;
   price: string;
   best?: boolean;
+  /** Expedia Flights-Search URL used for this snapshot (same as API ``search_url`` on the step). */
+  search_url?: string;
+  /** True when URL includes return leg (``leg2``) per trip end date. */
+  round_trip?: boolean;
+  /** Outbound vs return when using separate one-way searches (``flight_leg`` from API). */
+  leg?: "outbound" | "return";
+  /** UI-only: seeded itinerary placeholder before live result replacement. */
+  isPlaceholder?: boolean;
 }
 
 export interface HotelOption {
@@ -85,6 +99,10 @@ export interface HotelOption {
   nights: number;
   image: string;
   best?: boolean;
+  /** Expedia results URL when populated by live booking search. */
+  listing_url?: string;
+  /** UI-only: seeded itinerary placeholder before live result replacement. */
+  isPlaceholder?: boolean;
 }
 
 export interface ActivityOption {
@@ -179,6 +197,9 @@ interface TripStoreType {
 
   agentStatus: string;
   setAgentStatus: (s: string) => void;
+  /** Longer live line from planner SSE (thinking / assistant deltas); shown in the agent panel, not the input bar. */
+  agentStreamCaption: string;
+  setAgentStreamCaption: (s: string) => void;
   selectedDest: string | null;
   setSelectedDest: (id: string | null) => void;
   expandedDest: string | null;
@@ -433,6 +454,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [insights, setInsights] = useState<AgentInsight[]>([]);
   const [responses, setResponses] = useState<AgentResponse[]>([]);
   const [agentStatus, setAgentStatus] = useState("");
+  const [agentStreamCaption, setAgentStreamCaption] = useState("");
   const [selectedDest, setSelectedDest] = useState<string | null>(null);
   const [expandedDest, setExpandedDest] = useState<string | null>(null);
   const [isCanvasCollapsed, setIsCanvasCollapsed] = useState(false);
@@ -627,6 +649,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         resolveConversationWebSearchCta,
         getConversation,
         agentStatus, setAgentStatus,
+        agentStreamCaption, setAgentStreamCaption,
         selectedDest, setSelectedDest,
         expandedDest, setExpandedDest,
         isCanvasCollapsed,

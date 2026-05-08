@@ -120,6 +120,7 @@ export function CommandBar() {
     setProfile,
     setDestinations,
     setAgentStatus,
+    setAgentStreamCaption,
     hasStarted,
     setHasStarted,
     destinations,
@@ -137,7 +138,6 @@ export function CommandBar() {
     queuePlanReviewAfterItineraries,
   } = useTrip();
   const [input, setInput] = useState("");
-  const [streamCaption, setStreamCaption] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const streamDraftRef = useRef({ text: "" });
@@ -165,7 +165,7 @@ export function CommandBar() {
       setAgentStatus("Refining with AI…");
       streamDraftRef.current = { text: "" };
       thinkingDraftRef.current = { text: "" };
-      setStreamCaption("Starting refine…");
+      setAgentStreamCaption("Starting refine…");
       try {
         setWanderlyTurnTrace(newWanderlyTraceId());
         const prior = priorDestinations;
@@ -187,7 +187,7 @@ export function CommandBar() {
                 if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
               }
               const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
-              if (cap) setStreamCaption(cap);
+              if (cap) setAgentStreamCaption(cap);
             });
         if (out.session_id) setSessionId(out.session_id);
         const inv = explainItineraryInvalidate(text, priorProfile, out.wanderly.profile_pills);
@@ -233,7 +233,7 @@ export function CommandBar() {
         setWanderlyTurnTrace(null);
         setPhase("complete");
         setAgentStatus("");
-        setStreamCaption("");
+        setAgentStreamCaption("");
       }
     },
     [
@@ -241,6 +241,7 @@ export function CommandBar() {
       setSessionId,
       setPhase,
       setAgentStatus,
+      setAgentStreamCaption,
       setProfile,
       setDestinations,
       addResponse,
@@ -285,7 +286,7 @@ export function CommandBar() {
     setAgentStatus(useGeminiFirst ? "Running travel planner…" : "Calling Cursor agent…");
     streamDraftRef.current = { text: "" };
     thinkingDraftRef.current = { text: "" };
-    setStreamCaption(useGeminiFirst ? "Running full planner (may take a few minutes)…" : "Getting your trip ready…");
+    setAgentStreamCaption(useGeminiFirst ? "Running full planner (may take a few minutes)…" : "Getting your trip ready…");
     try {
       setWanderlyTurnTrace(newWanderlyTraceId());
       if (useGeminiFirst) {
@@ -331,7 +332,7 @@ export function CommandBar() {
             if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
           }
           const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
-          if (cap) setStreamCaption(cap);
+          if (cap) setAgentStreamCaption(cap);
         });
         if (out.session_id) setSessionId(out.session_id);
         applyWanderlyWorkspace(out.wanderly, {
@@ -368,7 +369,7 @@ export function CommandBar() {
       setWanderlyTurnTrace(null);
       setPhase("complete");
       setAgentStatus("");
-      setStreamCaption("");
+      setAgentStreamCaption("");
     }
   };
 
@@ -381,10 +382,7 @@ export function CommandBar() {
 
   const inputPlaceholder = (() => {
     if (isWorking) {
-      return (
-        streamCaption ||
-        (phase === "refining" ? "Adjusting your shortlist…" : "Working with Cursor…")
-      );
+      return phase === "refining" ? "Refining your trip…" : "Working…";
     }
     return hasStarted ? "Tell me what to change or refine..." : "Describe your dream trip...";
   })();
@@ -449,7 +447,6 @@ export function CommandBar() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
               placeholder={inputPlaceholder}
-              title={isWorking && streamCaption ? streamCaption : undefined}
               aria-busy={isWorking}
               className="flex-1 bg-transparent text-white/90 placeholder:text-white/25 outline-none text-[15px]"
               disabled={phase === "thinking" || phase === "streaming" || phase === "refining"}

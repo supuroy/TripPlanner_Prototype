@@ -67,6 +67,56 @@ def chat_context_snippet(session_id: str, max_messages: int = 6, *, max_chars: i
     return out[-cap:]
 
 
+def set_booking_hotels_plan(session_id: str, destination_id: str, hotels: list[dict[str, Any]]) -> None:
+    """Cache multi-stay rows from ``booking_search_prepare`` for subsequent ``booking_search_step`` calls."""
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return
+    s = get_session(sid)
+    plans = s.setdefault("booking_hotels_plans", {})
+    if isinstance(plans, dict):
+        plans[did] = [x for x in hotels if isinstance(x, dict)]
+
+
+def get_booking_hotels_plan(session_id: str, destination_id: str) -> list[dict[str, Any]] | None:
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return None
+    s = get_session(sid)
+    plans = s.get("booking_hotels_plans")
+    if not isinstance(plans, dict):
+        return None
+    raw = plans.get(did)
+    return raw if isinstance(raw, list) else None
+
+
+def set_booking_search_intent(session_id: str, destination_id: str, intent: dict[str, Any]) -> None:
+    """Cache LLM-derived booking URL intent params from prepare for step reuse."""
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did or not isinstance(intent, dict):
+        return
+    s = get_session(sid)
+    intents = s.setdefault("booking_search_intents", {})
+    if isinstance(intents, dict):
+        intents[did] = dict(intent)
+
+
+def get_booking_search_intent(session_id: str, destination_id: str) -> dict[str, Any] | None:
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return None
+    s = get_session(sid)
+    intents = s.get("booking_search_intents")
+    if not isinstance(intents, dict):
+        return None
+    raw = intents.get(did)
+    return raw if isinstance(raw, dict) else None
+
+
 def snapshot_destinations_for_model(session_id: str) -> list[dict[str, Any]]:
     """Prefer client-synced cards (pin/dismiss) for refine context; else last model list."""
     s = get_session(session_id)
