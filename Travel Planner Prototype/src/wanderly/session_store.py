@@ -41,12 +41,30 @@ def snapshot_profile_pills(session_id: str) -> list[dict[str, Any]]:
     return [x for x in raw if isinstance(x, dict)]
 
 
-def chat_context_snippet(session_id: str, max_messages: int = 6) -> str:
+def chat_context_snippet(session_id: str, max_messages: int = 6, *, max_chars: int = 4500) -> str:
+    """
+    Recent chat for advisor / refine context. Drops consecutive duplicate lines (model retries),
+    then trims to ``max_chars`` from the start when oversized (keeps most recent by trimming oldest).
+    """
     s = get_session(session_id)
     lines: list[str] = []
     for m in s["chat"][-max_messages:]:
-        lines.append(f"{m['role']}: {m['text']}")
-    return "\n".join(lines) if lines else "(no prior turns)"
+        role = str(m.get("role") or "?")
+        text = str(m.get("text") or "").strip()
+        if not text:
+            continue
+        seg = f"{role}: {text}"
+        if lines and lines[-1] == seg:
+            continue
+        lines.append(seg)
+    out = "\n".join(lines)
+    if not out:
+        return "(no prior turns)"
+    cap = max(512, int(max_chars))
+    if len(out) <= cap:
+        return out
+    # Prioritize recent turns: keep suffix within budget (prior_chat most often ends with user ask).
+    return out[-cap:]
 
 
 def snapshot_destinations_for_model(session_id: str) -> list[dict[str, Any]]:

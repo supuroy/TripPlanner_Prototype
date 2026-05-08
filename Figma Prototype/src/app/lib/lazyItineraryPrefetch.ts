@@ -149,7 +149,13 @@ export function scheduleWorkspaceItineraryPrefetch(opts: {
         d.itinerary_dirty === true &&
         (!ex || String(d.id) !== String(ex)),
     )
-    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+    .sort((a, b) => {
+      const pb = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+      if (pb !== 0) return pb;
+      const sb = (Number(b.score) || 0) - (Number(a.score) || 0);
+      if (sb !== 0) return sb;
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
   if (targets.length === 0) return;
   const delayMs = opts.delayMs ?? 450;
   logItin("background_prefetch_scheduled", {
@@ -189,7 +195,13 @@ export function scheduleCardsItineraryPrefetch(opts: {
         d.itinerary_dirty === true &&
         (!ex || String(d.id) !== String(ex)),
     )
-    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+    .sort((a, b) => {
+      const pb = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+      if (pb !== 0) return pb;
+      const sb = (Number(b.score) || 0) - (Number(a.score) || 0);
+      if (sb !== 0) return sb;
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
   if (targets.length === 0) return;
   const delayMs = opts.delayMs ?? 600;
   logItin("background_prefetch_scheduled", {

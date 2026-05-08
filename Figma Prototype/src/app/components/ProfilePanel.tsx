@@ -831,7 +831,10 @@ function InsightCard({
 export function ProfilePanel() {
   const { profile, insights, dismissInsight } = useTrip();
   const { executeAction } = useActionExecutor();
-  const activeInsights = insights.filter((i) => !i.dismissed).slice(-5);
+  const activeInsights = insights
+    .filter((i) => !i.dismissed)
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, 5);
 
   if (profile.length === 0) return null;
 

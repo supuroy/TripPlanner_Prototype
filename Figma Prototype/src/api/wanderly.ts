@@ -319,16 +319,26 @@ export async function profileChangeAdvisor(args: {
 export async function advisorFeed(
   sessionId: string,
   message: string,
-  opts?: { focusDestinationId?: string },
+  opts?: { focusDestinationId?: string; runWebSearch?: boolean; searchQuery?: string },
 ) {
   const body: Record<string, unknown> = { session_id: sessionId, message };
   const fid = opts?.focusDestinationId?.trim();
   if (fid) body.focus_destination_id = fid;
+  if (opts?.runWebSearch) {
+    body.run_web_search = true;
+    body.search_query = (opts.searchQuery || "").trim();
+  }
   return apiFetch<{
     advisor_suggestion: Record<string, unknown>;
     feed_markdown: string;
     /** When set, card UI can offer “Yes” to run the main planner with this prompt (no /trip prefix). */
     refine_prompt?: string | null;
+    /** Model could not ground the answer in trip JSON; UI may offer opening a web search (no extra API until user acts). */
+    offer_web_search?: boolean;
+    suggested_search_query?: string | null;
+    /** Server ran Tavily/Brave + a second advisor pass (only when ``runWebSearch`` was sent). */
+    web_search_used?: boolean;
+    web_sources?: { title: string; url: string }[];
     wanderly: WanderlyWorkspaceDTO;
   }>("/api/wanderly/advisor_feed", {
     method: "POST",

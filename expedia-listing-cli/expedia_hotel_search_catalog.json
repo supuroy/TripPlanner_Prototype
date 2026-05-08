@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "extracted_from_url": "https://www.expedia.com/Hotel-Search?destination=Las%20Vegas%2C%20Nevada%2C%20United%20States%20of%20America&regionId=2008&flexibility=0_DAY&d1=2026-05-07&startDate=2026-05-07&d2=2026-05-09&endDate=2026-05-09&adults=2&rooms=1&typeaheadCollationId=f3bfefe9-64bb-4019-9169-c3cf60b5995d&sort=RECOMMENDED&theme=&userIntent=&semdtl=&categorySearch=any_option&useRewards=false&star=50&star=40&mealPlan=FREE_BREAKFAST&amenities=PETS&lodging=HOTEL&guestRating=40&price=400&price=600&travelerType=family_friendly",
+  "parsed_at": "2026-05-07T23:59:37Z",
+  "base_url": "https://www.expedia.com",
+  "path": "/Hotel-Search",
+  "query_param_pairs": [
+    [
+      "destination",
+      "Las Vegas, Nevada, United States of America"
+    ],
+    [
+      "regionId",
+      "2008"
+    ],
+    [
+      "flexibility",
+      "0_DAY"
+    ],
+    [
+      "d1",
+      "2026-05-07"
+    ],
+    [
+      "startDate",
+      "2026-05-07"
+    ],
+    [
+      "d2",
+      "2026-05-09"
+    ],
+    [
+      "endDate",
+      "2026-05-09"
+    ],
+    [
+      "adults",
+      "2"
+    ],
+    [
+      "rooms",
+      "1"
+    ],
+    [
+      "typeaheadCollationId",
+      "f3bfefe9-64bb-4019-9169-c3cf60b5995d"
+    ],
+    [
+      "sort",
+      "RECOMMENDED"
+    ],
+    [
+      "theme",
+      ""
+    ],
+    [
+      "userIntent",
+      ""
+    ],
+    [
+      "semdtl",
+      ""
+    ],
+    [
+      "categorySearch",
+      "any_option"
+    ],
+    [
+      "useRewards",
+      "false"
+    ],
+    [
+      "star",
+      "50"
+    ],
+    [
+      "star",
+      "40"
+    ],
+    [
+      "mealPlan",
+      "FREE_BREAKFAST"
+    ],
+    [
+      "amenities",
+      "PETS"
+    ],
+    [
+      "lodging",
+      "HOTEL"
+    ],
+    [
+      "guestRating",
+      "40"
+    ],
+    [
+      "price",
+      "400"
+    ],
+    [
+      "price",
+      "600"
+    ],
+    [
+      "travelerType",
+      "family_friendly"
+    ]
+  ],
+  "query_params": {
+    "destination": "Las Vegas, Nevada, United States of America",
+    "regionId": "2008",
+    "flexibility": "0_DAY",
+    "d1": "2026-05-07",
+    "startDate": "2026-05-07",
+    "d2": "2026-05-09",
+    "endDate": "2026-05-09",
+    "adults": "2",
+    "rooms": "1",
+    "typeaheadCollationId": "f3bfefe9-64bb-4019-9169-c3cf60b5995d",
+    "sort": "RECOMMENDED",
+    "theme": "",
+    "userIntent": "",
+    "semdtl": "",
+    "categorySearch": "any_option",
+    "useRewards": "false",
+    "star": "40",
+    "mealPlan": "FREE_BREAKFAST",
+    "amenities": "PETS",
+    "lodging": "HOTEL",
+    "guestRating": "40",
+    "price": "600",
+    "travelerType": "family_friendly"
+  }
+}

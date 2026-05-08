@@ -719,25 +719,58 @@ def run_web_server(
                     return
 
                 if path == "/api/wanderly/advisor_feed":
+                    from src.wanderly.web_search_snippets import fetch_web_search_snippets
+
                     msg = (payload.get("message") or "").strip()
                     sid = (payload.get("session_id") or "").strip()
                     focus_dest = (payload.get("focus_destination_id") or "").strip()
+                    run_web_search = bool(payload.get("run_web_search"))
+                    sq_in = str(payload.get("search_query") or "").strip()[:500]
+                    if run_web_search and not msg and sq_in:
+                        msg = sq_in
                     log_itinerary_build(
-                        f"BEGIN path=http.advisor_feed sid={sid[:12]!r} focus={focus_dest[:24]!r} msg_chars={len(msg)}"
+                        f"BEGIN path=http.advisor_feed sid={sid[:12]!r} focus={focus_dest[:24]!r} "
+                        f"msg_chars={len(msg)} run_web_search={int(run_web_search)}"
                     )
                     try:
                         pills: list = []
                         dests: list = []
+                        web_used = False
+                        web_sources: list[dict[str, str]] = []
                         if sid:
                             pills = snapshot_profile_pills(sid)
                             dests = snapshot_destinations_for_model(sid)
-                        chat_out = run_advisor_chat_cursor(
-                            user_message=msg,
-                            profile_pills=pills,
-                            destinations=dests,
-                            session_id=sid or None,
-                            focus_destination_id=focus_dest or None,
-                        )
+                        if run_web_search and sq_in:
+                            snips = fetch_web_search_snippets(sq_in)
+                            web_sources = [{"title": x.get("title", ""), "url": x.get("url", "")} for x in snips]
+                            if snips:
+                                web_used = True
+                                chat_out = run_advisor_chat_cursor(
+                                    user_message=msg,
+                                    profile_pills=pills,
+                                    destinations=dests,
+                                    session_id=sid or None,
+                                    focus_destination_id=focus_dest or None,
+                                    web_snippets=snips,
+                                )
+                            else:
+                                chat_out = {
+                                    "assistant_markdown": (
+                                        "Web search returned no snippets. Set **TAVILY_API_KEY** or **BRAVE_SEARCH_API_KEY** "
+                                        "in the Travel Planner environment and restart the server — or use **Open in browser** below."
+                                    ),
+                                    "refine_prompt": None,
+                                    "offer_web_search": False,
+                                    "suggested_search_query": None,
+                                }
+                        else:
+                            chat_out = run_advisor_chat_cursor(
+                                user_message=msg,
+                                profile_pills=pills,
+                                destinations=dests,
+                                session_id=sid or None,
+                                focus_destination_id=focus_dest or None,
+                            )
                         md = str(chat_out.get("assistant_markdown") or "").strip()
                         ref_raw = chat_out.get("refine_prompt")
                         refine_prompt = (
@@ -745,9 +778,23 @@ def run_web_server(
                             if isinstance(ref_raw, str) and str(ref_raw).strip().lower() not in ("null", "none")
                             else None
                         )
+                        offer_search = bool(chat_out.get("offer_web_search"))
+                        sq_raw = chat_out.get("suggested_search_query")
+                        suggested_search_query = (
+                            str(sq_raw).strip()[:500]
+                            if isinstance(sq_raw, str) and str(sq_raw).strip().lower() not in ("null", "none")
+                            else None
+                        )
+                        if offer_search and not suggested_search_query:
+                            offer_search = False
+                        if run_web_search:
+                            offer_search = False
+                            suggested_search_query = None
                         sug = {
                             "assistant_message": md,
                             "refine_prompt": refine_prompt,
+                            "offer_web_search": offer_search,
+                            "suggested_search_query": suggested_search_query,
                             "primary_recommendation": {"action": "none", "why": "Cursor advisor (cheap model) reply."},
                             "model": "cursor_advisor",
                         }
@@ -761,6 +808,10 @@ def run_web_server(
                                 "advisor_suggestion": sug,
                                 "feed_markdown": md or "Advisor updated.",
                                 "refine_prompt": refine_prompt,
+                                "offer_web_search": offer_search,
+                                "suggested_search_query": suggested_search_query,
+                                "web_search_used": web_used if run_web_search else False,
+                                "web_sources": web_sources if run_web_search else [],
                                 "wanderly": wanderly,
                             },
                             status=200,

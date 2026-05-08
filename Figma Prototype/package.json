@@ -6,7 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test e2e/smoke.spec.ts",
+    "test:e2e:comprehensive": "playwright test e2e/comprehensive.spec.ts",
+    "test:e2e:wave2": "playwright test e2e/wave2-integrations.spec.ts",
+    "test:e2e:perf": "playwright test --config=playwright.perf.config.ts",
+    "test:e2e:analyze": "node e2e/perf/scripts/analyze-timeline.mjs",
+    "perf:analyze": "node e2e/perf/scripts/analyze-timeline.mjs",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -66,6 +75,7 @@
     "vaul": "1.1.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
     "react": "18.3.1",

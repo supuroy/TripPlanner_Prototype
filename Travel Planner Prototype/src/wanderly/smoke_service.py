@@ -42,35 +42,27 @@ def _refine_model_persist_kwargs(session_id: str, *, trace_path: str) -> tuple[s
     return None, cursor_run_persist_kwargs(session_id, None, trace_path=trace_path)
 
 _JSON_INSTRUCTIONS = """
-You are Wanderly's travel planning assistant. Answer ONLY with a single JSON object
-(no prose before or after the JSON). Use this exact top-level shape:
+You are Wanderly's planner. Reply with ONE JSON object only (no markdown fences, no prose outside JSON).
+Shape:
 {
-  "assistant_markdown": "string in markdown — warm summary for the traveler",
+  "assistant_markdown": "markdown summary for the traveler",
   "profile_pills": [
-    {"key": "when", "label": "When", "value": "short text", "icon": "📅", "editable": true},
-    {"key": "who", "label": "Who", "value": "short text", "icon": "👥", "editable": true},
-    {"key": "from", "label": "Flying from", "value": "City or airport (e.g. Seattle (SEA))", "icon": "✈️", "editable": true},
-    {"key": "vibe", "label": "Vibe", "value": "short text", "icon": "✨", "editable": true},
-    {"key": "budget", "label": "Budget", "value": "short text", "icon": "💰", "editable": true},
-    {"key": "duration", "label": "Duration", "value": "short text", "icon": "⏱", "editable": true}
+    {"key": "when", "label": "When", "value": "short", "icon": "📅", "editable": true},
+    {"key": "who", "label": "Who", "value": "short", "icon": "👥", "editable": true},
+    {"key": "from", "label": "Flying from", "value": "City or airport", "icon": "✈️", "editable": true},
+    {"key": "vibe", "label": "Vibe", "value": "short", "icon": "✨", "editable": true},
+    {"key": "budget", "label": "Budget", "value": "short", "icon": "💰", "editable": true},
+    {"key": "duration", "label": "Duration", "value": "short", "icon": "⏱", "editable": true}
   ],
-  "destinations": [
-    {
-      "id": "lowercase-slug",
-      "name": "City or region",
-      "country": "Country",
-      "hook": "One-line pitch",
-      "score": 0
-    }
-  ]
+  "destinations": [{"id": "slug", "name": "…", "country": "…", "hook": "one line", "score": 0}]
 }
 Rules:
-- 1 to 5 destinations; scores are integers 0–100.
-- Return profile_pills with exactly these six keys in order: when, who, from, vibe, budget, duration (placeholders ok). A fast companion pass may refine them — prioritize assistant_markdown and destinations.
-- Do **not** include a ``tags`` pill (the app does not persist tags on the traveler profile). Put any extra nuance into the six pills or assistant_markdown.
-- If the user names a home city or airport (e.g. "flying from Seattle", "SEA"), set profile_pills key "from" accordingly.
-- Infer reasonable pills from the user message; use placeholders if unknown.
-- Do not claim real-time flight or hotel prices.
+- 1–5 destinations; scores 0–100 integers.
+- profile_pills: exactly those six keys in that order (placeholders ok). Companion pass may refine pills — prioritize assistant_markdown + destinations.
+- No ``tags`` pill; extra nuance → pills or assistant_markdown.
+- Home airport / "from Seattle" / "SEA" → set key "from".
+- Infer from the user message; placeholders if unknown.
+- No live fares or availability claims.
 """.strip()
 
 
@@ -379,15 +371,17 @@ def _complete_smoke_turn(session_id: str, user_message: str, raw_text: str) -> d
 def run_smoke_turn(user_message: str, session_id: str) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
-    prompt = _JSON_INSTRUCTIONS + "\n\nUser request:\n" + user_message
+    um = (user_message or "").strip()
+    prompt = _JSON_INSTRUCTIONS + "\n\nUser request:\n" + um
     fut: concurrent.futures.Future | None = None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+    # max_workers=2: advisor uses lane ``profile_listener``; main smoke uses ``planner`` — independent locks.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
         if advisor_model_id():
             fut = ex.submit(
                 run_profile_listener_cursor,
-                user_message=user_message,
+                user_message=um,
                 prior_pills=snapshot_profile_pills(session_id),
-                prior_chat_snippet=chat_context_snippet(session_id, max_messages=8),
+                prior_chat_snippet=chat_context_snippet(session_id, max_messages=6),
                 workspace_destinations_summary=[],
                 session_id=session_id,
             )
@@ -408,7 +402,8 @@ def run_smoke_turn_streaming(
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
-    prompt = _JSON_INSTRUCTIONS + "\n\nUser request:\n" + user_message
+    um = (user_message or "").strip()
+    prompt = _JSON_INSTRUCTIONS + "\n\nUser request:\n" + um
     emit_lock = threading.Lock()
 
     def safe_emit(obj: dict[str, Any]) -> None:
@@ -416,15 +411,19 @@ def run_smoke_turn_streaming(
             with emit_lock:
                 emit(obj)
 
+    if emit:
+        safe_emit({"type": "phase", "message": "Starting planner…"})
     fut: concurrent.futures.Future | None = None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+    # Advisor lane (profile_listener) is separate from main planner lane — runs in parallel when enabled.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
         if advisor_model_id():
+            safe_emit({"type": "phase", "message": "Sidebar advisor running in parallel…"})
 
             def _listener() -> tuple[list[dict[str, Any]], str | None]:
                 return run_profile_listener_cursor(
-                    user_message=user_message,
+                    user_message=um,
                     prior_pills=snapshot_profile_pills(session_id),
-                    prior_chat_snippet=chat_context_snippet(session_id, max_messages=8),
+                    prior_chat_snippet=chat_context_snippet(session_id, max_messages=6),
                     workspace_destinations_summary=[],
                     session_id=session_id,
                 )
@@ -491,27 +490,26 @@ def run_refine_turn(user_message: str, session_id: str) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
     prior_dests = snapshot_destinations_for_model(session_id)
-    chat = chat_context_snippet(session_id, max_messages=8)
+    chat = chat_context_snippet(session_id, max_messages=6)
     context = json.dumps(
-        {
-            "prior_chat": chat,
-            "workspace_destinations": prior_dests,
-        },
-        indent=2,
+        {"prior_chat": chat, "workspace_destinations": prior_dests},
+        ensure_ascii=True,
+        separators=(",", ":"),
     )
+    um = (user_message or "").strip()
     prompt = (
         _REFINE_INSTRUCTIONS
         + "\n"
         + context
         + "\n\nUser refinement:\n"
-        + user_message
+        + um
     )
     fut: concurrent.futures.Future | None = None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
         if advisor_model_id():
             fut = ex.submit(
                 run_profile_listener_cursor,
-                user_message=user_message,
+                user_message=um,
                 prior_pills=snapshot_profile_pills(session_id),
                 prior_chat_snippet=chat,
                 workspace_destinations_summary=prior_dests,
@@ -522,7 +520,7 @@ def run_refine_turn(user_message: str, session_id: str) -> dict[str, Any]:
             raw_text = run_prompt_collect_assistant_text(
                 client, prompt, model_id_override=mod, **persist
             )
-        out = _complete_refine_turn(session_id, user_message, raw_text, prior_dests)
+        out = _complete_refine_turn(session_id, um, raw_text, prior_dests)
         return _maybe_merge_advisor_profile(session_id, out, fut)
 
 
@@ -534,20 +532,19 @@ def run_refine_turn_streaming(
     load_env_from_roots()
     key = get_api_key()
     prior_dests = snapshot_destinations_for_model(session_id)
-    chat = chat_context_snippet(session_id, max_messages=8)
+    chat = chat_context_snippet(session_id, max_messages=6)
     context = json.dumps(
-        {
-            "prior_chat": chat,
-            "workspace_destinations": prior_dests,
-        },
-        indent=2,
+        {"prior_chat": chat, "workspace_destinations": prior_dests},
+        ensure_ascii=True,
+        separators=(",", ":"),
     )
+    um = (user_message or "").strip()
     prompt = (
         _REFINE_INSTRUCTIONS
         + "\n"
         + context
         + "\n\nUser refinement:\n"
-        + user_message
+        + um
     )
     emit_lock = threading.Lock()
 
@@ -557,12 +554,12 @@ def run_refine_turn_streaming(
                 emit(obj)
 
     fut: concurrent.futures.Future | None = None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
         if advisor_model_id():
 
             def _listener() -> tuple[list[dict[str, Any]], str | None]:
                 return run_profile_listener_cursor(
-                    user_message=user_message,
+                    user_message=um,
                     prior_pills=snapshot_profile_pills(session_id),
                     prior_chat_snippet=chat,
                     workspace_destinations_summary=prior_dests,
@@ -598,5 +595,5 @@ def run_refine_turn_streaming(
             )
         if emit:
             safe_emit({"type": "phase", "message": "Parsing JSON and merging pins…"})
-        out = _complete_refine_turn(session_id, user_message, raw_text, prior_dests)
+        out = _complete_refine_turn(session_id, um, raw_text, prior_dests)
         return _maybe_merge_advisor_profile(session_id, out, fut)

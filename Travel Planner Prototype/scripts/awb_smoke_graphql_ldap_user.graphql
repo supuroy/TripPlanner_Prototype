@@ -1,0 +1,28 @@
+query LdapUser($where: LdapUserWhereUniqueInput!) {
+  ldapUser(where: $where) {
+    ...BasicLdapUserFields
+    __typename
+  }
+}
+fragment BasicLdapUserFields on LdapUser {
+  id
+  displayName
+  sAMAccountName
+  domain
+  division {
+    id
+    name
+    __typename
+  }
+  department {
+    id
+    name
+    __typename
+  }
+  businessTitle {
+    id
+    name
+    __typename
+  }
+  __typename
+}

@@ -614,6 +614,7 @@ def run_prompt_collect_assistant_text_streaming(
         )
         _emit({"type": "phase", "message": "Exploring destinations and tradeoffs for you…"})
         time.sleep(1.0)
+        _emit({"type": "phase", "message": "Generating structured recommendations…"})
         last_err: Exception | None = None
         for attempt in range(8):
             try:

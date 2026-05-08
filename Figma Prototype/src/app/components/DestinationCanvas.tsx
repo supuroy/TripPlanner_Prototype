@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
@@ -30,6 +30,21 @@ const VIBE_COLORS: Record<string, string> = {
   Art: "bg-rose-500/20 text-rose-300",
   Adventure: "bg-green-500/20 text-green-300",
 };
+
+/** Renders ``**inline**`` as bold (same convention as advisor cards / chat). */
+function renderHookWithBold(text: string): ReactNode {
+  if (!text.includes("**")) return text;
+  const parts = text.split(/\*\*(.*?)\*\*/g);
+  return parts.map((part, j) =>
+    j % 2 === 1 ? (
+      <strong key={j} className="font-semibold text-white/80">
+        {part}
+      </strong>
+    ) : (
+      <span key={j}>{part}</span>
+    ),
+  );
+}
 
 type ExpandedItinErrorKind = "empty_response" | "request_failed";
 
@@ -822,7 +837,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           )}
 
           <div className="flex items-center justify-between">
-            <p className="text-[13px] text-white/50 leading-relaxed max-w-md">{dest.hook}</p>
+            <p className="text-[13px] text-white/50 leading-relaxed max-w-md">{renderHookWithBold(dest.hook)}</p>
             <button
               onClick={() => setExpandedDest(null)}
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[11px] text-white/30 hover:text-white/50 transition-colors shrink-0"
@@ -869,7 +884,10 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6">
                 <div>
                   {itinLoading ? (
-                    <div className="mt-4 min-h-[120px] flex flex-col rounded-xl border border-white/[0.06] bg-white/[0.02]">
+                    <div
+                      data-testid="expanded-itinerary-loading"
+                      className="mt-4 min-h-[120px] flex flex-col rounded-xl border border-white/[0.06] bg-white/[0.02]"
+                    >
                       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.05]">
                         <Loader2 className="w-4 h-4 animate-spin shrink-0 text-indigo-400/80" aria-hidden />
                         <span className="text-[12px] text-white/45">Building itinerary</span>
@@ -1024,6 +1042,8 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
   return (
     <motion.div
       layout
+      data-testid="destination-grid-card"
+      data-destination-id={dest.id}
       initial={{ opacity: 0, y: 30, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9, y: -20 }}
@@ -1100,14 +1120,14 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
 
         {/* Name overlay */}
         <div className="absolute bottom-3 left-3 right-3">
-          <h3 className="text-[16px] text-white sm:text-[18px]">{dest.name}</h3>
+          <h3 data-testid="destination-name" className="text-[16px] text-white sm:text-[18px]">{dest.name}</h3>
           <p className="text-[11px] text-white/50 sm:text-[12px]">{dest.country}</p>
         </div>
       </div>
 
       {/* Content */}
       <div className="p-3 sm:p-4">
-        <p className="text-[12px] leading-relaxed text-white/50 sm:text-[13px]">{dest.hook}</p>
+        <p className="text-[12px] leading-relaxed text-white/50 sm:text-[13px]">{renderHookWithBold(dest.hook)}</p>
 
         {/* Quick stats */}
         <div className="flex items-center gap-3 mt-3 text-[11px] text-white/30">

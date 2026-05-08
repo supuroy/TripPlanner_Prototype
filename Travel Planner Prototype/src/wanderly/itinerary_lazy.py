@@ -344,6 +344,17 @@ def _itin_reuse_hint(session_id: str | None, light: str | None, destination_id: 
     return f"reuse_lane={lane} existing_agent=(none)"
 
 
+def _vibe_list_for_prompt(raw: object) -> list[str]:
+    """Cap vibe tokens — cards may carry long arrays from enrichment."""
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for x in raw[:8]:
+        if isinstance(x, str) and x.strip():
+            out.append(x.strip()[:48])
+    return out
+
+
 def _itinerary_prompt_and_days(
     *,
     destination: dict[str, Any],
@@ -351,18 +362,20 @@ def _itinerary_prompt_and_days(
     days: int,
 ) -> tuple[str, int]:
     n = max(3, min(int(days), 14))
+    hook = str(destination.get("hook") or "").strip()
     ctx = json.dumps(
         {
             "destination": {
                 "id": destination.get("id"),
                 "name": destination.get("name"),
                 "country": destination.get("country"),
-                "hook": destination.get("hook"),
-                "vibe": destination.get("vibe"),
+                "hook": hook[:320],
+                "vibe": _vibe_list_for_prompt(destination.get("vibe")),
             },
             "profile_pills": profile_pills[:24],
         },
         ensure_ascii=True,
+        separators=(",", ":"),
     )
     prompt = _ITINERARY_PROMPT + f" {n}\n\nContext JSON:\n{ctx}"
     return prompt, n

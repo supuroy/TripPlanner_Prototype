@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "motion/react";
-import { Send, X, MessageSquare, ChevronDown, Sparkles } from "lucide-react";
+import { Send, X, MessageSquare, ChevronDown, Sparkles, Globe, Loader2 } from "lucide-react";
 import { advisorFeed } from "../../api/wanderly";
 import { renderInlineBold } from "../lib/markdownBold";
 import { logItin } from "../lib/itineraryDebug";
@@ -30,6 +30,10 @@ interface ConversationPanelProps {
  * Detect messages that should run the real workspace refine (same as CommandBar)
  * vs lightweight Q&A (cheap advisor API with offline fallback).
  */
+function googleSearchUrl(query: string): string {
+  return `https://www.google.com/search?q=${encodeURIComponent(query.trim())}`;
+}
+
 function wantsWorkspaceRefine(raw: string): boolean {
   const t = raw.trim().toLowerCase();
   if (!t) return false;
@@ -61,6 +65,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     getConversation,
     addConversationMessage,
     resolveConversationRefineCta,
+    resolveConversationWebSearchCta,
     setPendingRefineText,
     phase,
     sessionId,
@@ -72,6 +77,9 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
   const replyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refineAwaitingReplyRef = useRef(false);
   const sawRefiningPhaseRef = useRef(false);
+  /** Last non-refine user line sent on this card (used when running server web lookup). */
+  const lastCardUserQuestionRef = useRef("");
+  const [webLookupMessageId, setWebLookupMessageId] = useState<string | null>(null);
   const conversation = getConversation(destId);
 
   const globalBusy =
@@ -111,6 +119,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
 
     const userMessage = input.trim();
     setInput("");
+    lastCardUserQuestionRef.current = userMessage;
 
     addConversationMessage(destId, "user", userMessage);
 
@@ -167,7 +176,12 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           return;
         }
         const out = await advisorFeed(sid, userMessage, { focusDestinationId: destId });
-        const sug = out.advisor_suggestion as { assistant_message?: string; refine_prompt?: string | null } | undefined;
+        const sug = out.advisor_suggestion as {
+          assistant_message?: string;
+          refine_prompt?: string | null;
+          offer_web_search?: boolean;
+          suggested_search_query?: string | null;
+        } | undefined;
         const md = String(out.feed_markdown || sug?.assistant_message || "").trim();
         if (!md) {
           addConversationMessage(destId, "agent", generateMockResponse(userMessage, destName));
@@ -177,7 +191,18 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           (typeof out.refine_prompt === "string" && out.refine_prompt.trim()) ||
           (typeof sug?.refine_prompt === "string" && sug.refine_prompt.trim()) ||
           undefined;
-        addConversationMessage(destId, "agent", md, refine ? { refinePrompt: refine } : undefined);
+        const offerRaw =
+          Boolean(out.offer_web_search) ||
+          Boolean(sug?.offer_web_search);
+        const sqRaw =
+          (typeof out.suggested_search_query === "string" && out.suggested_search_query.trim()) ||
+          (typeof sug?.suggested_search_query === "string" && sug.suggested_search_query.trim()) ||
+          "";
+        const offerSearch = offerRaw && sqRaw.length > 0;
+        addConversationMessage(destId, "agent", md, {
+          ...(refine ? { refinePrompt: refine } : {}),
+          ...(offerSearch ? { offerWebSearch: true, webSearchQuery: sqRaw } : {}),
+        });
       } catch (e) {
         const msg = (e as Error)?.message || String(e);
         addConversationMessage(
@@ -189,6 +214,42 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
         setIsTyping(false);
       }
     })();
+  };
+
+  const runServerWebLookup = async (msg: ConversationMessage) => {
+    const sid = sessionId?.trim();
+    const q = msg.webSearchQuery?.trim();
+    if (!sid || !q) return;
+    setWebLookupMessageId(msg.id);
+    try {
+      const userQ = lastCardUserQuestionRef.current.trim() || q;
+      const out = await advisorFeed(sid, userQ, {
+        focusDestinationId: destId,
+        runWebSearch: true,
+        searchQuery: q,
+      });
+      const md = String(out.feed_markdown || "").trim();
+      if (!md) {
+        addConversationMessage(destId, "agent", "Web lookup returned an empty answer. Try again or use Open in browser.");
+      } else {
+        let extra = "";
+        if (out.web_search_used && Array.isArray(out.web_sources) && out.web_sources.length) {
+          const lines = out.web_sources
+            .filter((s) => s?.url)
+            .slice(0, 4)
+            .map((s) => `• ${(s.title || "source").slice(0, 72)} — ${s.url}`);
+          if (lines.length) {
+            extra = `\n\n**Sources (web)**\n${lines.join("\n")}\n\n_Snippets were summarized by the model — verify important facts._`;
+          }
+        }
+        addConversationMessage(destId, "agent", md + extra);
+      }
+      resolveConversationWebSearchCta(destId, msg.id);
+    } catch (e) {
+      addConversationMessage(destId, "agent", `Web lookup failed: ${(e as Error)?.message || String(e)}`);
+    } finally {
+      setWebLookupMessageId(null);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -217,6 +278,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
         <MessageSquare className="w-4 h-4 text-white/30" />
         <input
           type="text"
+          data-testid="wanderly-card-chat-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -300,6 +362,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           <MessageSquare className="w-4 h-4 text-white/30" />
           <input
             type="text"
+            data-testid="wanderly-card-chat-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -400,6 +463,54 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
                       </div>
                     </div>
                   )}
+                  {msg.role === "agent" &&
+                    msg.offerWebSearch &&
+                    msg.webSearchQuery?.trim() &&
+                    !msg.webSearchCtaResolved &&
+                    !globalBusy && (
+                      <div className="mt-2 pt-2 border-t border-white/[0.08] space-y-1.5">
+                        <p className="text-[11px] text-white/45">
+                          This wasn&apos;t in your saved trip details. Wanderly can run a web search and summarize
+                          snippets (adds latency + needs Tavily or Brave keys on the server), or you can open your
+                          browser only.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={Boolean(webLookupMessageId) || !sessionId?.trim()}
+                            onClick={() => void runServerWebLookup(msg)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-500/25 text-[11px] text-emerald-200 hover:bg-emerald-500/35 border border-emerald-500/30 disabled:opacity-40"
+                          >
+                            {webLookupMessageId === msg.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3 h-3" />
+                            )}
+                            Look it up (Wanderly)
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(webLookupMessageId)}
+                            onClick={() => {
+                              window.open(googleSearchUrl(msg.webSearchQuery!), "_blank", "noopener,noreferrer");
+                              resolveConversationWebSearchCta(destId, msg.id);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white/[0.08] text-[11px] text-white/70 hover:bg-white/[0.12] disabled:opacity-40"
+                          >
+                            <Globe className="w-3 h-3" />
+                            Open in browser
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(webLookupMessageId)}
+                            onClick={() => resolveConversationWebSearchCta(destId, msg.id)}
+                            className="px-2.5 py-1 rounded-md bg-white/[0.06] text-[11px] text-white/55 hover:bg-white/[0.1] disabled:opacity-40"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                    )}
                 </div>
               </motion.div>
             ))}
@@ -431,6 +542,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
       <div className="border-t border-white/[0.06] px-4 py-3 bg-black/10">
         <div className="flex items-end gap-2">
           <textarea
+            data-testid="wanderly-card-chat-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}

@@ -26,6 +26,10 @@ export interface ConversationMessage {
   refinePrompt?: string;
   /** User chose Yes (refine queued) or Not now. */
   refineCtaResolved?: boolean;
+  /** Advisor admitted missing facts in JSON; UI can offer opening a browser search (no server web API). */
+  offerWebSearch?: boolean;
+  webSearchQuery?: string;
+  webSearchCtaResolved?: boolean;
 }
 
 export interface DestCard {
@@ -167,9 +171,10 @@ interface TripStoreType {
     destId: string,
     role: "user" | "agent",
     text: string,
-    opts?: { refinePrompt?: string },
+    opts?: { refinePrompt?: string; offerWebSearch?: boolean; webSearchQuery?: string },
   ) => void;
   resolveConversationRefineCta: (destId: string, messageId: string) => void;
+  resolveConversationWebSearchCta: (destId: string, messageId: string) => void;
   getConversation: (destId: string) => ConversationMessage[];
 
   agentStatus: string;
@@ -504,8 +509,15 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addConversationMessage = useCallback(
-    (destId: string, role: "user" | "agent", text: string, opts?: { refinePrompt?: string }) => {
+    (
+      destId: string,
+      role: "user" | "agent",
+      text: string,
+      opts?: { refinePrompt?: string; offerWebSearch?: boolean; webSearchQuery?: string },
+    ) => {
       const rp = opts?.refinePrompt?.trim();
+      const ow = Boolean(opts?.offerWebSearch);
+      const wq = opts?.webSearchQuery?.trim();
       setDestinations((prev) =>
         prev.map((d) => {
           if (d.id !== destId) return d;
@@ -515,6 +527,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
             text,
             ts: Date.now(),
             ...(rp ? { refinePrompt: rp } : {}),
+            ...(ow && wq ? { offerWebSearch: true, webSearchQuery: wq.slice(0, 500) } : {}),
           };
           return { ...d, conversation: [...(d.conversation || []), newMessage] };
         }),
@@ -531,6 +544,20 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           ...d,
           conversation: (d.conversation || []).map((m) =>
             m.id === messageId ? { ...m, refineCtaResolved: true } : m,
+          ),
+        };
+      }),
+    );
+  }, []);
+
+  const resolveConversationWebSearchCta = useCallback((destId: string, messageId: string) => {
+    setDestinations((prev) =>
+      prev.map((d) => {
+        if (d.id !== destId) return d;
+        return {
+          ...d,
+          conversation: (d.conversation || []).map((m) =>
+            m.id === messageId ? { ...m, webSearchCtaResolved: true } : m,
           ),
         };
       }),
@@ -597,6 +624,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         responses, addResponse, dismissResponse,
         addConversationMessage,
         resolveConversationRefineCta,
+        resolveConversationWebSearchCta,
         getConversation,
         agentStatus, setAgentStatus,
         selectedDest, setSelectedDest,

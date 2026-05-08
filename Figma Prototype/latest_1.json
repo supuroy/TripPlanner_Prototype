@@ -1,0 +1,497 @@
+{
+  "schema": "wanderly-perf-run/v1",
+  "generatedAt": "2026-05-06T02:52:27.859Z",
+  "journeyId": "perf-1778035521559",
+  "t0EpochMs": 1778035521559,
+  "marks": [
+    {
+      "event": "journey_start",
+      "wallMs": 1778035521570,
+      "offsetMs": 11,
+      "note": "perf harness attached"
+    },
+    {
+      "event": "shell_loaded",
+      "wallMs": 1778035522076,
+      "offsetMs": 517,
+      "note": "after goto /"
+    },
+    {
+      "event": "command_bar_ready",
+      "wallMs": 1778035522166,
+      "offsetMs": 607
+    },
+    {
+      "event": "first_plan_prompt_entered",
+      "wallMs": 1778035522200,
+      "offsetMs": 641
+    },
+    {
+      "event": "first_plan_request_sent",
+      "wallMs": 1778035522244,
+      "offsetMs": 685,
+      "note": "smoke_turn_stream or plan per env"
+    },
+    {
+      "event": "first_destination_card_visible",
+      "wallMs": 1778035654936,
+      "offsetMs": 133377,
+      "note": "shortlist rendered"
+    },
+    {
+      "event": "destination_count_known",
+      "wallMs": 1778035654951,
+      "offsetMs": 133392,
+      "note": "n=4"
+    },
+    {
+      "event": "itin_expand_Mexico City_clicked",
+      "wallMs": 1778035655420,
+      "offsetMs": 133861,
+      "note": "mexico-city"
+    },
+    {
+      "event": "itin_build_started_Mexico City",
+      "wallMs": 1778035655584,
+      "offsetMs": 134025
+    },
+    {
+      "event": "itin_ready_Mexico City",
+      "wallMs": 1778035679887,
+      "offsetMs": 158328,
+      "note": "MiniItinerary visible"
+    },
+    {
+      "event": "itin_expand_closed_Mexico City",
+      "wallMs": 1778035680050,
+      "offsetMs": 158491
+    },
+    {
+      "event": "itin_expand_Lisbon_clicked",
+      "wallMs": 1778035680861,
+      "offsetMs": 159302,
+      "note": "lisbon"
+    },
+    {
+      "event": "itin_build_started_Lisbon",
+      "wallMs": 1778035681021,
+      "offsetMs": 159462
+    },
+    {
+      "event": "itin_ready_Lisbon",
+      "wallMs": 1778035706231,
+      "offsetMs": 184672,
+      "note": "MiniItinerary visible"
+    },
+    {
+      "event": "itin_expand_closed_Lisbon",
+      "wallMs": 1778035706398,
+      "offsetMs": 184839
+    },
+    {
+      "event": "itin_expand_Valencia_clicked",
+      "wallMs": 1778035707783,
+      "offsetMs": 186224,
+      "note": "valencia"
+    },
+    {
+      "event": "itin_build_started_Valencia",
+      "wallMs": 1778035709071,
+      "offsetMs": 187512
+    },
+    {
+      "event": "itin_ready_Valencia",
+      "wallMs": 1778035780304,
+      "offsetMs": 258745,
+      "note": "MiniItinerary visible"
+    },
+    {
+      "event": "itin_expand_closed_Valencia",
+      "wallMs": 1778035780360,
+      "offsetMs": 258801
+    },
+    {
+      "event": "itin_expand_San Diego_clicked",
+      "wallMs": 1778035781732,
+      "offsetMs": 260173,
+      "note": "san-diego"
+    },
+    {
+      "event": "itin_build_started_San Diego",
+      "wallMs": 1778035781962,
+      "offsetMs": 260403
+    },
+    {
+      "event": "itin_ready_San Diego",
+      "wallMs": 1778035830198,
+      "offsetMs": 308639,
+      "note": "MiniItinerary visible"
+    },
+    {
+      "event": "itin_expand_closed_San Diego",
+      "wallMs": 1778035830303,
+      "offsetMs": 308744
+    },
+    {
+      "event": "all_destination_itineraries_touched",
+      "wallMs": 1778035830303,
+      "offsetMs": 308744
+    },
+    {
+      "event": "refine_prompt_0_sent",
+      "wallMs": 1778035830402,
+      "offsetMs": 308843,
+      "note": "Mexico City"
+    },
+    {
+      "event": "refine_prompt_0_complete",
+      "wallMs": 1778035862499,
+      "offsetMs": 340940,
+      "note": "phase idle / input enabled"
+    },
+    {
+      "event": "refine_prompt_1_sent",
+      "wallMs": 1778035862593,
+      "offsetMs": 341034,
+      "note": "Lisbon"
+    },
+    {
+      "event": "refine_prompt_1_complete",
+      "wallMs": 1778035891197,
+      "offsetMs": 369638
+    },
+    {
+      "event": "profile_when_changed",
+      "wallMs": 1778035891878,
+      "offsetMs": 370319,
+      "note": "Mar 8–14"
+    },
+    {
+      "event": "profile_refresh_chips_cleared",
+      "wallMs": 1778035947858,
+      "offsetMs": 426299
+    },
+    {
+      "event": "journey_end",
+      "wallMs": 1778035947858,
+      "offsetMs": 426299
+    }
+  ],
+  "network": [
+    {
+      "url": "http://localhost:5173/src/api/wanderly.ts",
+      "pathname": "/src/api/wanderly.ts",
+      "method": "GET",
+      "startOffsetMs": 98,
+      "endOffsetMs": 147,
+      "durationMs": 49,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/src/api/traceContext.ts",
+      "pathname": "/src/api/traceContext.ts",
+      "method": "GET",
+      "startOffsetMs": 122,
+      "endOffsetMs": 157,
+      "durationMs": 35,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/src/api/client.ts",
+      "pathname": "/src/api/client.ts",
+      "method": "GET",
+      "startOffsetMs": 154,
+      "endOffsetMs": 158,
+      "durationMs": 4,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/smoke_turn_stream",
+      "pathname": "/api/wanderly/smoke_turn_stream",
+      "method": "POST",
+      "startOffsetMs": 681,
+      "endOffsetMs": 133261,
+      "durationMs": 132580,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 134275,
+      "endOffsetMs": 134287,
+      "durationMs": 12,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/enrich_heroes",
+      "pathname": "/api/wanderly/enrich_heroes",
+      "method": "POST",
+      "startOffsetMs": 133264,
+      "endOffsetMs": 154864,
+      "durationMs": 21600,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 155367,
+      "endOffsetMs": 155375,
+      "durationMs": 8,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/build_itinerary",
+      "pathname": "/api/wanderly/build_itinerary",
+      "method": "POST",
+      "startOffsetMs": 133665,
+      "endOffsetMs": 157432,
+      "durationMs": 23767,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 158297,
+      "endOffsetMs": 158312,
+      "durationMs": 15,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 158924,
+      "endOffsetMs": 158950,
+      "durationMs": 26,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 159712,
+      "endOffsetMs": 159726,
+      "durationMs": 14,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/build_itinerary",
+      "pathname": "/api/wanderly/build_itinerary",
+      "method": "POST",
+      "startOffsetMs": 157439,
+      "endOffsetMs": 184249,
+      "durationMs": 26810,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 185907,
+      "endOffsetMs": 185932,
+      "durationMs": 25,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 187505,
+      "endOffsetMs": 187520,
+      "durationMs": 15,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/build_itinerary",
+      "pathname": "/api/wanderly/build_itinerary",
+      "method": "POST",
+      "startOffsetMs": 184253,
+      "endOffsetMs": 258658,
+      "durationMs": 74405,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 259427,
+      "endOffsetMs": 259449,
+      "durationMs": 22,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 260616,
+      "endOffsetMs": 260624,
+      "durationMs": 8,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/build_itinerary",
+      "pathname": "/api/wanderly/build_itinerary",
+      "method": "POST",
+      "startOffsetMs": 258660,
+      "endOffsetMs": 308362,
+      "durationMs": 49702,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 310325,
+      "endOffsetMs": 310344,
+      "durationMs": 19,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/plan_review",
+      "pathname": "/api/wanderly/plan_review",
+      "method": "POST",
+      "startOffsetMs": 308583,
+      "endOffsetMs": 331618,
+      "durationMs": 23035,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/refine_stream",
+      "pathname": "/api/wanderly/refine_stream",
+      "method": "POST",
+      "startOffsetMs": 308816,
+      "endOffsetMs": 340453,
+      "durationMs": 31637,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 340952,
+      "endOffsetMs": 340957,
+      "durationMs": 5,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/refine_stream",
+      "pathname": "/api/wanderly/refine_stream",
+      "method": "POST",
+      "startOffsetMs": 341015,
+      "endOffsetMs": 369429,
+      "durationMs": 28414,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 369935,
+      "endOffsetMs": 369941,
+      "durationMs": 6,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/profile_patch",
+      "pathname": "/api/wanderly/profile_patch",
+      "method": "POST",
+      "startOffsetMs": 370275,
+      "endOffsetMs": 370280,
+      "durationMs": 5,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 370733,
+      "endOffsetMs": 370752,
+      "durationMs": 19,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/build_itinerary",
+      "pathname": "/api/wanderly/build_itinerary",
+      "method": "POST",
+      "startOffsetMs": 341162,
+      "endOffsetMs": 374826,
+      "durationMs": 33664,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 375327,
+      "endOffsetMs": 375332,
+      "durationMs": 5,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/profile_change_advisor",
+      "pathname": "/api/wanderly/profile_change_advisor",
+      "method": "POST",
+      "startOffsetMs": 370275,
+      "endOffsetMs": 392591,
+      "durationMs": 22316,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 393265,
+      "endOffsetMs": 393274,
+      "durationMs": 9,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/build_itinerary",
+      "pathname": "/api/wanderly/build_itinerary",
+      "method": "POST",
+      "startOffsetMs": 374832,
+      "endOffsetMs": 396383,
+      "durationMs": 21551,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 396860,
+      "endOffsetMs": 396867,
+      "durationMs": 7,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/build_itinerary",
+      "pathname": "/api/wanderly/build_itinerary",
+      "method": "POST",
+      "startOffsetMs": 396384,
+      "endOffsetMs": 411234,
+      "durationMs": 14850,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/sync_ui",
+      "pathname": "/api/wanderly/sync_ui",
+      "method": "POST",
+      "startOffsetMs": 412261,
+      "endOffsetMs": 412268,
+      "durationMs": 7,
+      "status": 0
+    },
+    {
+      "url": "http://localhost:5173/api/wanderly/build_itinerary",
+      "pathname": "/api/wanderly/build_itinerary",
+      "method": "POST",
+      "startOffsetMs": 411238,
+      "endOffsetMs": 425847,
+      "durationMs": 14609,
+      "status": 0
+    }
+  ]
+}

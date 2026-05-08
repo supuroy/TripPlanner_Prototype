@@ -22,5 +22,9 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Local TLS chain / openssl dumps (regenerate for Trino smoke; do not publish to remote)
+Travel Planner Prototype/trino-server-chain.pem
+Travel Planner Prototype/trino-openssl-raw.txt
+
 # Archives (keep repo lean; use releases or docs links instead)
 *.zip

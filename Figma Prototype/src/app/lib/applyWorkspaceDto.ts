@@ -1,4 +1,4 @@
-import type { AgentResponse, DestCard, ProfilePill } from "../components/TripStore";
+import type { AgentResponse, DestCard, ItinDay, ProfilePill } from "../components/TripStore";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
 import { logItin } from "./itineraryDebug";
 
@@ -20,6 +20,19 @@ function asDestCards(raw: unknown[]): DestCard[] {
 function inferItineraryDirtyFromPayload(d: DestCard): boolean {
   if (typeof d.itinerary_dirty === "boolean") return d.itinerary_dirty;
   return !(d.itinerary && d.itinerary.length > 0);
+}
+
+/** Canonical signature so LLM JSON churn (ordering/whitespace) does not force redundant builds. */
+function itineraryCanonicalSignature(itin: ItinDay[] | undefined): string {
+  if (!itin?.length) return "";
+  return JSON.stringify(
+    itin.map((d) => ({
+      day: d.day,
+      label: String(d.label || "").trim(),
+      items: (d.items || []).map((x) => String(x).trim()),
+      accent: d.accent ? String(d.accent).trim() : undefined,
+    })),
+  );
 }
 
 function isPlaceholderishImage(url: string): boolean {
@@ -78,9 +91,15 @@ export function mergeDestinationUiState(
     const pinned = p?.pinned ?? row.pinned;
     const dismissed = p?.dismissed ?? row.dismissed;
     const fromServer = inferItineraryDirtyFromPayload(row);
-    const itinerary_dirty = preservedItinerary
+    let itinerary_dirty = preservedItinerary
       ? false
       : p?.itinerary_dirty === true || fromServer;
+    if (p && p.itinerary_dirty !== true && itinerary_dirty === true && (p.itinerary?.length ?? 0) > 0) {
+      const sigP = itineraryCanonicalSignature(p.itinerary);
+      if (sigP.length > 0 && sigP === itineraryCanonicalSignature(row.itinerary)) {
+        itinerary_dirty = false;
+      }
+    }
     return { ...row, pinned, dismissed, itinerary_dirty };
   });
 }

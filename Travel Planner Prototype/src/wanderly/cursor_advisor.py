@@ -157,7 +157,7 @@ def run_profile_listener_cursor(
     ctx = json.dumps(
         {
             "prior_profile_pills": prior_pills[:24],
-            "prior_chat_snippet": (prior_chat_snippet or "")[:6000],
+            "prior_chat_snippet": (prior_chat_snippet or "")[:4500],
             "workspace_destination_titles": [
                 {
                     "id": str(x.get("id") or ""),
@@ -170,7 +170,8 @@ def run_profile_listener_cursor(
                 if isinstance(x, dict)
             ],
         },
-        indent=2,
+        ensure_ascii=True,
+        separators=(",", ":"),
     )
     prompt = (
         _PROFILE_LISTENER_PROMPT
@@ -331,8 +332,10 @@ You are Wanderly's quick trip advisor. Reply with ONE JSON object only (no markd
 
 Schema:
 {
-  "assistant_markdown": "2–8 sentences for the traveler; you may use **double asterisks** for emphasis. Use only the context JSON.",
-  "refine_prompt": null OR one imperative paragraph the MAIN trip planner should run to change the workspace/itinerary (concrete edits: swap days, add rest time, change pace, replace activities, etc.). Must name the destination by id and name from context. Use null when the user only needs Q&A, logistics you do not have, or no itinerary edit is appropriate.
+  "assistant_markdown": "2–8 sentences for the traveler; you may use **double asterisks** for emphasis. Ground answers in the context JSON when possible.",
+  "refine_prompt": null OR one imperative paragraph the MAIN trip planner should run to change the workspace/itinerary (concrete edits: swap days, add rest time, change pace, replace activities, etc.). Must name the destination by id and name from context. Use null when the user only needs Q&A, logistics you do not have, or no itinerary edit is appropriate,
+  "offer_web_search": false,
+  "suggested_search_query": null
 }
 
 Rules:
@@ -340,6 +343,9 @@ Rules:
 - profile_pills are the six main slots only (when, who, from, vibe, budget, duration).
 - refine_prompt: only when applying that change would clearly improve the trip per the user's ask; keep it self-contained (the app will prepend focus destination). null for pure information, validation, or "I don't have live data" replies.
 - Do not claim live prices, availability, or bookings.
+- When the user's question needs **facts not present** in the JSON (weather, ocean temps, reef quality, live hours, whether a specific activity exists near X, etc.), say so clearly in assistant_markdown and set **offer_web_search** to **true**. Provide **suggested_search_query**: one short web-search phrase (destination + topic, no quotes), or null if offer_web_search is false.
+- When you can answer fully from context alone, set **offer_web_search** to **false** and **suggested_search_query** to **null**.
+- If the prompt includes a **WEB_EXCERPTS** block, the server already ran search — answer using JSON + excerpts, set **offer_web_search** false and **suggested_search_query** null.
 """.strip()
 
 
@@ -396,11 +402,104 @@ def _destination_row_for_advisor_chat(
     return out
 
 
+_ADVISOR_WEB_FACT_USER_RE = re.compile(
+    r"\b(population|how\s+many\s+people|people\s+live|how\s+large|land\s+area|city\s+size|size\s+of|"
+    r"km2|km²|square\s*miles?|sq\s*mi|weather|temperature|water\s+temp|hours?|opening|closes?|"
+    r"when\s+does|elevation|depth|tide|current\s+conditions|covid|visa\s+rules?|"
+    r"safety\s+in|crime\s+rate|exchange\s+rate|time\s+zone)\b",
+    re.I,
+)
+_ADVISOR_WEB_GAP_MD_RE = re.compile(
+    r"(can\x27t|cannot|can not|doesn\x27t|does not|do not|not in (?:the|your|this)|from this context|"
+    r"json (?:does not|doesn\x27t)|no (?:population|data|number)|isn\x27t in|not included|"
+    r"i can\x27t give|without going beyond|does not name|does not include|"
+    r"so i can\x27t|i can\x27t confirm|i can\x27t tell)",
+    re.I,
+)
+
+
+def _patch_advisor_web_search_when_obvious(
+    out: dict[str, Any],
+    *,
+    user_message: str,
+    focus_destination_id: str,
+    dest_payload: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Models sometimes omit ``offer_web_search`` even when they admit missing facts.
+    If the user clearly asked for external facts and the reply says context is insufficient, offer search.
+    """
+    if out.get("offer_web_search") and out.get("suggested_search_query"):
+        return out
+    um = (user_message or "").strip()
+    md = str(out.get("assistant_markdown") or "").strip()
+    if len(um) < 6 or len(md) < 24:
+        return out
+    if not _ADVISOR_WEB_FACT_USER_RE.search(um) or not _ADVISOR_WEB_GAP_MD_RE.search(md):
+        return out
+    fid = (focus_destination_id or "").strip()
+    geo = ""
+    for row in dest_payload or []:
+        if not isinstance(row, dict):
+            continue
+        rid = str(row.get("id") or "").strip()
+        if fid and rid == fid:
+            geo = f"{str(row.get('name') or '').strip()} {str(row.get('country') or '').strip()}".strip()
+            break
+    if not geo and dest_payload and isinstance(dest_payload[0], dict):
+        r0 = dest_payload[0]
+        geo = f"{str(r0.get('name') or '').strip()} {str(r0.get('country') or '').strip()}".strip()
+    tail = um[:220].strip()
+    sq = f"{geo} {tail}".strip() if geo else tail
+    if not sq:
+        return out
+    return {**out, "offer_web_search": True, "suggested_search_query": sq[:500]}
+
+
+def _web_snippets_markdown(snippets: list[dict[str, str]]) -> str:
+    parts: list[str] = []
+    for i, s in enumerate(snippets[:8], 1):
+        title = str(s.get("title") or "").strip()
+        url = str(s.get("url") or "").strip()
+        body = str(s.get("body") or "").strip()
+        parts.append(f"### [{i}] {title}\nURL: {url}\n{body}\n")
+    return "\n".join(parts) if parts else "(no excerpts)"
+
+
+def _advisor_prompt_with_web_excerpts(
+    *,
+    ctx_json: str,
+    user_message: str,
+    snippets: list[dict[str, str]],
+) -> str:
+    block = _web_snippets_markdown(snippets)
+    extra = """
+
+WEB SEARCH EXCERPTS (server-fetched; may be incomplete or dated). Use with the Context JSON to answer the user. Prefer excerpts for hard facts when present; if excerpts disagree, say briefly. Do not invent beyond JSON + excerpts. For this reply set offer_web_search to false and suggested_search_query to null.
+"""
+    return (
+        _ADVISOR_CHAT_PROMPT
+        + extra
+        + "\n\nContext JSON:\n"
+        + ctx_json[:16000]
+        + "\n\nWEB_EXCERPTS:\n"
+        + block
+        + "\n\nUser message:\n"
+        + (user_message or "").strip()[:4000]
+    )
+
+
 def _advisor_chat_parse_response(raw_text: str) -> dict[str, Any]:
     """Parse advisor JSON; on failure treat whole body as assistant_markdown."""
     raw = (raw_text or "").strip()
+    empty_out: dict[str, Any] = {
+        "assistant_markdown": "",
+        "refine_prompt": None,
+        "offer_web_search": False,
+        "suggested_search_query": None,
+    }
     if not raw:
-        return {"assistant_markdown": "", "refine_prompt": None}
+        return empty_out
     parsed = _extract_json_object(raw)
     if parsed and isinstance(parsed.get("assistant_markdown"), str):
         md = str(parsed["assistant_markdown"]).strip()
@@ -410,8 +509,28 @@ def _advisor_chat_parse_response(raw_text: str) -> dict[str, Any]:
             rps = rp_any.strip()
             if rps and rps.lower() not in ("null", "none"):
                 refine = rps[:4000]
-        return {"assistant_markdown": md[:8000] or "", "refine_prompt": refine}
-    return {"assistant_markdown": raw[:6000], "refine_prompt": None}
+        offer = bool(parsed.get("offer_web_search"))
+        sq_any = parsed.get("suggested_search_query")
+        sq: str | None = None
+        if isinstance(sq_any, str):
+            sqt = sq_any.strip()
+            if sqt and sqt.lower() not in ("null", "none"):
+                sq = sqt[:500]
+        if offer and not sq:
+            offer = False
+        out: dict[str, Any] = {
+            "assistant_markdown": md[:8000] or "",
+            "refine_prompt": refine,
+            "offer_web_search": offer,
+            "suggested_search_query": sq,
+        }
+        return out
+    return {
+        "assistant_markdown": raw[:6000],
+        "refine_prompt": None,
+        "offer_web_search": False,
+        "suggested_search_query": None,
+    }
 
 
 def run_advisor_chat_cursor(
@@ -421,6 +540,7 @@ def run_advisor_chat_cursor(
     destinations: list[dict[str, Any]],
     session_id: str | None = None,
     focus_destination_id: str | None = None,
+    web_snippets: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Structured reply for /advisor_feed: ``assistant_markdown`` + optional ``refine_prompt`` for the main planner."""
     mid = structured_followup_model_id()
@@ -428,6 +548,8 @@ def run_advisor_chat_cursor(
         return {
             "assistant_markdown": "Set CURSOR_REFINEMENT_MODEL_ID or CURSOR_ADVISOR_MODEL_ID to enable the Cursor-based advisor.",
             "refine_prompt": None,
+            "offer_web_search": False,
+            "suggested_search_query": None,
         }
     load_env_from_roots()
     fid = (focus_destination_id or "").strip()
@@ -457,13 +579,17 @@ def run_advisor_chat_cursor(
         },
         ensure_ascii=True,
     )
-    prompt = (
-        _ADVISOR_CHAT_PROMPT
-        + "\n\nContext JSON:\n"
-        + ctx[:16000]
-        + "\n\nUser message:\n"
-        + (user_message or "").strip()[:4000]
-    )
+    um = (user_message or "").strip()[:4000]
+    if web_snippets:
+        prompt = _advisor_prompt_with_web_excerpts(ctx_json=ctx, user_message=um, snippets=web_snippets)
+    else:
+        prompt = (
+            _ADVISOR_CHAT_PROMPT
+            + "\n\nContext JSON:\n"
+            + ctx[:16000]
+            + "\n\nUser message:\n"
+            + um
+        )
     try:
         with basic_client(get_api_key(), timeout_s=90.0) as client:
             raw_text = run_prompt_collect_assistant_text(
@@ -479,8 +605,23 @@ def run_advisor_chat_cursor(
             f"FAIL path=cursor_advisor.advisor_feed sid={(session_id or '')[:12]!r} "
             f"focus={(focus_destination_id or '')[:24]!r} exc={type(exc).__name__}: {exc!s}"
         )
-        return {"assistant_markdown": f"(Advisor unavailable: {exc})", "refine_prompt": None}
-    return _advisor_chat_parse_response(raw_text)
+        return {
+            "assistant_markdown": f"(Advisor unavailable: {exc})",
+            "refine_prompt": None,
+            "offer_web_search": False,
+            "suggested_search_query": None,
+        }
+    parsed = _advisor_chat_parse_response(raw_text)
+    if web_snippets:
+        parsed["offer_web_search"] = False
+        parsed["suggested_search_query"] = None
+        return parsed
+    return _patch_advisor_web_search_when_obvious(
+        parsed,
+        user_message=(user_message or "").strip(),
+        focus_destination_id=fid,
+        dest_payload=dest_payload,
+    )
 
 
 _PROFILE_CHANGE_PROMPT = """
