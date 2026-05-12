@@ -50,17 +50,24 @@ function isPlaceholderishImage(url: string): boolean {
 export function mergeDestinationUiState(
   next: DestCard[],
   prior: DestCard[],
-  opts?: { bypassItineraryPreserve?: boolean },
+  opts?: {
+    bypassItineraryPreserve?: boolean;
+    /** When set with bypass true, only these ids skip preserving the prior itinerary when the server omits days. */
+    bypassItineraryPreserveOnlyIds?: Set<string> | null;
+  },
 ): DestCard[] {
   if (!prior.length) {
     return next.map((d) => ({ ...d, itinerary_dirty: inferItineraryDirtyFromPayload(d) }));
   }
   const bypassPreserve = Boolean(opts?.bypassItineraryPreserve);
+  const bypassOnly = opts?.bypassItineraryPreserveOnlyIds ?? null;
   const priorById = new Map(prior.map((pd) => [String(pd.id), pd]));
   return next.map((d) => {
     const p = priorById.get(String(d.id));
     let row: DestCard = { ...d };
     let preservedItinerary = false;
+    const bypassThisRow =
+      bypassPreserve && (bypassOnly === null || bypassOnly.has(String(d.id)));
     if (p) {
       const curImg = String(row.image || "");
       const pImg = String(p.image || "");
@@ -73,7 +80,7 @@ export function mergeDestinationUiState(
       }
       const curIt = row.itinerary?.length ?? 0;
       const pIt = p.itinerary?.length ?? 0;
-      if (!bypassPreserve && curIt === 0 && pIt > 0 && p.itinerary) {
+      if (!bypassThisRow && curIt === 0 && pIt > 0 && p.itinerary) {
         preservedItinerary = true;
         row = {
           ...row,
@@ -215,6 +222,27 @@ export function mergeProfilePillsFromDto(
 const ITINERARY_INVALIDATE_MESSAGE_RE =
   /\b(itinerary|schedule|day-by-day|day\s*\d|days\s*\d|replace\s+day|change\s+day|revise(\s+the)?\s+plan|update\s+the\s+plan|update\s+(the\s+)?(itinerary|trip)|edit\s+days|swap\s+day|adjust\s+days|move\s+day|replan|redo\s+days|rebuild|regenerate|refresh\s+(the\s+)?(itinerary|plan)|shorten|extend|fewer\s+days|more\s+days)\b/i;
 
+/**
+ * Compare / choose / contrast questions should not mark every card ``itinerary_dirty`` or wipe plans
+ * when the model tweaks profile pill wording or returns a subset of destinations.
+ */
+export function isPlanCompareOnlyQuestion(message: string): boolean {
+  const m = message.trim();
+  if (!m) return false;
+  if (ITINERARY_INVALIDATE_MESSAGE_RE.test(m)) return false;
+  const ml = m.toLowerCase();
+  const compareCue =
+    /\b(compare|comparison|contrast|versus|side[- ]by[- ]side|which\s+is\s+better|which\s+should\s+i(\s+pick)?|help\s+me\s+choose|how\s+do\s+they\s+differ|how\s+are\s+they\s+different|pros\s+and\s+cons|stack\s+up)\b/i.test(
+      ml,
+    ) || /(?:^|[\s,(])vs[\s.]/i.test(m);
+  if (!compareCue) return false;
+  const editCue =
+    /\b(change|update|modify|adjust|replace|remove|add|delete|swap|shift|reschedule|replan|redo|tweak|revise|shorten|extend|refresh|rebuild|regenerate)\b/i.test(
+      ml,
+    );
+  return !editCue;
+}
+
 /** Normalize pill text so LLM dash/whitespace churn does not force itinerary rebuild. */
 function normalizePillValueForSig(raw: string): string {
   let s = raw.trim().replace(/\s+/g, " ");
@@ -238,8 +266,11 @@ export function explainItineraryInvalidate(
   priorProfile: ProfilePill[],
   incomingPills: WanderlyWorkspaceDTO["profile_pills"] | null | undefined,
 ): { shouldInvalidate: boolean; reasons: string[] } {
-  const reasons: string[] = [];
   const m = message.trim();
+  if (isPlanCompareOnlyQuestion(m)) {
+    return { shouldInvalidate: false, reasons: ["compare_only_skip_invalidate"] };
+  }
+  const reasons: string[] = [];
   if (ITINERARY_INVALIDATE_MESSAGE_RE.test(m)) {
     reasons.push("user_message_itinerary_keywords");
   }
@@ -261,6 +292,49 @@ export function refineShouldInvalidateItineraries(
   return explainItineraryInvalidate(message, priorProfile, incomingPills).shouldInvalidate;
 }
 
+/** Which cards should treat lazy itineraries as stale after a refine/smoke apply. */
+export type ItineraryStalePlan = { mode: "none" } | { mode: "all" } | { mode: "focus"; ids: string[] };
+
+/**
+ * Combines orchestrator LLM output with regex fallback so a single-card revise does not dirty every destination.
+ */
+export function buildItineraryStalePlan(
+  message: string,
+  priorProfile: ProfilePill[],
+  incomingPills: WanderlyWorkspaceDTO["profile_pills"] | null | undefined,
+  orch: {
+    workspace_action?: string;
+    itinerary_refresh?: string;
+    focus_destination_ids?: string[];
+    lock_canvas_navigation?: boolean;
+  } | null | undefined,
+  validDestinationIds: Set<string>,
+  expandedDestinationId: string | null,
+): ItineraryStalePlan {
+  const refresh = String(orch?.itinerary_refresh || "auto").toLowerCase().trim();
+  if (refresh === "none") return { mode: "none" };
+  if (refresh === "all") return { mode: "all" };
+  if (refresh === "focus_only") {
+    const raw = Array.isArray(orch?.focus_destination_ids) ? orch!.focus_destination_ids! : [];
+    let ids = raw.map((x) => String(x).trim()).filter((id) => validDestinationIds.has(id));
+    if (ids.length === 0 && expandedDestinationId && validDestinationIds.has(expandedDestinationId)) {
+      ids = [expandedDestinationId];
+    }
+    return ids.length ? { mode: "focus", ids } : { mode: "none" };
+  }
+  const inv = explainItineraryInvalidate(message, priorProfile, incomingPills);
+  if (!inv.shouldInvalidate) return { mode: "none" };
+  const action = String(orch?.workspace_action || "").trim();
+  if (
+    (action === "targeted_itinerary_edit" || refresh === "auto") &&
+    expandedDestinationId &&
+    validDestinationIds.has(expandedDestinationId)
+  ) {
+    return { mode: "focus", ids: [expandedDestinationId] };
+  }
+  return { mode: "all" };
+}
+
 /** Apply server Wanderly DTO into TripStore setters (v0 smoke + v1 orchestrator). */
 export function applyWanderlyWorkspace(
   w: WanderlyWorkspaceDTO,
@@ -273,34 +347,63 @@ export function applyWanderlyWorkspace(
     priorDestinations?: DestCard[];
     /** After a prompt-side criteria change (refine), treat all itineraries as stale until rebuilt. */
     markItinerariesStale?: boolean;
+    /** Prefer this over ``markItinerariesStale`` when orchestrator metadata is available. */
+    itineraryStalePlan?: ItineraryStalePlan;
     /** Current sidebar pills — merged with server pills by key so partial updates keep ``from``, etc. */
     priorProfile?: ProfilePill[];
   },
 ) {
-  const { setProfile, setDestinations, addResponse, setEnrichmentPending, priorDestinations, markItinerariesStale, priorProfile } =
-    opts;
+  const {
+    setProfile,
+    setDestinations,
+    addResponse,
+    setEnrichmentPending,
+    priorDestinations,
+    markItinerariesStale,
+    itineraryStalePlan: explicitPlan,
+    priorProfile,
+  } = opts;
+  const stalePlan: ItineraryStalePlan =
+    explicitPlan ?? (markItinerariesStale ? { mode: "all" } : { mode: "none" });
+
   if (w.profile_pills?.length) {
     setProfile(mergeProfilePillsFromDto(priorProfile ?? [], w.profile_pills));
   }
   if (w.destinations?.length) {
     const incoming = asDestCards(w.destinations);
-    // Merge onto latest client cards (functional update) so a lazy-built itinerary that
-    // landed while refine/smoke was in flight is not replaced by a stale prior snapshot
-    // from when the pipeline started.
     setDestinations((prev) => {
       const mergeBase = prev.length > 0 ? prev : priorDestinations ?? [];
+      let bypassPreserve = false;
+      let bypassOnlyIds: Set<string> | null = null;
+      if (stalePlan.mode === "all") {
+        bypassPreserve = true;
+        bypassOnlyIds = null;
+      } else if (stalePlan.mode === "focus") {
+        bypassPreserve = true;
+        bypassOnlyIds = new Set(stalePlan.ids);
+      }
       const merged = mergeDestinationUiState(incoming, mergeBase, {
-        bypassItineraryPreserve: Boolean(markItinerariesStale),
+        bypassItineraryPreserve: bypassPreserve,
+        bypassItineraryPreserveOnlyIds: bypassOnlyIds,
       });
-      const final = markItinerariesStale ? merged.map((d) => ({ ...d, itinerary_dirty: true })) : merged;
-      if (markItinerariesStale) {
+      const final =
+        stalePlan.mode === "none"
+          ? merged
+          : stalePlan.mode === "all"
+            ? merged.map((d) => ({ ...d, itinerary_dirty: true }))
+            : merged.map((d) =>
+                stalePlan.ids.includes(d.id) ? { ...d, itinerary_dirty: true } : d,
+              );
+      if (stalePlan.mode !== "none") {
         logItin("apply_workspace_mark_itineraries_stale", {
-          note: "All merged destinations get itinerary_dirty=true → CommandBar + canvas schedule serialized build_itinerary prefetch",
+          note: "itinerary_dirty from itineraryStalePlan",
+          planMode: stalePlan.mode,
           destCount: final.length,
           perCard: final.map((d) => ({
             id: d.id,
             pinned: d.pinned,
             itinLen: d.itinerary?.length ?? 0,
+            dirty: d.itinerary_dirty,
           })),
         });
       }

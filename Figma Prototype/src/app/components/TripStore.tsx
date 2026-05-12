@@ -6,7 +6,7 @@ import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
 import { planReviewMarkdownForUi } from "../lib/planReviewMarkdown";
 
-export type Phase = "idle" | "thinking" | "streaming" | "refining" | "complete";
+export type Phase = "idle" | "thinking" | "streaming" | "refining" | "advising" | "complete";
 
 export interface ProfilePill {
   key: string;
@@ -67,12 +67,16 @@ export interface DestCard {
   liveBookingEstimates?: boolean;
   /** Optional explicit lodging outline for OTA booking (mirrors server ``booking_search_outline``). */
   booking_search_outline?: { stays?: Array<{ area?: string; nights?: number; label?: string }> };
+  /** Optional Expedia-oriented flight labels from the itinerary LLM (concrete cities for URL building). */
+  booking_search_hints?: { flight_to_label?: string; flight_return_from_label?: string };
 }
 
 export interface ItinDay {
   day: number;
   label: string;
   items: string[];
+  /** Overnight base from lazy itinerary LLM (used server-side for return flight origin). */
+  base?: string;
   accent?: string;
 }
 
@@ -197,7 +201,7 @@ interface TripStoreType {
 
   agentStatus: string;
   setAgentStatus: (s: string) => void;
-  /** Longer live line from planner SSE (thinking / assistant deltas); shown in the agent panel, not the input bar. */
+  /** Live progress from planner SSE, orchestrate/advisor wait spinners, and card itinerary builds — shown in ``AgentResponses`` / expanded card. */
   agentStreamCaption: string;
   setAgentStreamCaption: (s: string) => void;
   selectedDest: string | null;
@@ -226,6 +230,13 @@ interface TripStoreType {
   performUndo: (id: string) => void;
   /** Queue advisor plan_review after lazy itineraries settle; cancels prior queued runs. */
   queuePlanReviewAfterItineraries: (sessionId: string) => void;
+  /** When true, expanded refine allows switching other destination cards (orchestrator hint). */
+  refineUnlockCardNavigation: boolean;
+  setRefineUnlockCardNavigation: (v: boolean) => void;
+  /** Active planner HTTP stream — call from CommandBar before smoke/refine SSE. */
+  setPlannerAbortController: (ac: AbortController | null) => void;
+  /** Emergency cancel: aborts fetch + clears planner phase. */
+  abortPlannerOperation: () => void;
 }
 
 const Ctx = createContext<TripStoreType | null>(null);
@@ -465,6 +476,12 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [pendingRefineText, setPendingRefineText] = useState<string | null>(null);
   const [composerPrefill, setComposerPrefill] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [refineUnlockCardNavigation, setRefineUnlockCardNavigation] = useState(false);
+  const plannerAbortControllerRef = useRef<AbortController | null>(null);
+
+  const setPlannerAbortController = useCallback((ac: AbortController | null) => {
+    plannerAbortControllerRef.current = ac;
+  }, []);
 
   // Use refs to avoid stale closures in pushUndo
   const destinationsRef = useRef(destinations);
@@ -524,6 +541,24 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
 
   const addResponse = useCallback((response: Omit<AgentResponse, "id" | "ts">) => {
     setResponses((prev) => [...prev, { id: crypto.randomUUID(), ts: Date.now(), ...response }]);
+  }, []);
+
+  const abortPlannerOperation = useCallback(() => {
+    plannerAbortControllerRef.current?.abort();
+    plannerAbortControllerRef.current = null;
+    setPhase("complete");
+    setAgentStatus("");
+    setAgentStreamCaption("");
+    setRefineUnlockCardNavigation(false);
+    setResponses((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        ts: Date.now(),
+        type: "warning",
+        text: "Stopped the running planner request. You can switch cards and try again.",
+      },
+    ]);
   }, []);
 
   const dismissResponse = useCallback((id: string) => {
@@ -662,6 +697,10 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         composerPrefill, setComposerPrefill,
         undoStack, pushUndo, performUndo,
         queuePlanReviewAfterItineraries,
+        refineUnlockCardNavigation,
+        setRefineUnlockCardNavigation,
+        setPlannerAbortController,
+        abortPlannerOperation,
       }}
     >
       {children}

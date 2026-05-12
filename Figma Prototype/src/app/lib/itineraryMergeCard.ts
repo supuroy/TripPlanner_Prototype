@@ -1,11 +1,12 @@
 import type { DestCard, ItinDay } from "../components/TripStore";
 import type { ItineraryBudgetGuidance } from "../../types/workspace";
 
-/** Merge lazy itinerary rows + optional LLM budget bands onto a destination card. */
+/** Merge lazy itinerary rows + optional LLM budget bands (+ optional booking URL hints) onto a destination card. */
 export function mergeItineraryBuildIntoDest(
   card: DestCard,
   rows: ItinDay[],
   budget?: ItineraryBudgetGuidance | null,
+  bookingSearchHints?: DestCard["booking_search_hints"] | null,
 ): DestCard {
   if (rows.length === 0) return { ...card, itinerary_dirty: false };
   const ballpark = budget?.trip_ballpark_usd_pp?.trim();
@@ -26,6 +27,9 @@ export function mergeItineraryBuildIntoDest(
     itinerary: rows,
     itinerary_dirty: false,
     ...(hasBg && budget ? { budget_guidance: { ...budget } } : {}),
+    ...(bookingSearchHints && (bookingSearchHints.flight_to_label || bookingSearchHints.flight_return_from_label)
+      ? { booking_search_hints: { ...bookingSearchHints } }
+      : {}),
   };
   if (costLine) next = { ...next, cost: costLine };
   else next = { ...next, cost: "" };

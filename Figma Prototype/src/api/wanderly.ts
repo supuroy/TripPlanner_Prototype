@@ -43,6 +43,7 @@ export async function smokeTurnStream(
   sessionId: string,
   message: string,
   onEvent: (e: Record<string, unknown>) => void,
+  opts?: { signal?: AbortSignal },
 ): Promise<{ session_id: string; wanderly: WanderlyWorkspaceDTO; parse_ok?: boolean }> {
   let result: { session_id: string; wanderly: WanderlyWorkspaceDTO; parse_ok?: boolean } | undefined;
   await apiPostSseJson(
@@ -61,20 +62,31 @@ export async function smokeTurnStream(
         };
       }
     },
-    undefined,
+    opts?.signal ? { signal: opts.signal } : undefined,
   );
   if (!result) throw new Error("Stream closed before completion");
   return result;
 }
 
-export async function refineTurn(sessionId: string, message: string) {
-  return apiFetch<{ session_id: string; wanderly: WanderlyWorkspaceDTO; parse_ok?: boolean }>(
-    "/api/wanderly/refine",
-    {
-      method: "POST",
-      body: JSON.stringify({ session_id: sessionId, message }),
-    },
-  );
+export type WanderlyRefineResponse = {
+  session_id: string;
+  wanderly: WanderlyWorkspaceDTO;
+  parse_ok?: boolean;
+  shortlist_drop_blocked?: boolean;
+  model_omitted_destination_ids?: string[];
+};
+
+export async function refineTurn(
+  sessionId: string,
+  message: string,
+  opts?: { confirmWorkspaceDrop?: boolean },
+): Promise<WanderlyRefineResponse> {
+  const body: Record<string, unknown> = { session_id: sessionId, message };
+  if (opts?.confirmWorkspaceDrop) body.confirm_workspace_drop = true;
+  return apiFetch<WanderlyRefineResponse>("/api/wanderly/refine", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 /** Cursor refine with SSE progress. */
@@ -82,11 +94,14 @@ export async function refineTurnStream(
   sessionId: string,
   message: string,
   onEvent: (e: Record<string, unknown>) => void,
-): Promise<{ session_id: string; wanderly: WanderlyWorkspaceDTO; parse_ok?: boolean }> {
-  let result: { session_id: string; wanderly: WanderlyWorkspaceDTO; parse_ok?: boolean } | undefined;
+  opts?: { confirmWorkspaceDrop?: boolean; signal?: AbortSignal },
+): Promise<WanderlyRefineResponse> {
+  let result: WanderlyRefineResponse | undefined;
+  const body: Record<string, unknown> = { session_id: sessionId, message };
+  if (opts?.confirmWorkspaceDrop) body.confirm_workspace_drop = true;
   await apiPostSseJson(
     "/api/wanderly/refine_stream",
-    { session_id: sessionId, message },
+    body,
     (obj) => {
       onEvent(obj);
       if (obj.type === "error" || obj.type === "stream_error") {
@@ -97,13 +112,57 @@ export async function refineTurnStream(
           session_id: String(obj.session_id),
           wanderly: obj.wanderly as WanderlyWorkspaceDTO,
           parse_ok: Boolean(obj.parse_ok),
+          shortlist_drop_blocked: Boolean(obj.shortlist_drop_blocked),
+          model_omitted_destination_ids: Array.isArray(obj.model_omitted_destination_ids)
+            ? (obj.model_omitted_destination_ids as string[])
+            : undefined,
         };
       }
     },
-    undefined,
+    opts?.signal ? { signal: opts.signal } : undefined,
   );
   if (!result) throw new Error("Stream closed before completion");
   return result;
+}
+
+export type WanderlyWorkspaceAction =
+  | "refine_workspace"
+  | "targeted_itinerary_edit"
+  | "compare_places"
+  | "lightweight_qa"
+  | "explicit_remove_destinations"
+  | "ambiguous";
+
+export type WanderlyOrchestration = {
+  workspace_action: WanderlyWorkspaceAction;
+  confidence: number;
+  rationale: string;
+  /** Which destinations need lazy itinerary rebuild after refine (server LLM). */
+  itinerary_refresh?: "auto" | "none" | "all" | "focus_only" | string;
+  focus_destination_ids?: string[];
+  /** When false, canvas may allow switching cards during refine (single-card edits). */
+  lock_canvas_navigation?: boolean;
+};
+
+export type WanderlyOrchestrateResponse = {
+  session_id: string;
+  parse_ok: boolean;
+  orchestration: WanderlyOrchestration | null;
+  fallback_reason?: string;
+};
+
+/** Cheap LLM routing: planner vs advisor vs explicit removal (server). */
+export async function orchestrateTurn(
+  sessionId: string,
+  message: string,
+  opts?: { focusDestinationId?: string },
+): Promise<WanderlyOrchestrateResponse> {
+  const body: Record<string, unknown> = { session_id: sessionId, message };
+  if (opts?.focusDestinationId) body.focus_destination_id = opts.focusDestinationId;
+  return apiFetch<WanderlyOrchestrateResponse>("/api/wanderly/orchestrate", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function planWithOrchestrator(sessionId: string, input: string) {
@@ -150,6 +209,11 @@ export async function enrichHeroOne(sessionId: string, destination: Record<strin
   );
 }
 
+export type BookingSearchHints = {
+  flight_to_label?: string;
+  flight_return_from_label?: string;
+};
+
 export async function buildItinerary(
   sessionId: string,
   destination: Record<string, unknown>,
@@ -170,6 +234,7 @@ export async function buildItinerary(
     destination_id: string;
     itinerary: ItinDay[];
     budget_guidance?: ItineraryBudgetGuidance | null;
+    booking_search_hints?: BookingSearchHints | null;
   }>(
     "/api/wanderly/build_itinerary",
     {
@@ -194,6 +259,7 @@ export async function buildItineraryStream(
   destination_id: string;
   itinerary: ItinDay[];
   budget_guidance?: ItineraryBudgetGuidance | null;
+  booking_search_hints?: BookingSearchHints | null;
 }> {
   const body: Record<string, unknown> = {
     session_id: sessionId,
@@ -210,6 +276,7 @@ export async function buildItineraryStream(
         destination_id: string;
         itinerary: ItinDay[];
         budget_guidance?: ItineraryBudgetGuidance | null;
+        booking_search_hints?: BookingSearchHints | null;
       }
     | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -226,15 +293,21 @@ export async function buildItineraryStream(
           if (obj.type === "done" && obj.session_id != null && obj.destination_id != null) {
             const it = obj.itinerary;
             const bgRaw = (obj as { budget_guidance?: unknown }).budget_guidance;
+            const bhRaw = (obj as { booking_search_hints?: unknown }).booking_search_hints;
             let budget_guidance: ItineraryBudgetGuidance | undefined;
             if (bgRaw && typeof bgRaw === "object" && !Array.isArray(bgRaw)) {
               budget_guidance = bgRaw as ItineraryBudgetGuidance;
+            }
+            let booking_search_hints: BookingSearchHints | undefined;
+            if (bhRaw && typeof bhRaw === "object" && !Array.isArray(bhRaw)) {
+              booking_search_hints = bhRaw as BookingSearchHints;
             }
             result = {
               session_id: String(obj.session_id),
               destination_id: String(obj.destination_id),
               itinerary: Array.isArray(it) ? (it as ItinDay[]) : [],
               budget_guidance,
+              booking_search_hints,
             };
           }
         },
@@ -350,13 +423,16 @@ export type BookingSearchStepResponse = {
   debug_parse?: Record<string, unknown>;
 };
 
-export async function bookingSearchPrepare(args: {
-  session_id: string;
-  destination_id: string;
-  date_hints?: BookingDateHints;
-  /** When set, overrides server session snapshot (sidebar profile for adults / LLM context). */
-  profile_pills?: WanderlyProfilePillDTO[];
-}) {
+export async function bookingSearchPrepare(
+  args: {
+    session_id: string;
+    destination_id: string;
+    date_hints?: BookingDateHints;
+    /** When set, overrides server session snapshot (sidebar profile for adults / LLM context). */
+    profile_pills?: WanderlyProfilePillDTO[];
+  },
+  options?: { signal?: AbortSignal },
+) {
   const body: Record<string, unknown> = {
     session_id: args.session_id,
     destination_id: args.destination_id,
@@ -366,6 +442,7 @@ export async function bookingSearchPrepare(args: {
   return apiFetch<BookingSearchPrepareResponse>("/api/wanderly/booking_search_prepare", {
     method: "POST",
     body: JSON.stringify(body),
+    signal: options?.signal,
   });
 }
 

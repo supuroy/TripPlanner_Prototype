@@ -492,6 +492,19 @@ function guessVagueWhenHints(whenRaw: string, itineraryDayCount: number): Bookin
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  // Match server ``ota_booking_search._guess_dates_from_vague_when``: explicit month
+  // (e.g. Mid-June) wins over generic "(flexible dates)" — otherwise we'd use today+21d.
+  const mo = findMonthIndexInText(raw);
+  if (mo !== undefined) {
+    const day = seasonDayAnchor(sLow);
+    const y = today.getFullYear();
+    const start = new Date(y, mo, day);
+    const end = new Date(start);
+    end.setDate(end.getDate() + Math.max(1, itineraryDayCount) - 1);
+    const bumped = bumpStartToFuture(start, end, today);
+    return { start_iso: toIso(bumped.start), end_iso: toIso(bumped.end) };
+  }
+
   if (/\b(flexible|anytime|any\s*time|tbd|not\s*sure|whenever|open)\b/i.test(sLow)) {
     const start = new Date(today);
     start.setDate(start.getDate() + 21);
@@ -500,16 +513,7 @@ function guessVagueWhenHints(whenRaw: string, itineraryDayCount: number): Bookin
     return { start_iso: toIso(start), end_iso: toIso(end) };
   }
 
-  const mo = findMonthIndexInText(raw);
-  if (mo === undefined) return null;
-
-  const day = seasonDayAnchor(sLow);
-  const y = today.getFullYear();
-  let start = new Date(y, mo, day);
-  const end = new Date(start);
-  end.setDate(end.getDate() + Math.max(1, itineraryDayCount) - 1);
-  const bumped = bumpStartToFuture(start, end, today);
-  return { start_iso: toIso(bumped.start), end_iso: toIso(bumped.end) };
+  return null;
 }
 
 function defaultSearchHints(itineraryDayCount: number): BookingDateHints {
@@ -524,7 +528,7 @@ function defaultSearchHints(itineraryDayCount: number): BookingDateHints {
 
 /**
  * ISO hints for booking search — matches server ``ota_booking_search`` heuristics:
- * exact ``Mar 15–22`` first, then vague ``mid March`` / ``Flexible``, then ~3 weeks out.
+ * exact ``Mar 15–22`` first, then vague month/season (before generic ``flexible``), then ~3 weeks out.
  */
 export function computeBookingDateHints(profile: ProfilePill[], itineraryDayCount: number): BookingDateHints {
   const whenPill = profile.find((p) => p.key === "when");
@@ -744,6 +748,7 @@ export function BookingTimelineFace({
     if (runMode !== "live" || !sessionId) return;
 
     let cancelled = false;
+    const ac = new AbortController();
     livePipelineGen.current += 1;
     const gen = livePipelineGen.current;
 
@@ -814,12 +819,15 @@ export function BookingTimelineFace({
           adults: adultsFromProfileForBooking(profile),
         };
         const pillsPayload = profilePillsForBookingApi(profile);
-        const prep = await bookingSearchPrepare({
-          session_id: sessionId,
-          destination_id: dest.id,
-          date_hints: dateHintsPayload,
-          profile_pills: pillsPayload,
-        });
+        const prep = await bookingSearchPrepare(
+          {
+            session_id: sessionId,
+            destination_id: dest.id,
+            date_hints: dateHintsPayload,
+            profile_pills: pillsPayload,
+          },
+          { signal: ac.signal },
+        );
         if (cancelled || gen !== livePipelineGen.current) return;
         setCriteriaLines(prep.criteria_lines || []);
         const pax = typeof prep.adults === "number" && prep.adults >= 1 ? prep.adults : dateHintsPayload.adults ?? 2;
@@ -1019,11 +1027,15 @@ export function BookingTimelineFace({
         }
       } catch (e: unknown) {
         if (!cancelled && gen === livePipelineGen.current) {
-          const msg = e instanceof Error ? e.message : String(e);
-          setPrepareError(msg);
-          setCriteriaExpanded(true);
-          setPreparePending(false);
-          setFlightPhase((p) => (p === "idle" ? "error" : p));
+          if (e instanceof Error && e.name === "AbortError") {
+            /* React Strict Mode or navigation cancelled the prepare request */
+          } else {
+            const msg = e instanceof Error ? e.message : String(e);
+            setPrepareError(msg);
+            setCriteriaExpanded(true);
+            setPreparePending(false);
+            setFlightPhase((p) => (p === "idle" ? "error" : p));
+          }
         }
       } finally {
         if (!cancelled && gen === livePipelineGen.current) doneRef.current();
@@ -1032,6 +1044,7 @@ export function BookingTimelineFace({
 
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [runMode, sessionId, dest.id, profileSig, dateHintsKey, setDestinations]);
 

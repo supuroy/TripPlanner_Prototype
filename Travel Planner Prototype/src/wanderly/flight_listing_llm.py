@@ -56,19 +56,24 @@ def _merge_intervals(windows: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return out
 
 
-def compact_playwright_flight_html(html: str, *, max_chars: int | None = None) -> str:
+def compact_playwright_flight_html(html: str, *, max_chars: int | None = None, search_url: str = "") -> str:
     """
     Shrink a huge one-line PWA document: keep ``<title>`` plus windows around dollar fares / listing prose.
     """
     max_chars = max_chars or _llm_max_input_chars()
+    from src.wanderly.listing_html_excerpt import listing_focus_html
+
+    focus_cap = min(220_000, max(max_chars * 2, max_chars + 40_000))
+    focused, _meth = listing_focus_html(html or "", kind="flight", search_url=search_url, max_chars=focus_cap)
+    base_html = focused if len(focused) >= 4_000 else (html or "")
     parts: list[str] = []
     mt = re.search(r"<title>[^<]{1,240}</title>", html, flags=re.I)
     if mt:
         parts.append(mt.group(0))
-    idx = html.find('id="app-flights-shopping-pwa"')
+    idx = base_html.find('id="app-flights-shopping-pwa"')
     if idx < 0:
-        idx = html.find("app-flights-shopping-pwa")
-    anchor = html[idx:] if idx >= 0 else html
+        idx = base_html.find("app-flights-shopping-pwa")
+    anchor = base_html[idx:] if idx >= 0 else base_html
     windows: list[tuple[int, int]] = []
     for m in re.finditer(r"\$\s*[1-9][\d,]{2,4}\b", anchor):
         lo, hi = m.span()
@@ -302,7 +307,7 @@ def run_flight_listing_llm_parse(
         meta["llm_err"] = str(exc)
         return None, None, meta
 
-    pw_excerpt = compact_playwright_flight_html(html)
+    pw_excerpt = compact_playwright_flight_html(html, search_url=search_url)
     meta["excerpt_chars"] = len(pw_excerpt)
     profile_json = json.dumps(profile_pills or [], ensure_ascii=True)[:14_000]
     crit = "\n".join(criteria_lines or [])[:8000]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from typing import Any
 
@@ -115,6 +116,206 @@ def get_booking_search_intent(session_id: str, destination_id: str) -> dict[str,
         return None
     raw = intents.get(did)
     return raw if isinstance(raw, dict) else None
+
+
+def bump_booking_prefetch_generation(session_id: str, destination_id: str) -> int:
+    """
+    Increment per-destination prefetch generation so in-flight background Playwright fetches
+    can detect superseded runs and skip writes.
+    """
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return 0
+    with _lock:
+        if sid not in _sessions:
+            _sessions[sid] = {
+                "chat": [],
+                "last_destinations": [],
+                "mode": "idle",
+            }
+        s = _sessions[sid]
+        gens = s.setdefault("booking_prefetch_generations", {})
+        if not isinstance(gens, dict):
+            gens = {}
+            s["booking_prefetch_generations"] = gens
+        cur = int(gens.get(did, 0)) + 1
+        gens[did] = cur
+        return cur
+
+
+def get_booking_prefetch_generation(session_id: str, destination_id: str) -> int:
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return 0
+    with _lock:
+        s = _sessions.get(sid)
+        if not s:
+            return 0
+        gens = s.get("booking_prefetch_generations")
+        if not isinstance(gens, dict):
+            return 0
+        return int(gens.get(did, 0))
+
+
+def clear_booking_prepare_caches(session_id: str, destination_id: str) -> None:
+    """
+    Invalidate everything ``booking_search_prepare`` owns for one destination:
+    cached hotel rows, search-intent JSON, criteria snapshot for steps, prefetched HTML,
+    and the short-lived duplicate-prepare response cache.
+    """
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return
+    bump_booking_prefetch_generation(sid, did)
+    s = get_session(sid)
+    bp = s.setdefault("booking_hotels_plans", {})
+    if isinstance(bp, dict):
+        bp.pop(did, None)
+    bi = s.setdefault("booking_search_intents", {})
+    if isinstance(bi, dict):
+        bi.pop(did, None)
+    cs = s.setdefault("booking_criteria_snapshots", {})
+    if isinstance(cs, dict):
+        cs.pop(did, None)
+    hp = s.setdefault("booking_html_prefetch", {})
+    if isinstance(hp, dict):
+        hp.pop(did, None)
+    pc = s.setdefault("booking_prepare_response_cache", {})
+    if isinstance(pc, dict):
+        pc.pop(did, None)
+
+
+def get_booking_prepare_response_cache(
+    session_id: str, destination_id: str, fingerprint: str
+) -> dict[str, Any] | None:
+    """Return last ``booking_search_prepare`` JSON when ``fingerprint`` still matches (Strict Mode dedupe)."""
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    fp = (fingerprint or "").strip()
+    if not sid or not did or not fp:
+        return None
+    s = get_session(sid)
+    box = s.get("booking_prepare_response_cache")
+    if not isinstance(box, dict):
+        return None
+    cell = box.get(did)
+    if not isinstance(cell, dict):
+        return None
+    if str(cell.get("fingerprint") or "") != fp:
+        return None
+    raw = cell.get("payload")
+    return dict(raw) if isinstance(raw, dict) else None
+
+
+def set_booking_prepare_response_cache(
+    session_id: str, destination_id: str, fingerprint: str, payload: dict[str, Any]
+) -> None:
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    fp = (fingerprint or "").strip()
+    if not sid or not did or not fp or not isinstance(payload, dict):
+        return
+    s = get_session(sid)
+    box = s.setdefault("booking_prepare_response_cache", {})
+    if isinstance(box, dict):
+        box[did] = {"fingerprint": fp, "payload": dict(payload)}
+
+
+def set_booking_criteria_snapshot(session_id: str, destination_id: str, payload: dict[str, Any]) -> None:
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did or not isinstance(payload, dict):
+        return
+    s = get_session(sid)
+    box = s.setdefault("booking_criteria_snapshots", {})
+    if isinstance(box, dict):
+        box[did] = dict(payload)
+
+
+def get_booking_criteria_snapshot(session_id: str, destination_id: str) -> dict[str, Any] | None:
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return None
+    s = get_session(sid)
+    box = s.get("booking_criteria_snapshots")
+    if not isinstance(box, dict):
+        return None
+    raw = box.get(did)
+    return raw if isinstance(raw, dict) else None
+
+
+def clear_booking_html_prefetch(session_id: str, destination_id: str) -> None:
+    """Drop only Playwright HTML prefetches (e.g. before a fresh ``build_booking_criteria``)."""
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return
+    bump_booking_prefetch_generation(sid, did)
+    s = get_session(sid)
+    hp = s.setdefault("booking_html_prefetch", {})
+    if isinstance(hp, dict):
+        hp.pop(did, None)
+
+
+def set_booking_prefetch_html(
+    session_id: str,
+    destination_id: str,
+    cache_key: str,
+    html: str,
+    *,
+    expected_generation: int | None = None,
+) -> None:
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    key = (cache_key or "").strip()
+    if not sid or not did or not key:
+        return
+    if expected_generation is not None and get_booking_prefetch_generation(sid, did) != int(expected_generation):
+        return
+    s = get_session(sid)
+    outer = s.setdefault("booking_html_prefetch", {})
+    if not isinstance(outer, dict):
+        outer = {}
+        s["booking_html_prefetch"] = outer
+    inner = outer.setdefault(did, {})
+    if isinstance(inner, dict):
+        inner[key] = html
+
+
+def pop_booking_prefetch_html(session_id: str, destination_id: str, cache_key: str) -> str | None:
+    """Remove and return one prefetched HTML blob, if present."""
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    key = (cache_key or "").strip()
+    if not sid or not did or not key:
+        return None
+    s = get_session(sid)
+    outer = s.get("booking_html_prefetch")
+    if not isinstance(outer, dict):
+        return None
+    inner = outer.get(did)
+    if not isinstance(inner, dict):
+        return None
+    raw = inner.pop(key, None)
+    if not inner:
+        outer.pop(did, None)
+    if isinstance(raw, str) and raw:
+        return raw
+    return None
+
+
+def date_hints_fingerprint(date_hints: dict[str, Any] | None) -> str:
+    """Stable string for matching prepare vs step ``date_hints`` payloads."""
+    if not date_hints:
+        return "{}"
+    try:
+        return json.dumps(date_hints, sort_keys=True, default=str)
+    except TypeError:
+        return repr(date_hints)
 
 
 def snapshot_destinations_for_model(session_id: str) -> list[dict[str, Any]]:

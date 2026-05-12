@@ -11,11 +11,15 @@ Set BOOKING_SEARCH_ENABLED=0 to disable network/browser work from the API.
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import os
 import re
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -24,10 +28,18 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from src.integrations.cursor_agent_client import basic_client, get_api_key, load_env_from_roots, run_prompt_collect_assistant_text
 from src.wanderly.cursor_advisor import _extract_json_object, structured_followup_model_id
 from src.wanderly.session_store import (
+    bump_booking_prefetch_generation,
+    clear_booking_html_prefetch,
     cursor_run_persist_kwargs_for_lane,
+    date_hints_fingerprint,
+    get_booking_criteria_snapshot,
     get_booking_hotels_plan,
+    get_booking_prefetch_generation,
     get_booking_search_intent,
+    pop_booking_prefetch_html,
+    set_booking_criteria_snapshot,
     set_booking_hotels_plan,
+    set_booking_prefetch_html,
     set_booking_search_intent,
 )
 
@@ -50,7 +62,12 @@ def _trace_log_path() -> Path:
 
 
 def booking_search_trace(event: str, **fields: Any) -> None:
-    """Append JSON lines to trace file + stdout (for debugging URLs and HTML snapshots)."""
+    """Append one JSON line per call to ``BOOKING_SEARCH_TRACE_LOG`` (default: ``.cache/booking_search_trace.log``).
+
+    Every record includes a UTC ISO8601 ``ts`` field. Latency-oriented ``*_elapsed_ms`` / ``elapsed_ms`` fields
+    appear on newer events (e.g. ``build_booking_criteria_done``, ``unified_bundle_llm_ok``, ``prefetch_parallel_done``,
+    ``step_criteria_resolved``, ``step_html_acquired``, ``step_ok``) for timeline analysis.
+    """
     rec = {"ts": datetime.now(timezone.utc).isoformat(), "event": event, **fields}
     line = json.dumps(rec, ensure_ascii=False, default=str)
     try:
@@ -285,12 +302,27 @@ def _guess_dates_from_vague_when(
     """
     Best-effort concrete dates for phrases like ``mid March``, ``late April``, ``March``,
     or ``Flexible`` so OTA search URLs always get ISO dates.
+
+    Important: strings like ``Mid-June (flexible dates)`` must **not** treat ``flexible``
+    as overriding the month — otherwise we incorrectly fall back to ``today + 21 days``.
     """
     if not when_val or not when_val.strip():
         return None, None
     t = today or date.today()
     raw = when_val.strip()
     s_low = raw.lower()
+
+    # Prefer explicit month / season hints over generic "flexible dates" boilerplate.
+    mo = _month_number_in_text(raw)
+    if mo is not None:
+        day_anchor = _season_day_anchor(s_low)
+        y = t.year
+        start = _safe_date(y, mo, day_anchor)
+        if start is None:
+            return None, None
+        end = start + timedelta(days=max(1, itinerary_days) - 1)
+        start, end = _bump_start_to_future(start, end, t)
+        return start, end
 
     if re.search(
         r"\b(flexible|anytime|any\s*time|tbd|not\s*sure|whenever|open)\b",
@@ -300,18 +332,7 @@ def _guess_dates_from_vague_when(
         end = start + timedelta(days=max(1, itinerary_days) - 1)
         return start, end
 
-    mo = _month_number_in_text(raw)
-    if mo is None:
-        return None, None
-
-    day_anchor = _season_day_anchor(s_low)
-    y = t.year
-    start = _safe_date(y, mo, day_anchor)
-    if start is None:
-        return None, None
-    end = start + timedelta(days=max(1, itinerary_days) - 1)
-    start, end = _bump_start_to_future(start, end, t)
-    return start, end
+    return None, None
 
 
 def _default_search_dates(itinerary_days: int, today: date | None = None) -> tuple[date, date]:
@@ -347,6 +368,83 @@ def _area_token_from_day_label(label: str) -> str:
     if parts:
         return parts[0]
     return s
+
+
+def _canonical_area_key(area: str) -> str:
+    s = " ".join(str(area or "").split()).strip().lower()
+    if not s:
+        return ""
+    s = re.sub(r"\(.*?\)", " ", s)
+    # Keep the lead location and drop common suffix descriptors.
+    s = re.split(r"\s*[+,/&|]\s*", s, maxsplit=1)[0]
+    s = re.sub(
+        r"\b(base|town|city|center|centre|downtown|old town|old quarter|area|region|district)\b",
+        " ",
+        s,
+    )
+    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+    return s
+
+
+def _looks_like_day_trip_activity(text: str) -> bool:
+    s = " ".join(str(text or "").split()).lower()
+    if not s:
+        return False
+    if any(sep in s for sep in (" + ", "/", " & ")):
+        return True
+    return any(
+        k in s
+        for k in (
+            "day trip",
+            "island hopping",
+            "boat tour",
+            "snorkel",
+            "dive",
+            "lagoon",
+            "limestone",
+            "waterfall",
+            "beach day",
+            "hike",
+            "excursion",
+        )
+    )
+
+
+def _area_token_from_itinerary_day(row: dict[str, Any], *, fallback: str, prev_base: str) -> str:
+    base_raw = str(row.get("base") or row.get("stay_base") or row.get("overnight_base") or "").strip()
+    label_raw = str(row.get("label") or "").strip()
+    cand = base_raw or _area_token_from_day_label(label_raw)
+    cand = " ".join(cand.split()).strip()
+    if not cand:
+        return prev_base or fallback
+
+    key = _canonical_area_key(cand)
+    prev_key = _canonical_area_key(prev_base)
+    if prev_base and key and prev_key:
+        # Keep same base when labels are variants of the same place.
+        if key == prev_key or key in prev_key or prev_key in key:
+            return prev_base
+
+    # Activity-only labels should not become new hotel bases.
+    if prev_base and _looks_like_day_trip_activity(cand):
+        return prev_base
+    return cand
+
+
+def _coalesce_itinerary_bases(rows: list[dict[str, Any]], *, base_area: str) -> list[tuple[str, int]]:
+    groups: list[tuple[str, int]] = []
+    prev_base = ""
+    for r in rows:
+        tok = _area_token_from_itinerary_day(r, fallback=base_area, prev_base=prev_base)
+        if not tok:
+            tok = prev_base or base_area
+        if groups and _canonical_area_key(groups[-1][0]) == _canonical_area_key(tok):
+            last_area, last_n = groups[-1]
+            groups[-1] = (last_area, last_n + 1)
+        else:
+            groups.append((tok, 1))
+        prev_base = tok
+    return groups
 
 
 def _image_fallback_from_dest(dest: dict[str, Any]) -> str:
@@ -492,34 +590,23 @@ def _stays_from_itinerary_heuristic(
     if not itinerary_rows or trip_nights <= 0:
         return [_hotel_row_stub(base_area, max(1, trip_nights), image=image_fallback)], "heuristic_default"
     rows = sorted(itinerary_rows, key=lambda r: int(r.get("day") or 0))
-    groups: list[tuple[str, int]] = []
-    i = 0
-    while i < len(rows):
-        tok = _area_token_from_day_label(str(rows[i].get("label") or ""))
-        if not tok:
-            tok = base_area
-        j = i + 1
-        while j < len(rows):
-            t2 = _area_token_from_day_label(str(rows[j].get("label") or ""))
-            if not t2:
-                t2 = tok
-            if t2.strip().lower() != tok.strip().lower():
-                break
-            j += 1
-        groups.append((tok, j - i))
-        i = j
+    groups = _coalesce_itinerary_bases(rows, base_area=base_area)
     hotels = [_hotel_row_stub(area, cnt, image=image_fallback) for area, cnt in groups]
     hotels = _fit_stays_to_trip_nights(hotels, trip_nights, image_fallback=image_fallback)
     return hotels, "heuristic_itinerary"
 
 
 def _itinerary_suggests_multi_base(itinerary_rows: list[dict[str, Any]]) -> bool:
-    toks = [
-        _area_token_from_day_label(str(r.get("label") or "")).strip().lower()
-        for r in sorted(itinerary_rows, key=lambda x: int(x.get("day") or 0))
-    ]
-    toks = [t for t in toks if t]
-    return len(set(toks)) >= 2
+    rows = sorted(itinerary_rows, key=lambda x: int(x.get("day") or 0))
+    toks: list[str] = []
+    prev = ""
+    for r in rows:
+        t = _area_token_from_itinerary_day(r, fallback="", prev_base=prev).strip()
+        if t:
+            toks.append(_canonical_area_key(t))
+            prev = t
+    uniq = {t for t in toks if t}
+    return len(uniq) >= 2
 
 
 def run_booking_stays_outline_llm(
@@ -542,10 +629,15 @@ def run_booking_stays_outline_llm(
     name = str(dest.get("name") or "Destination")
     country = str(dest.get("country") or "")
     dest_label = f"{name}, {country}".strip(", ")
-    compact = [
-        {"day": r.get("day"), "label": str(r.get("label") or "")[:160]}
-        for r in sorted(itinerary_rows, key=lambda x: int(x.get("day") or 0))
-    ]
+    compact = []
+    for r in sorted(itinerary_rows, key=lambda x: int(x.get("day") or 0)):
+        compact.append(
+            {
+                "day": r.get("day"),
+                "label": str(r.get("label") or "")[:160],
+                "base": str(r.get("base") or r.get("stay_base") or r.get("overnight_base") or "")[:120],
+            }
+        )
     who_hint = ""
     for p in profile_pills:
         if isinstance(p, dict) and str(p.get("key") or "") == "who":
@@ -565,6 +657,8 @@ Rules:
 - Order stays in trip order (first stay after arrival; last stay ends the last trip night).
 - Use 2+ stays when days clearly move between distinct towns/bases. Use 1 stay only if every night is the same town.
 - area: searchable on Expedia (include country when helpful).
+- Distinguish overnight base vs day-trip activity: excursions (e.g., island hopping, lakes, reefs, viewpoints) should NOT become a new stay.
+- Canonicalize variants of the same place into one base (e.g., "El Nido", "El Nido base", "El Nido town" => "El Nido").
 
 Travelers: {who_hint or "not specified"}
 Destination: {dest_label}
@@ -633,6 +727,143 @@ def booking_search_param_llm_enabled() -> bool:
     )
 
 
+def booking_search_dates_llm_enabled() -> bool:
+    """
+    When true, resolve vague ``when`` pills via Advisor LLM before rule-based dates.
+
+    Rules + client ``date_hints`` remain the fallback; enable for richer interpretation of
+    phrases like school breaks or ``mid-June (flexible)`` without brittle keyword order.
+    """
+    return os.environ.get("BOOKING_SEARCH_DATES_LLM", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _validate_travel_window_llm(
+    start_d: date, end_d: date, *, trip_calendar_days: int
+) -> bool:
+    if trip_calendar_days < 1:
+        return False
+    if start_d > end_d:
+        return False
+    span = (end_d - start_d).days + 1
+    return span == trip_calendar_days
+
+
+def run_booking_travel_window_llm(
+    *,
+    profile_pills: list[dict[str, Any]],
+    dest: dict[str, Any],
+    itinerary_days: int,
+    session_id: str,
+) -> tuple[date, date] | None:
+    """
+    Advisor LLM: map natural-language trip timing to concrete ISO dates for OTA search.
+
+    Output is validated (exact calendar-day span == itinerary_days); invalid JSON or spans
+    return None so callers fall back to heuristics.
+    """
+    if not booking_search_dates_llm_enabled():
+        return None
+    sid = (session_id or "").strip()
+    if not sid:
+        return None
+    load_env_from_roots()
+    key = get_api_key()
+    if not key:
+        return None
+    model = structured_followup_model_id()
+    name = str(dest.get("name") or "Destination")
+    country = str(dest.get("country") or "")
+    dest_label = f"{name}, {country}".strip(", ")
+    today = date.today()
+    n = max(1, int(itinerary_days))
+    schema = {
+        "type": "object",
+        "properties": {
+            "start_iso": {"type": "string"},
+            "end_iso": {"type": "string"},
+            "rationale": {"type": "string"},
+        },
+        "required": ["start_iso", "end_iso"],
+    }
+    prompt = f"""You choose concrete trip dates for flight/hotel search URLs.
+
+Return ONLY one JSON object (no markdown fences, no prose) matching this schema:
+{json.dumps(schema, ensure_ascii=True)}
+
+Context:
+- Today (server): {today.isoformat()}
+- Destination card: {dest_label}
+- Itinerary length: {n} calendar days (day 1 through day {n} inclusive).
+- The span MUST satisfy: end_iso minus start_iso equals {n - 1} days (inclusive trip length = {n}).
+
+Profile pills (traveler intent):
+{json.dumps(profile_pills, ensure_ascii=False)[:6000]}
+
+Interpret the trip timing naturally:
+- Honor explicit ranges like "Jun 12–18" when present in pills.
+- For vague windows ("mid-June", "flexible dates", school breaks), pick a realistic contiguous window in the future (or next occurrence) that matches the intent.
+- Never invent exact user dates when they gave explicit day numbers — respect those.
+
+Respond with start_iso and end_iso as YYYY-MM-DD only.
+""".strip()
+    did = str(dest.get("id") or "")[:24]
+    try:
+        with basic_client(key) as client:
+            raw = run_prompt_collect_assistant_text(
+                client,
+                prompt,
+                model_id_override=model,
+                **cursor_run_persist_kwargs_for_lane(
+                    sid,
+                    "booking_travel_window",
+                    trace_path=f"booking_dates_llm:{did}.txt",
+                ),
+            )
+    except Exception as exc:
+        booking_search_trace("travel_window_llm_exc", dest_id=did, error=str(exc)[:400])
+        return None
+    parsed = _extract_json_object(raw or "")
+    if not isinstance(parsed, dict):
+        booking_search_trace("travel_window_llm_no_json", dest_id=did)
+        return None
+    ss = str(parsed.get("start_iso") or "").strip()[:12]
+    es = str(parsed.get("end_iso") or "").strip()[:12]
+    try:
+        start_d = date.fromisoformat(ss[:10])
+        end_d = date.fromisoformat(es[:10])
+    except ValueError:
+        booking_search_trace("travel_window_llm_bad_iso", dest_id=did, start_iso=ss, end_iso=es)
+        return None
+    if not _validate_travel_window_llm(start_d, end_d, trip_calendar_days=n):
+        booking_search_trace(
+            "travel_window_llm_bad_span",
+            dest_id=did,
+            start_iso=ss,
+            end_iso=es,
+            expected_days=n,
+            span_days=(end_d - start_d).days + 1 if start_d <= end_d else None,
+        )
+        return None
+    shifted = False
+    if start_d < today:
+        start_d, end_d = _bump_start_to_future(start_d, end_d, today)
+        shifted = True
+    booking_search_trace(
+        "travel_window_llm_ok",
+        dest_id=did,
+        start_iso=start_d.isoformat(),
+        end_iso=end_d.isoformat(),
+        shifted_past_window=shifted,
+        rationale=_short(str(parsed.get("rationale") or ""), 200),
+    )
+    return start_d, end_d
+
+
 def _normalize_booking_search_intent(raw: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     fl = raw.get("flight")
@@ -690,6 +921,185 @@ def _normalize_booking_search_intent(raw: dict[str, Any]) -> dict[str, Any]:
         if h:
             out["hotel"] = h
     return out
+
+
+def _profile_budget_pill_raw(profile_pills: list[dict[str, Any]]) -> str:
+    for p in profile_pills:
+        if isinstance(p, dict) and str(p.get("key") or "").strip().lower() == "budget":
+            return str(p.get("value") or "").strip()
+    return ""
+
+
+def _parse_trip_budget_usd_bounds_from_profile_pills(
+    profile_pills: list[dict[str, Any]],
+    *,
+    adults: int,
+) -> tuple[int | None, int | None]:
+    """
+    Parse sidebar ``budget`` pill text into whole-trip USD bounds (approximate).
+
+    Handles common demo strings like ``~$2-3k total``, ``~$5-8k total``, ``~$8k+ total`` and scales when the
+    pill clearly refers to per-person budgets (``pp`` / ``per person``).
+    """
+    raw = _profile_budget_pill_raw(profile_pills)
+    if not raw:
+        return None, None
+    low = raw.lower()
+    pax = max(1, min(9, int(adults) if isinstance(adults, int) else 1))
+    mult = pax if re.search(r"\b(pp|per\s*person|per\s*pax|each\s*traveler)\b", low) else 1
+
+    def _scale(a: int, b: int) -> tuple[int, int]:
+        return int(a * mult), int(b * mult)
+
+    # e.g. ~$2-3k total, $10-14k, 5-8k
+    m = re.search(r"\$?\s*(\d+)\s*-\s*(\d+)\s*k\b", low)
+    if m:
+        return _scale(int(m.group(1)) * 1000, int(m.group(2)) * 1000)
+
+    # e.g. $2,500-$4,200 (no k)
+    m2 = re.search(
+        r"\$?\s*(\d[\d,]{2,6})\s*-\s*\$?\s*(\d[\d,]{2,6})\b",
+        low,
+    )
+    if m2 and re.search(r"\b(total|trip|budget|for\s+the\s+trip)\b", low):
+        a = int(m2.group(1).replace(",", ""))
+        b = int(m2.group(2).replace(",", ""))
+        if 500 <= a < b <= 500_000:
+            return _scale(a, b)
+
+    # e.g. ~$8k+, 12k+
+    mpl = re.search(r"\$?\s*(\d+)\s*k\s*\+", low)
+    if mpl:
+        base = int(mpl.group(1)) * 1000
+        return _scale(int(base * 0.72), int(max(base * 1.35, base + 3000)))
+
+    # Single cap: under $5k, up to 3500, $3.2k
+    mk = re.search(
+        r"(?:under|below|less than|up to|max|at most)\s+\$?\s*(\d+(?:\.\d+)?)\s*k\b",
+        low,
+    )
+    if mk:
+        hi = int(float(mk.group(1)) * 1000)
+        return _scale(int(hi * 0.55), hi)
+
+    mk2 = re.search(r"\$?\s*(\d+(?:\.\d+)?)\s*k\b", low)
+    if mk2:
+        mid = int(float(mk2.group(1)) * 1000)
+        if mid >= 800:
+            return _scale(int(mid * 0.82), int(mid * 1.12))
+
+    mflat = re.search(
+        r"(?:under|below|less than|up to|max)\s+\$?\s*(\d[\d,]{3,6})\b(?!\s*k)",
+        low,
+    )
+    if mflat:
+        hi = int(mflat.group(1).replace(",", ""))
+        if hi >= 800:
+            return _scale(int(hi * 0.55), hi)
+
+    return None, None
+
+
+def _lodging_pool_share_of_trip_budget() -> float:
+    """Share of parsed trip budget left for lodging after rough flight + misc carve-outs."""
+    flight = float(os.environ.get("BOOKING_HOTEL_BUDGET_FLIGHT_ALLOC_SHARE", "0.34") or 0.34)
+    misc = float(os.environ.get("BOOKING_HOTEL_BUDGET_MISC_ALLOC_SHARE", "0.10") or 0.10)
+    h = 1.0 - flight - misc
+    return max(0.36, min(0.78, h))
+
+
+def _nightly_hotel_price_min_max_usd(
+    trip_low: int | None,
+    trip_high: int | None,
+    *,
+    calendar_nights: int,
+) -> tuple[int | None, int | None]:
+    """
+    Convert whole-trip USD bounds into **per-night** min/max for Expedia ``price`` query pair.
+
+    Uses a configurable lodging share of the trip total, divided by ``calendar_nights`` (inclusive lodging
+    nights for this destination window).
+    """
+    if trip_high is None or trip_high < 400:
+        return None, None
+    nights = max(1, int(calendar_nights))
+    share = _lodging_pool_share_of_trip_budget()
+    lo_t = int(trip_low) if trip_low is not None and trip_low >= 200 else int(trip_high * 0.58)
+    hi_t = int(trip_high)
+    pool_lo = max(200, int(lo_t * share))
+    pool_hi = max(pool_lo + 100, int(hi_t * share))
+    per_hi = max(35, pool_hi // nights)
+    per_lo = max(25, pool_lo // nights)
+    if per_lo > per_hi:
+        per_lo = max(25, per_hi - max(35, per_hi // 3))
+    # Keep a minimum band width so Expedia filters are not degenerate.
+    if per_hi - per_lo < 25:
+        per_hi = per_lo + 25
+    per_hi = min(8000, per_hi)
+    per_lo = min(per_lo, max(25, per_hi - 50))
+    return per_lo, per_hi
+
+
+def _merge_profile_budget_into_hotel_search_intent(
+    search_intent: dict[str, Any] | None,
+    profile_pills: list[dict[str, Any]],
+    *,
+    calendar_nights: int,
+    adults: int,
+) -> dict[str, Any]:
+    """
+    Overlay ``hotel.price_min_usd`` / ``hotel.price_max_usd`` (per-night) from the traveler ``budget`` pill.
+
+    Caps overly loose LLM caps and fills missing prices so Hotel-Search URLs stay near the stated trip budget.
+    """
+    out: dict[str, Any] = copy.deepcopy(search_intent) if isinstance(search_intent, dict) else {}
+    trip_lo, trip_hi = _parse_trip_budget_usd_bounds_from_profile_pills(profile_pills, adults=adults)
+    n_lo, n_hi = _nightly_hotel_price_min_max_usd(trip_lo, trip_hi, calendar_nights=calendar_nights)
+    if n_hi is None or n_lo is None:
+        return out
+    h0 = out.get("hotel")
+    h: dict[str, Any] = dict(h0) if isinstance(h0, dict) else {}
+    ll_min = int(h["price_min_usd"]) if isinstance(h.get("price_min_usd"), (int, float)) else None
+    ll_max = int(h["price_max_usd"]) if isinstance(h.get("price_max_usd"), (int, float)) else None
+    eff_max = min(n_hi, ll_max) if ll_max is not None else n_hi
+    eff_max = max(int(eff_max), int(n_lo) + 20)
+    if ll_min is not None:
+        eff_min = max(n_lo, min(ll_min, eff_max - 15))
+    else:
+        eff_min = int(n_lo)
+    if eff_min >= eff_max:
+        eff_min = max(int(n_lo), int(eff_max) - max(30, int(eff_max) // 5))
+    eff_max = max(int(eff_max), int(eff_min) + 15)
+    h["price_min_usd"] = int(eff_min)
+    h["price_max_usd"] = int(eff_max)
+    out["hotel"] = h
+    booking_search_trace(
+        "hotel_intent_budget_overlay",
+        trip_budget_low_usd=trip_lo,
+        trip_budget_high_usd=trip_hi,
+        nightly_min_usd=int(eff_min),
+        nightly_max_usd=int(eff_max),
+        calendar_nights=int(calendar_nights),
+        llm_had_prices=bool(ll_min is not None or ll_max is not None),
+    )
+    return out
+
+
+def _criteria_line_hotel_budget_from_profile(
+    profile_pills: list[dict[str, Any]],
+    *,
+    calendar_nights: int,
+    adults: int,
+) -> str | None:
+    trip_lo, trip_hi = _parse_trip_budget_usd_bounds_from_profile_pills(profile_pills, adults=adults)
+    n_lo, n_hi = _nightly_hotel_price_min_max_usd(trip_lo, trip_hi, calendar_nights=calendar_nights)
+    if n_hi is None or n_lo is None:
+        return None
+    return (
+        f"Hotel search budget (from profile): target listings near "
+        f"${n_lo}–${n_hi} USD per night after reserving part of the trip budget for flights/misc "
+        f"(~{calendar_nights} night window); prefer options inside this band."
+    )
 
 
 def run_booking_search_params_llm(
@@ -775,7 +1185,10 @@ Itinerary compact:
 Guidance:
 - Keep filters broad enough to return results, but aligned to profile constraints.
 - Use nonstop only when strongly implied; otherwise prefer max 1 stop.
-- For hotels, set practical budget/rating bounds when profile hints exist; avoid over-constraining.
+- For hotels, set ``price_min_usd`` / ``price_max_usd`` as **per-night USD** on Expedia when the profile
+  ``budget`` pill implies a trip total: reserve ~30–40% of that total for flights/misc, spread the rest across
+  ``trip_nights`` to derive nightly bounds; keep min ~60–75% of max. If the budget pill is missing or unclear,
+  omit hotel prices (the server will still apply a coarse overlay from the pill when possible).
 """.strip()
     try:
         with basic_client(key) as client:
@@ -806,6 +1219,313 @@ Guidance:
         has_hotel=bool(intent.get("hotel")),
     )
     return intent
+
+
+def booking_search_unified_bundle_llm_enabled() -> bool:
+    """One LLM call: trip dates, adults, multi-stay rows, and flight/hotel URL filter intent."""
+    return os.environ.get("BOOKING_SEARCH_UNIFIED_BUNDLE_LLM", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def booking_search_parallel_prefetch_enabled() -> bool:
+    """After criteria resolve, prefetch flight + hotel SRP HTML in parallel (Playwright)."""
+    return os.environ.get("BOOKING_SEARCH_PARALLEL_PREFETCH", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def run_booking_unified_bundle_llm(
+    *,
+    dest: dict[str, Any],
+    profile_pills: list[dict[str, Any]],
+    itinerary_rows: list[dict[str, Any]],
+    itinerary_days: int,
+    date_hints: dict[str, Any] | None,
+    session_id: str,
+) -> dict[str, Any] | None:
+    """
+    Single structured LLM pass: ``start_iso`` / ``end_iso``, ``adults``, ``stays[]``, and Expedia
+    filter intent (``flight`` / ``hotel`` objects) compatible with ``_normalize_booking_search_intent``.
+
+    Returns ``{start_d, end_d, adults, hotels_rows, search_intent}`` and persists hotels + intent
+    to the session on success; else ``None`` (caller falls back to the legacy multi-step path).
+    """
+    if not booking_search_unified_bundle_llm_enabled():
+        return None
+    sid = (session_id or "").strip()
+    did = str(dest.get("id") or "").strip()
+    if not sid or not did:
+        return None
+    load_env_from_roots()
+    key = get_api_key()
+    if not key:
+        booking_search_trace(
+            "unified_bundle_llm_skip",
+            dest_id=did,
+            reason="no_cursor_api_key",
+        )
+        return None
+    name = str(dest.get("name") or "Destination")
+    country = str(dest.get("country") or "")
+    who = ""
+    when_s = ""
+    from_s = ""
+    for p in profile_pills:
+        if not isinstance(p, dict):
+            continue
+        k = str(p.get("key") or "")
+        v = str(p.get("value") or "").strip()
+        if k == "who" and v:
+            who = v
+        if k == "when" and v:
+            when_s = v
+        if k == "from" and v:
+            from_s = v
+    compact_days = [
+        {"day": r.get("day"), "label": str(r.get("label") or "")[:140]}
+        for r in sorted(itinerary_rows, key=lambda x: int(x.get("day") or 0))
+    ][:14]
+    dh = date_hints if isinstance(date_hints, dict) else {}
+    hint_start: date | None = None
+    hint_end: date | None = None
+    if isinstance(dh.get("start_iso"), str) and str(dh["start_iso"]).strip():
+        try:
+            hint_start = date.fromisoformat(str(dh["start_iso"]).strip()[:10])
+        except ValueError:
+            hint_start = None
+    if isinstance(dh.get("end_iso"), str) and str(dh["end_iso"]).strip():
+        try:
+            hint_end = date.fromisoformat(str(dh["end_iso"]).strip()[:10])
+        except ValueError:
+            hint_end = None
+    schema = {
+        "type": "object",
+        "properties": {
+            "start_iso": {"type": "string"},
+            "end_iso": {"type": "string"},
+            "adults": {"type": "integer", "minimum": 1, "maximum": 9},
+            "stays": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["area", "nights"],
+                    "properties": {
+                        "area": {"type": "string"},
+                        "nights": {"type": "integer", "minimum": 1},
+                    },
+                },
+            },
+            "flight": {
+                "type": "object",
+                "properties": {
+                    "stops": {"type": "string", "enum": ["any", "nonstop", "max_1_stop"]},
+                    "cabin": {"type": "string", "enum": ["economy", "premium_economy", "business", "first"]},
+                    "carry_on": {"type": "string", "enum": ["required", "optional"]},
+                },
+            },
+            "hotel": {
+                "type": "object",
+                "properties": {
+                    "sort": {
+                        "type": "string",
+                        "enum": ["RECOMMENDED", "PRICE_LOW_TO_HIGH", "PRICE_HIGH_TO_LOW", "GUEST_RATING"],
+                    },
+                    "star_min": {"type": "integer", "minimum": 0, "maximum": 5},
+                    "guest_rating_min": {"type": "number", "minimum": 0, "maximum": 5},
+                    "price_min_usd": {"type": "integer", "minimum": 0},
+                    "price_max_usd": {"type": "integer", "minimum": 1},
+                    "meal_plan": {"type": "string", "enum": ["FREE_BREAKFAST"]},
+                    "amenities": {"type": "array", "items": {"type": "string"}},
+                    "traveler_type": {"type": "string"},
+                },
+            },
+            "rationale": {"type": "string"},
+        },
+    }
+    date_lock = ""
+    if hint_start and hint_end and hint_end >= hint_start:
+        date_lock = (
+            f"Client locked dates: start_iso MUST be {hint_start.isoformat()} and "
+            f"end_iso MUST be {hint_end.isoformat()} (inclusive last night of trip)."
+        )
+    else:
+        date_lock = (
+            f"Infer start_iso and end_iso as YYYY-MM-DD spanning exactly {max(1, int(itinerary_days))} "
+            "calendar days (inclusive), aligned with profile When when possible; must not be in the past "
+            f"relative to today {date.today().isoformat()}."
+        )
+    prompt = f"""You plan **one** Expedia-oriented booking bundle from the destination itinerary + traveler profile.
+
+Return ONLY one JSON object (no markdown fences, no prose) matching this schema:
+{json.dumps(schema, ensure_ascii=True)}
+
+Destination: {name}, {country}
+Profile when pill: {when_s or "(none)"}
+Departing from (home / origin hint): {from_s or "(none)"}
+Travelers line: {who or "(not specified)"}
+Itinerary length (days): {max(1, int(itinerary_days))}
+
+{date_lock}
+
+Client date_hints JSON (may be empty):
+{json.dumps(dh, ensure_ascii=False)[:2000]}
+
+Profile pills:
+{json.dumps(profile_pills, ensure_ascii=False)[:7000]}
+
+Itinerary compact:
+{json.dumps(compact_days, ensure_ascii=False)}
+
+Rules:
+- stays: ordered lodging bases; sum of nights MUST equal (end_iso - start_iso).days + 1 exactly.
+- area: Expedia-searchable place strings (include region/country when helpful).
+- flight + hotel: keep filters broad enough to return results; align to profile when obvious.
+- Use max_1_stop unless nonstop is strongly implied.
+- **hotel.price_min_usd / hotel.price_max_usd**: set as **per-night USD** consistent with the profile ``budget``
+  pill (whole-trip total). Reserve roughly 30–40% of the trip for flights + misc, divide the remainder by trip
+  nights for a nightly cap; keep min roughly 60–75% of max so Expedia price filters stay usable. If the budget
+  pill is vague, omit prices and the server will infer bounds.
+""".strip()
+    model = structured_followup_model_id()
+    t_llm = time.perf_counter()
+    booking_search_trace(
+        "unified_bundle_llm_start",
+        dest_id=did,
+        session_id_prefix=sid[:12] if len(sid) >= 12 else sid,
+        itinerary_days=max(1, int(itinerary_days)),
+    )
+    try:
+        with basic_client(key) as client:
+            raw = run_prompt_collect_assistant_text(
+                client,
+                prompt,
+                model_id_override=model,
+                **cursor_run_persist_kwargs_for_lane(
+                    sid,
+                    "booking_unified_bundle",
+                    trace_path=f"booking_unified:{did[:24]}.txt",
+                ),
+            )
+    except Exception as exc:
+        booking_search_trace(
+            "unified_bundle_llm_exc",
+            dest_id=did,
+            error=str(exc)[:400],
+            elapsed_ms=int((time.perf_counter() - t_llm) * 1000),
+        )
+        return None
+    llm_wall_ms = int((time.perf_counter() - t_llm) * 1000)
+    parsed = _extract_json_object(raw or "")
+    if not isinstance(parsed, dict):
+        booking_search_trace(
+            "unified_bundle_llm_no_json",
+            dest_id=did,
+            elapsed_ms=llm_wall_ms,
+        )
+        return None
+    start_d: date | None = None
+    end_d: date | None = None
+    if hint_start and hint_end and hint_end >= hint_start:
+        start_d, end_d = hint_start, hint_end
+    else:
+        try:
+            s0 = str(parsed.get("start_iso") or "").strip()[:10]
+            e0 = str(parsed.get("end_iso") or "").strip()[:10]
+            if s0 and e0:
+                start_d = date.fromisoformat(s0)
+                end_d = date.fromisoformat(e0)
+        except (TypeError, ValueError):
+            start_d = end_d = None
+    if start_d is None or end_d is None or end_d < start_d:
+        booking_search_trace(
+            "unified_bundle_llm_bad_dates",
+            dest_id=did,
+            elapsed_ms=llm_wall_ms,
+        )
+        return None
+    trip_nights = (end_d - start_d).days + 1
+    if trip_nights < 1 or trip_nights > 60:
+        booking_search_trace(
+            "unified_bundle_llm_span_bad",
+            dest_id=did,
+            trip_nights=trip_nights,
+            elapsed_ms=llm_wall_ms,
+        )
+        return None
+    if start_d < date.today():
+        start_d, end_d = _bump_start_to_future(start_d, end_d, date.today())
+        trip_nights = (end_d - start_d).days + 1
+    adults = _parse_adults_from_who(who)
+    ar = parsed.get("adults")
+    if isinstance(ar, (int, float)):
+        ai = int(ar)
+        if 1 <= ai <= 9:
+            adults = ai
+    ao_raw = dh.get("adults")
+    if isinstance(ao_raw, bool):
+        ao_raw = None
+    if isinstance(ao_raw, (int, float)):
+        ai = int(ao_raw)
+        if 1 <= ai <= 9:
+            adults = ai
+    elif isinstance(ao_raw, str) and ao_raw.strip().isdigit():
+        ai = int(ao_raw.strip())
+        if 1 <= ai <= 9:
+            adults = ai
+    image_fb = _image_fallback_from_dest(dest)
+    stays_raw = parsed.get("stays")
+    rows: list[dict[str, Any]] = []
+    if isinstance(stays_raw, list):
+        for x in stays_raw:
+            if not isinstance(x, dict):
+                continue
+            area = str(x.get("area") or "").strip()
+            ni = x.get("nights")
+            nights = int(ni) if isinstance(ni, (int, float)) else 0
+            if area and nights >= 1:
+                rows.append(_hotel_row_stub(area, nights, image=image_fb))
+    if not rows:
+        booking_search_trace(
+            "unified_bundle_llm_no_stays",
+            dest_id=did,
+            elapsed_ms=llm_wall_ms,
+        )
+        return None
+    rows = _fit_stays_to_trip_nights(rows, trip_nights, image_fallback=image_fb)
+    intent = _normalize_booking_search_intent(parsed)
+    intent = _merge_profile_budget_into_hotel_search_intent(
+        intent if intent else {},
+        profile_pills,
+        calendar_nights=max(1, int(trip_nights)),
+        adults=adults,
+    )
+    set_booking_hotels_plan(sid, did, rows)
+    if intent:
+        set_booking_search_intent(sid, did, intent)
+    booking_search_trace(
+        "unified_bundle_llm_ok",
+        dest_id=did,
+        trip_nights=trip_nights,
+        stays=len(rows),
+        has_flight=bool(intent.get("flight")),
+        has_hotel=bool(intent.get("hotel")),
+        llm_elapsed_ms=llm_wall_ms,
+        total_elapsed_ms=int((time.perf_counter() - t_llm) * 1000),
+    )
+    return {
+        "start_d": start_d,
+        "end_d": end_d,
+        "adults": adults,
+        "hotels_rows": rows,
+        "search_intent": intent if intent else {},
+    }
 
 
 def resolve_booking_hotels_plan(
@@ -914,48 +1634,120 @@ def build_booking_criteria(
 
     itinerary = dest.get("itinerary") or []
     n_days = len(itinerary) if isinstance(itinerary, list) and len(itinerary) > 0 else 7
+    itinerary_rows = [x for x in itinerary if isinstance(x, dict)] if isinstance(itinerary, list) else []
+
+    dh = date_hints if isinstance(date_hints, dict) else {}
+    sid = (session_id or "").strip()
+    did = str(dest.get("id") or "").strip()
+    t_build = time.perf_counter()
+    booking_search_trace(
+        "build_booking_criteria_begin",
+        destination_id=did,
+        session_id_present=bool(sid),
+        unified_bundle_enabled=booking_search_unified_bundle_llm_enabled(),
+        parallel_prefetch_enabled=booking_search_parallel_prefetch_enabled(),
+    )
+    if sid and did:
+        clear_booking_html_prefetch(sid, did)
+
+    unified: dict[str, Any] | None = None
+    if sid:
+        unified = run_booking_unified_bundle_llm(
+            dest=dest,
+            profile_pills=profile_pills,
+            itinerary_rows=itinerary_rows,
+            itinerary_days=n_days,
+            date_hints=dh,
+            session_id=sid,
+        )
 
     start_d: date | None = None
     end_d: date | None = None
     date_guess_reason: str | None = None
-    dh = date_hints or {}
-    if isinstance(dh.get("start_iso"), str) and dh["start_iso"].strip():
-        try:
-            start_d = date.fromisoformat(dh["start_iso"].strip()[:10])
-        except ValueError:
-            start_d = None
-    if isinstance(dh.get("end_iso"), str) and dh["end_iso"].strip():
-        try:
-            end_d = date.fromisoformat(dh["end_iso"].strip()[:10])
-        except ValueError:
-            end_d = None
+    llm_travel_window_ok = False
+    if unified:
+        start_d = unified["start_d"]
+        end_d = unified["end_d"]
+        date_guess_reason = "unified_bundle_llm"
+        llm_travel_window_ok = True
 
-    exact_start, exact_end = (None, None)
-    if start_d is None or end_d is None:
-        exact_start, exact_end = _when_pill_dates(when_s, itinerary_days=n_days)
-        start_d = start_d or exact_start
-        end_d = end_d or exact_end
+    if not unified:
+        if booking_search_dates_llm_enabled() and sid and when_s.strip():
+            tw = run_booking_travel_window_llm(
+                profile_pills=profile_pills,
+                dest=dest,
+                itinerary_days=n_days,
+                session_id=sid,
+            )
+            if tw:
+                start_d, end_d = tw
+                llm_travel_window_ok = True
+                date_guess_reason = "llm_travel_window"
 
-    if start_d is None or end_d is None:
-        gv, ge = _guess_dates_from_vague_when(when_s, itinerary_days=n_days)
-        if gv is not None and ge is not None:
-            start_d = start_d or gv
-            end_d = end_d or ge
-            if exact_start is None and exact_end is None:
-                date_guess_reason = "vague"
+        if not llm_travel_window_ok and isinstance(dh.get("start_iso"), str) and dh["start_iso"].strip():
+            try:
+                start_d = date.fromisoformat(dh["start_iso"].strip()[:10])
+            except ValueError:
+                start_d = None
+        if not llm_travel_window_ok and isinstance(dh.get("end_iso"), str) and dh["end_iso"].strip():
+            try:
+                end_d = date.fromisoformat(dh["end_iso"].strip()[:10])
+            except ValueError:
+                end_d = None
 
-    if start_d is None:
-        start_d, end_d = _default_search_dates(n_days)
-        date_guess_reason = "default"
-    elif end_d is None:
-        end_d = start_d + timedelta(days=max(1, n_days) - 1)
+        exact_start, exact_end = (None, None)
+        if start_d is None or end_d is None:
+            exact_start, exact_end = _when_pill_dates(when_s, itinerary_days=n_days)
+            start_d = start_d or exact_start
+            end_d = end_d or exact_end
+
+        if start_d is None or end_d is None:
+            gv, ge = _guess_dates_from_vague_when(when_s, itinerary_days=n_days)
+            if gv is not None and ge is not None:
+                start_d = start_d or gv
+                end_d = end_d or ge
+                if exact_start is None and exact_end is None:
+                    date_guess_reason = "vague"
+
+        if start_d is None:
+            start_d, end_d = _default_search_dates(n_days)
+            date_guess_reason = "default"
+        elif end_d is None:
+            end_d = start_d + timedelta(days=max(1, n_days) - 1)
 
     shifted_past_window = False
     if start_d is not None and end_d is not None and start_d < date.today():
         start_d, end_d = _bump_start_to_future(start_d, end_d, date.today())
         shifted_past_window = True
 
-    adults = _parse_adults_from_who(who)
+    if unified:
+        date_resolve_source = "unified_bundle_llm"
+    else:
+        date_resolve_source = date_guess_reason or ""
+        if not date_resolve_source:
+            if isinstance(dh.get("start_iso"), str) and str(dh.get("start_iso") or "").strip():
+                date_resolve_source = "date_hints"
+            elif exact_start is not None:
+                date_resolve_source = "when_pill_range"
+            elif when_s.strip():
+                date_resolve_source = "vague_when_inferred"
+            else:
+                date_resolve_source = "default_no_when"
+
+    booking_search_trace(
+        "booking_dates_resolved",
+        when_pill=_short(when_s, 240),
+        start_iso=start_d.isoformat() if start_d else None,
+        end_iso=end_d.isoformat() if end_d else None,
+        itinerary_days=n_days,
+        resolve_source=date_resolve_source,
+        shifted_past_window=shifted_past_window,
+    )
+
+    if unified:
+        adults = int(unified["adults"])
+    else:
+        adults = _parse_adults_from_who(who)
     ao_raw = dh.get("adults")
     if isinstance(ao_raw, bool):
         ao_raw = None
@@ -975,6 +1767,10 @@ def build_booking_criteria(
         lines.append(f"Trip window (profile): {when_s}")
     if start_d and end_d:
         lines.append(f"Search dates: {start_d.isoformat()} → {end_d.isoformat()} ({(end_d - start_d).days + 1} days)")
+    if date_guess_reason == "llm_travel_window":
+        lines.append("Search dates: advisor interpretation of your trip timing (LLM).")
+    if date_guess_reason == "unified_bundle_llm":
+        lines.append("Search dates, lodging split, and Expedia filters from a single advisor bundle (LLM).")
     if date_guess_reason == "vague" and when_s:
         lines.append(
             f"Dates for search are our best guess from “{when_s}” (you can narrow this later)."
@@ -986,7 +1782,6 @@ def build_booking_criteria(
     if shifted_past_window:
         lines.append("Profile window was already in the past — search dates moved to the next occurrence.")
 
-    itinerary_rows = [x for x in itinerary if isinstance(x, dict)] if isinstance(itinerary, list) else []
     trip_nights = (
         (end_d - start_d).days + 1
         if start_d is not None and end_d is not None
@@ -994,18 +1789,26 @@ def build_booking_criteria(
     )
     start_iso = start_d.isoformat() if start_d else ""
     end_iso = end_d.isoformat() if end_d else ""
-    hotels_resolved, outline_src = resolve_booking_hotels_plan(
-        dest,
-        profile_pills,
-        itinerary_rows,
-        trip_nights,
-        start_iso,
-        end_iso,
-        session_id,
-    )
-    if session_id and hotels_resolved:
-        set_booking_hotels_plan(session_id, str(dest.get("id") or ""), hotels_resolved)
-    if outline_src.startswith("advisor"):
+    if unified:
+        hotels_resolved = unified["hotels_rows"]
+        outline_src = "unified_bundle_llm"
+        if sid:
+            set_booking_hotels_plan(sid, did, hotels_resolved)
+    else:
+        hotels_resolved, outline_src = resolve_booking_hotels_plan(
+            dest,
+            profile_pills,
+            itinerary_rows,
+            trip_nights,
+            start_iso,
+            end_iso,
+            session_id,
+        )
+        if session_id and hotels_resolved:
+            set_booking_hotels_plan(session_id, str(dest.get("id") or ""), hotels_resolved)
+    if outline_src == "unified_bundle_llm":
+        lines.append("Lodging: stays + Expedia filters from a single advisor bundle (LLM).")
+    elif outline_src.startswith("advisor"):
         lines.append("Lodging: stays split from your day-by-day plan (advisor outline).")
     elif outline_src == "json_outline":
         lines.append("Lodging: using booking_search_outline from the destination card.")
@@ -1047,6 +1850,12 @@ def build_booking_criteria(
     else:
         lines.append("Lodging: no stays on card — hotel steps will be skipped.")
 
+    budget_line = _criteria_line_hotel_budget_from_profile(
+        profile_pills, calendar_nights=trip_nights, adults=adults
+    )
+    if budget_line:
+        lines.append(budget_line)
+
     search_intent: dict[str, Any] = {}
     did = str(dest.get("id") or "").strip()
     sid = (session_id or "").strip()
@@ -1083,9 +1892,18 @@ def build_booking_criteria(
                     has_hotel=bool(search_intent.get("hotel")),
                 )
 
+    search_intent = _merge_profile_budget_into_hotel_search_intent(
+        search_intent if isinstance(search_intent, dict) else {},
+        profile_pills,
+        calendar_nights=trip_nights,
+        adults=adults,
+    )
+    if sid and did and search_intent:
+        set_booking_search_intent(sid, did, search_intent)
+
     lines.append("Source: illustrative Expedia web snapshot (not a live quote or availability guarantee).")
 
-    return {
+    ret: dict[str, Any] = {
         "criteria_lines": lines,
         "adults": adults,
         "start_date": start_d.isoformat() if start_d else None,
@@ -1096,6 +1914,48 @@ def build_booking_criteria(
         "booking_outline_source": outline_src,
         "search_intent": search_intent if search_intent else None,
     }
+    jobs: list[tuple[str, str]] = []
+    if sid and did and start_d and end_d:
+        fp = date_hints_fingerprint(date_hints if isinstance(date_hints, dict) else None)
+        snap = dict(ret)
+        snap["_date_hints_fp"] = fp
+        set_booking_criteria_snapshot(sid, did, snap)
+        booking_search_trace(
+            "criteria_snapshot_stored",
+            destination_id=did,
+            date_hints_fp_sha8=hashlib.sha256(fp.encode("utf-8")).hexdigest()[:8],
+            date_hints_fp_len=len(fp),
+        )
+        jobs = _collect_booking_prefetch_jobs(
+            dest, ret, profile_pills, start_d=start_d, end_d=end_d, adults=adults
+        )
+        if booking_search_parallel_prefetch_enabled() and jobs:
+            prefetch_gen = bump_booking_prefetch_generation(sid, did)
+
+            def _bg_prefetch() -> None:
+                _run_booking_prefetch_parallel(sid, did, jobs, expected_generation=prefetch_gen)
+
+            threading.Thread(
+                target=_bg_prefetch,
+                daemon=True,
+                name=f"wanderly-booking-prefetch-{did[:12]}",
+            ).start()
+            booking_search_trace(
+                "prefetch_parallel_scheduled_async",
+                destination_id=did,
+                job_count=len(jobs),
+                prefetch_generation=prefetch_gen,
+            )
+    build_elapsed_ms = int((time.perf_counter() - t_build) * 1000)
+    booking_search_trace(
+        "build_booking_criteria_done",
+        destination_id=did,
+        elapsed_ms=build_elapsed_ms,
+        unified_bundle_applied=bool(unified),
+        booking_outline_source=outline_src,
+        prefetch_jobs=len(jobs),
+    )
+    return ret
 
 
 # Dropped from booking Hotel-Search URLs (golden catalog may still contain them).
@@ -1385,6 +2245,132 @@ def _apply_flight_search_intent_pairs(
     return out
 
 
+def _hotel_price_url_mode() -> str:
+    """
+    How nightly ``price=`` min/max pairs are applied on Hotel-Search URLs.
+
+    - ``wide`` (default): loose Expedia bounds so the SRP still returns listings; intent min/max stay tight for
+      ranking and criteria text.
+    - ``strict``: pass intent min/max through unchanged (old behavior; can yield empty SRPs).
+    - ``off``: drop all ``price`` params (broadest fetch; budget only in ranking / LLM).
+    """
+    raw = (os.environ.get("BOOKING_HOTEL_PRICE_URL_MODE") or "wide").strip().lower()
+    if raw in ("strict", "narrow", "exact", "tight"):
+        return "strict"
+    if raw in ("off", "none", "omit", "0", "false", "no"):
+        return "off"
+    return "wide"
+
+
+def _hotel_url_query_price_bounds(mn: int, mx: int) -> tuple[int, int] | None:
+    """Map intent nightly USD bounds to ``price=`` query pair for Expedia (or None to omit)."""
+    mode = _hotel_price_url_mode()
+    if mode == "off":
+        return None
+    if mode == "strict":
+        if mn > mx:
+            mn = max(0, mx - 100)
+        return (max(1, int(mn)), max(int(mn) + 1, int(mx)))
+    # wide: keep intent on the server for ranking, but ask Expedia for a much wider inventory band.
+    lo = max(1, int(round(mn * 0.22)))
+    span_need = max(350, int((mx - mn) * 5) + 400) if mx > mn else 500
+    hi = min(
+        25_000,
+        max(int(round(mx * 1.78)) + 200, int(mx) + span_need),
+    )
+    if hi <= lo:
+        hi = lo + 350
+    if hi - lo < 300:
+        hi = lo + 300
+    return (int(lo), int(hi))
+
+
+def _hotel_exclude_query_price_values(q_prices: list[str]) -> set[int]:
+    """
+    Values to ignore when picking the first dollar token on the SRP (filter slab vs listing).
+
+    For ``wide`` / ``off`` URL modes, only exclude when the URL still encodes a **tight** pair (e.g. catalog
+    400/600); broad ``price=`` bands are not excluded so we do not collide with real totals.
+    """
+    digs = sorted({_price_digits(v) for v in q_prices if _price_digits(v) > 0})
+    if not digs:
+        return set()
+    lo, hi = digs[0], digs[-1]
+    mode = _hotel_price_url_mode()
+    if mode == "strict":
+        return set(digs)
+    if len(digs) >= 2 and (hi - lo) <= 420:
+        return set(digs)
+    return set()
+
+
+def _usd_amounts_near_href(raw_html: str, href: str, *, window: int = 5000) -> list[int]:
+    href_raw = (href or "").strip()
+    if not href_raw:
+        return []
+    needles = [href_raw]
+    href_abs = _absolute_expedia_href(href_raw)
+    if href_abs:
+        needles.append(href_abs)
+    mrel = re.search(r"https?://[^/]+(/[^?#]+)", href_raw)
+    if mrel:
+        needles.append(mrel.group(1))
+    if href_abs:
+        mrel2 = re.search(r"https?://[^/]+(/[^?#]+)", href_abs)
+        if mrel2:
+            needles.append(mrel2.group(1))
+    seen: set[str] = set()
+    for nd in [x for x in needles if x and not (x in seen or seen.add(x))]:
+        ix = raw_html.find(nd)
+        if ix < 0:
+            continue
+        lo = max(0, ix - window)
+        hi = min(len(raw_html), ix + window * 2)
+        chunk = raw_html[lo:hi]
+        vals: list[int] = []
+        for m in re.finditer(r"\$\s*([\d,]+)", chunk):
+            d = int(m.group(1).replace(",", ""))
+            if 40 <= d < 500_000:
+                vals.append(d)
+        if vals:
+            return vals
+    return []
+
+
+def _pick_hotel_link_for_budget(
+    links: list[dict[str, str]],
+    html: str,
+    *,
+    target_lo: int | None,
+    target_hi: int | None,
+) -> list[dict[str, str]]:
+    """Prefer a listing whose nearby dollar amounts fall inside the intent nightly band."""
+    if not links or target_lo is None or target_hi is None or target_hi < target_lo:
+        return links
+    best_i = 0
+    best_score = 10**15
+    for i, row in enumerate(links[:10]):
+        href = (row.get("href") or "").strip()
+        if not href:
+            continue
+        vals = _usd_amounts_near_href(html, href)
+        if not vals:
+            score = 8_000_000 + i
+        else:
+            med = sorted(vals)[len(vals) // 2]
+            if target_lo <= med <= target_hi:
+                score = abs(med - (target_lo + target_hi) // 2) + i * 2
+            elif med < target_lo:
+                score = (target_lo - med) * 100 + 1_000_000 + i * 2
+            else:
+                score = (med - target_hi) * 100 + 3_000_000 + i * 2
+        if score < best_score:
+            best_score = score
+            best_i = i
+    chosen = links[best_i]
+    return [chosen] + [x for j, x in enumerate(links) if j != best_i and x.get("href") != chosen.get("href")]
+
+
 def _apply_hotel_search_intent_pairs(
     pairs: list[tuple[str, str]], search_intent: dict[str, Any] | None
 ) -> list[tuple[str, str]]:
@@ -1447,8 +2433,11 @@ def _apply_hotel_search_intent_pairs(
         if mn > mx:
             mn = max(0, mx - 100)
         out = _drop({"price"}, out)
-        out.append(("price", str(mn)))
-        out.append(("price", str(mx)))
+        bounds = _hotel_url_query_price_bounds(mn, mx)
+        if bounds:
+            u_lo, u_hi = bounds
+            out.append(("price", str(u_lo)))
+            out.append(("price", str(u_hi)))
 
     return out
 
@@ -1475,6 +2464,91 @@ def _flight_arrival_location_label(dest: dict[str, Any], route_hint: str) -> str
     if canonical:
         return canonical
     return _normalize_flight_location_label(name or country or "")
+
+
+_BOOKING_HINT_KEYS = frozenset({"flight_to_label", "flight_return_from_label"})
+
+
+def _normalize_dest_booking_search_hints(dest: dict[str, Any]) -> dict[str, str] | None:
+    raw = dest.get("booking_search_hints")
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, str] = {}
+    for k in _BOOKING_HINT_KEYS:
+        v = str(raw.get(k) or "").strip()
+        if v:
+            out[k] = " ".join(v.split())[:120]
+    return out or None
+
+
+def _last_itinerary_base_city(dest: dict[str, Any]) -> str | None:
+    """Last ``base`` from lazy itinerary rows — concrete city for return-leg ``from:`` when the card is a broad region."""
+    it = dest.get("itinerary")
+    if not isinstance(it, list):
+        return None
+    last: str | None = None
+    for row in it:
+        if not isinstance(row, dict):
+            continue
+        b = str(row.get("base") or "").strip()
+        if b:
+            last = " ".join(b.split())[:96]
+    return last
+
+
+def _flight_to_label_for_booking(dest: dict[str, Any], route_hint: str) -> str:
+    hints = _normalize_dest_booking_search_hints(dest)
+    if hints and hints.get("flight_to_label"):
+        return hints["flight_to_label"]
+    return _flight_arrival_location_label(dest, route_hint)
+
+
+def _flight_return_origin_label(dest: dict[str, Any], arrival_label: str) -> str:
+    """
+    Expedia ``from:`` for the return one-way leg. Prefer itinerary builder hints, then the last
+    overnight ``base`` from the day-by-day plan, so we avoid region-only labels that yield empty SRPs.
+    """
+    hints = _normalize_dest_booking_search_hints(dest)
+    if hints and hints.get("flight_return_from_label"):
+        return hints["flight_return_from_label"]
+    base = _last_itinerary_base_city(dest)
+    if base:
+        return base
+    return arrival_label
+
+
+def booking_prepare_request_fingerprint(
+    dest: dict[str, Any],
+    profile_pills: list[dict[str, Any]],
+    date_hints: dict[str, Any] | None,
+) -> str:
+    """Digest for deduping duplicate ``booking_search_prepare`` calls with identical inputs."""
+    did = str(dest.get("id") or "")
+    rows_digest: list[list[Any]] = []
+    it = dest.get("itinerary")
+    if isinstance(it, list):
+        for row in it[:24]:
+            if not isinstance(row, dict):
+                continue
+            rows_digest.append(
+                [
+                    row.get("day"),
+                    str(row.get("base") or "")[:80],
+                    str(row.get("label") or "")[:60],
+                ]
+            )
+    hints = _normalize_dest_booking_search_hints(dest) or {}
+    blob = {
+        "dest_id": did,
+        "name": str(dest.get("name") or "")[:160],
+        "country": str(dest.get("country") or "")[:120],
+        "route_hint": str(dest.get("route") or dest.get("route_hint") or "")[:200],
+        "pills": profile_pills,
+        "dh": date_hints if isinstance(date_hints, dict) else {},
+        "itin": rows_digest,
+        "hints": hints,
+    }
+    return hashlib.sha256(json.dumps(blob, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
 def _apply_flight_leg1_overrides(
@@ -1514,6 +2588,7 @@ def _build_flight_search_url(
     to_label: str | None = None,
     flight_leg: str = "outbound",
     search_intent: dict[str, Any] | None = None,
+    return_origin_label: str | None = None,
 ) -> tuple[str | None, bool]:
     """
     Build Flights-Search URL from catalog.
@@ -1522,6 +2597,7 @@ def _build_flight_search_url(
     - ``outbound`` — home → destination on ``depart`` (one-way by default, or round-trip when
       ``BOOKING_SEARCH_FLIGHT_FORCE_ONEWAY`` is off and the catalog has ``leg2``).
     - ``return`` — destination → home on ``return_d`` (always one-way ``leg1`` only; no ``leg2``).
+      Use ``return_origin_label`` for the departure city at the destination (defaults to ``to_label``).
 
     By default (``BOOKING_SEARCH_FLIGHT_FORCE_ONEWAY``), outbound builds **one-way** URLs so one HTML
     snapshot matches outbound cards. A **separate** ``return`` call shows the return-leg search.
@@ -1555,17 +2631,18 @@ def _build_flight_search_url(
             leg1_raw = v
             if is_return_leg:
                 assert return_d is not None
+                origin = (return_origin_label or to_label or "").strip() or None
                 leg1_new = _apply_flight_leg1_overrides(
                     leg1_raw,
                     depart=return_d,
-                    from_label=to_label,
+                    from_label=origin,
                     to_label=from_label,
                 )
                 booking_search_trace(
                     "flight_leg1_rewrite_return",
                     leg1_catalog_sample=leg1_raw[:220],
                     leg1_after_rewrite=leg1_new[:400],
-                    from_label_dest=to_label,
+                    from_label_dest=origin,
                     to_label_home=from_label,
                     depart_iso=return_d.isoformat(),
                 )
@@ -1623,6 +2700,158 @@ def _build_flight_search_url(
     return full, use_round
 
 
+def _collect_booking_prefetch_jobs(
+    dest: dict[str, Any],
+    meta: dict[str, Any],
+    profile_pills: list[dict[str, Any]],
+    *,
+    start_d: date,
+    end_d: date,
+    adults: int,
+) -> list[tuple[str, str]]:
+    """Return ``(cache_key, url)`` pairs for outbound/return flights and each hotel stay."""
+    out: list[tuple[str, str]] = []
+    did = str(dest.get("id") or "")
+    name = str(dest.get("name") or "Stay")
+    route_hint = str(meta.get("route_hint") or "")
+    search_intent = meta.get("search_intent") if isinstance(meta.get("search_intent"), dict) else None
+    if not isinstance(search_intent, dict):
+        search_intent = None
+    cal_nights = max(1, (end_d - start_d).days + 1)
+    search_intent = _merge_profile_budget_into_hotel_search_intent(
+        search_intent, profile_pills, calendar_nights=cal_nights, adults=adults
+    )
+    from_l = _profile_pill_value(profile_pills, "from")
+    to_l = _flight_to_label_for_booking(dest, route_hint)
+    if not (to_l or "").strip():
+        to_l = None
+    return_origin = _flight_return_origin_label(dest, to_l or "").strip() or None
+    return_home = end_d if end_d > start_d else None
+    url_ob, _ = _build_flight_search_url(
+        depart=start_d,
+        return_d=return_home,
+        adults=adults,
+        from_label=from_l,
+        to_label=to_l,
+        flight_leg="outbound",
+        search_intent=search_intent,
+    )
+    if url_ob:
+        out.append(("flight:outbound", url_ob))
+    if return_home and return_home > start_d:
+        url_re, _ = _build_flight_search_url(
+            depart=start_d,
+            return_d=return_home,
+            adults=adults,
+            from_label=from_l,
+            to_label=to_l,
+            flight_leg="return",
+            search_intent=search_intent,
+            return_origin_label=return_origin,
+        )
+        if url_re:
+            out.append(("flight:return", url_re))
+    hotels_plan = meta.get("hotels_for_session")
+    if not isinstance(hotels_plan, list):
+        hotels_plan = []
+    check_in = start_d
+    for i, h in enumerate(hotels_plan):
+        if not isinstance(h, dict):
+            continue
+        area = str(h.get("area") or name)
+        nights = max(1, int(h.get("nights") or 1))
+        check_out = check_in + timedelta(days=nights)
+        dest_label = _hotel_search_destination_label(dest, area)
+        hurl = _build_hotel_url(dest_label, check_in, check_out, adults, search_intent=search_intent)
+        if hurl:
+            out.append((f"hotel:{i}", hurl))
+        check_in = check_out
+    booking_search_trace(
+        "prefetch_jobs_built",
+        destination_id=did,
+        jobs=len(out),
+        keys=[k for k, _ in out],
+    )
+    return out
+
+
+def _run_booking_prefetch_parallel(
+    session_id: str,
+    destination_id: str,
+    jobs: list[tuple[str, str]],
+    *,
+    expected_generation: int,
+) -> None:
+    if not jobs or not booking_search_parallel_prefetch_enabled():
+        if jobs and not booking_search_parallel_prefetch_enabled():
+            booking_search_trace(
+                "prefetch_parallel_skip",
+                destination_id=(destination_id or "").strip(),
+                reason="parallel_prefetch_disabled",
+                job_count=len(jobs),
+            )
+        return
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did or not booking_search_enabled():
+        return
+
+    def _one(pair: tuple[str, str]) -> None:
+        ck, url = pair
+        if get_booking_prefetch_generation(sid, did) != expected_generation:
+            booking_search_trace(
+                "prefetch_html_skipped_stale",
+                destination_id=did,
+                cache_key=ck,
+                prefetch_generation=expected_generation,
+            )
+            return
+        try:
+            t0 = time.perf_counter()
+            html = _fetch_html(url)
+            fetch_ms = int((time.perf_counter() - t0) * 1000)
+            set_booking_prefetch_html(
+                sid, did, ck, html, expected_generation=expected_generation
+            )
+            booking_search_trace(
+                "prefetch_html_ok",
+                destination_id=did,
+                cache_key=ck,
+                html_len=len(html),
+                fetch_elapsed_ms=fetch_ms,
+                prefetch_generation=expected_generation,
+            )
+        except Exception as exc:
+            booking_search_trace(
+                "prefetch_html_failed",
+                destination_id=did,
+                cache_key=ck,
+                error=str(exc)[:400],
+                prefetch_generation=expected_generation,
+            )
+
+    workers = min(5, max(1, len(jobs)))
+    t_batch = time.perf_counter()
+    booking_search_trace(
+        "prefetch_parallel_begin",
+        destination_id=did,
+        job_count=len(jobs),
+        worker_count=workers,
+        cache_keys=[k for k, _ in jobs],
+        prefetch_generation=expected_generation,
+    )
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        list(ex.map(_one, jobs))
+    booking_search_trace(
+        "prefetch_parallel_done",
+        destination_id=did,
+        job_count=len(jobs),
+        total_elapsed_ms=int((time.perf_counter() - t_batch) * 1000),
+        prefetch_generation=expected_generation,
+        stale_at_end=get_booking_prefetch_generation(sid, did) != expected_generation,
+    )
+
+
 def _fetch_html(url: str) -> str:
     _ensure_cli_path()
     from expedia_listing_cli.browser_fetch import fetch_page_html
@@ -1641,6 +2870,9 @@ def _fetch_html(url: str) -> str:
         fetch_elapsed_ms=elapsed_ms,
         html_preview=head,
     )
+    # Second full Playwright session below is expensive (~tens of seconds). Prefer fixing readiness inside
+    # ``fetch_page_html`` (flight poll + linger, hotel poll). Retry uses the **same URL** — improvement is
+    # almost always timing/hydration, not query parameters.
     retry_enabled = os.environ.get("BOOKING_SEARCH_RETRY_WEAK_FETCH", "1").strip().lower() not in (
         "0",
         "false",
@@ -1650,11 +2882,14 @@ def _fetch_html(url: str) -> str:
         weak = False
         reason = ""
         if "/Flights-Search?" in url:
+            # Heuristic: any $ token whose digits sum to a positive fare. Can disagree with
+            # ``browser_fetch``'s stricter ``$[1-9]…`` poll in edge cases (e.g. only "$0" placeholders).
             p0 = extract_price_like_strings(html, limit=12)
             non_zero = [x for x in p0 if _price_digits(x) > 0]
             weak = len(non_zero) == 0
             reason = f"flight_non_zero_prices={len(non_zero)}"
         elif "/Hotel-Search?" in url:
+            # BeautifulSoup link scan; first HTML snapshot can be shell-only while JSON/listings hydrate.
             links0 = extract_candidate_links(html, limit=8)
             weak = len(links0) == 0
             reason = f"hotel_links={len(links0)}"
@@ -1805,6 +3040,7 @@ def _hotel_option_from_snapshot(
     dest_name: str = "",
     dest_country: str = "",
     exclude_price_values: set[int] | None = None,
+    target_nightly_usd: tuple[int | None, int | None] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     _ensure_cli_path()
     from expedia_listing_cli.extract_heuristic import (
@@ -1858,11 +3094,35 @@ def _hotel_option_from_snapshot(
         return ""
 
     links = extract_candidate_links(html, limit=8)
+    tl, th = (target_nightly_usd or (None, None))
+    if (
+        links
+        and isinstance(tl, int)
+        and isinstance(th, int)
+        and th >= tl
+        and len(links) > 1
+    ):
+        links = _pick_hotel_link_for_budget(links, html, target_lo=tl, target_hi=th)
+
+    listing_price_hint: int | None = None
+    if links and isinstance(tl, int) and isinstance(th, int) and th >= tl:
+        hp = _usd_amounts_near_href(html, (links[0].get("href") or "").strip())
+        if hp:
+            in_band = [v for v in hp if tl <= v <= th]
+            if in_band:
+                mid = (tl + th) // 2
+                listing_price_hint = min(in_band, key=lambda v: abs(v - mid))
+            else:
+                listing_price_hint = sorted(hp)[len(hp) // 2]
+
     prices = extract_price_like_strings(html)
     excludes = exclude_price_values or set()
     non_zero = [x for x in prices if _price_digits(x) > 0]
     preferred = [x for x in non_zero if _price_digits(x) >= 50 and _price_digits(x) not in excludes]
-    if preferred:
+    if listing_price_hint is not None:
+        price_display = _normalize_price_display(f"${listing_price_hint}")
+        price_src = "listing_row_near_href"
+    elif preferred:
         price_display = preferred[0]
         price_src = "non_tiny_non_excluded"
     elif non_zero:
@@ -2082,8 +3342,26 @@ def run_booking_search_step(
 
     dest_id = str(dest.get("id") or "")
     booking_search_trace("step_begin", destination_id=dest_id, step=step, hotel_index=hotel_index)
+    t_step = time.perf_counter()
 
-    meta = build_booking_criteria(dest, profile_pills, date_hints=date_hints, session_id=session_id)
+    sid = (session_id or "").strip()
+    fp = date_hints_fingerprint(date_hints if isinstance(date_hints, dict) else None)
+    t_crit = time.perf_counter()
+    snap = get_booking_criteria_snapshot(sid, dest_id) if sid else None
+    if snap and isinstance(snap, dict) and snap.get("_date_hints_fp") == fp:
+        meta = {k: v for k, v in snap.items() if not (isinstance(k, str) and k.startswith("_"))}
+        crit_src = "snapshot"
+    else:
+        meta = build_booking_criteria(dest, profile_pills, date_hints=date_hints, session_id=session_id)
+        crit_src = "rebuild"
+    crit_elapsed_ms = int((time.perf_counter() - t_crit) * 1000)
+    booking_search_trace(
+        "step_criteria_resolved",
+        destination_id=dest_id,
+        source=crit_src,
+        date_hints_fp_sha8=hashlib.sha256(fp.encode("utf-8")).hexdigest()[:8] if fp else "",
+        elapsed_ms=crit_elapsed_ms,
+    )
     start_s = meta.get("start_date")
     end_s = meta.get("end_date")
     if not start_s:
@@ -2104,6 +3382,12 @@ def run_booking_search_step(
     search_intent = meta.get("search_intent") if isinstance(meta.get("search_intent"), dict) else None
     if not isinstance(search_intent, dict):
         search_intent = get_booking_search_intent(session_id or "", dest_id)
+    if not isinstance(search_intent, dict):
+        search_intent = {}
+    calendar_nights = max(1, (end_d - start_d).days + 1)
+    search_intent = _merge_profile_budget_into_hotel_search_intent(
+        search_intent, profile_pills, calendar_nights=calendar_nights, adults=adults
+    )
     fl_leg = (flight_leg or "outbound").strip().lower()
     if fl_leg not in ("outbound", "return"):
         fl_leg = "outbound"
@@ -2111,7 +3395,7 @@ def run_booking_search_step(
     try:
         if step == "flight":
             from_l = _profile_pill_value(profile_pills, "from")
-            to_l = _flight_arrival_location_label(dest, route_hint)
+            to_l = _flight_to_label_for_booking(dest, route_hint)
             if not (to_l or "").strip():
                 to_l = None
             booking_search_trace(
@@ -2136,10 +3420,13 @@ def run_booking_search_step(
                     "step": step,
                     "flight_leg": fl_leg,
                 }
+            ret_origin_resolved: str | None = None
+            if fl_leg == "return":
+                ret_origin_resolved = _flight_return_origin_label(dest, to_l or "").strip() or None
             route_llm = route_hint or f"To {name}"
             if fl_leg == "return":
                 home_bit = (from_l or "").strip() or "Home"
-                dest_bit = (to_l or "").strip() or name
+                dest_bit = (ret_origin_resolved or to_l or "").strip() or name
                 route_llm = f"{dest_bit} → {home_bit}"
             url, round_trip = _build_flight_search_url(
                 depart=start_d,
@@ -2149,6 +3436,7 @@ def run_booking_search_step(
                 to_label=to_l,
                 flight_leg=fl_leg,
                 search_intent=search_intent,
+                return_origin_label=ret_origin_resolved,
             )
             if not url:
                 booking_search_trace("step_fail", destination_id=dest_id, step=step, error="flight_catalog_missing")
@@ -2158,7 +3446,21 @@ def run_booking_search_step(
                     "or set EXPEDIA_FLIGHT_SEARCH_CATALOG_JSON.",
                     "step": step,
                 }
-            html = _fetch_html(url)
+            ck = f"flight:{fl_leg}"
+            t_html = time.perf_counter()
+            ph = pop_booking_prefetch_html(sid, dest_id, ck) if sid else None
+            html = ph if ph else _fetch_html(url)
+            acquire_ms = int((time.perf_counter() - t_html) * 1000)
+            booking_search_trace(
+                "step_html_acquired",
+                destination_id=dest_id,
+                step=step,
+                flight_leg=fl_leg,
+                cache_key=ck,
+                html_source="prefetch" if ph else "network",
+                elapsed_ms=acquire_ms,
+                html_len=len(html),
+            )
             fo: dict[str, Any]
             flight_profile: dict[str, Any]
             llm_meta: dict[str, Any] | None = None
@@ -2236,6 +3538,7 @@ def run_booking_search_step(
                 search_url=url,
                 result_flight=fo,
                 parse_field_sources=flight_profile,
+                step_elapsed_ms=int((time.perf_counter() - t_step) * 1000),
             )
             return out_flight
 
@@ -2274,8 +3577,31 @@ def run_booking_search_step(
             )
             url = _build_hotel_url(dest_label, check_in, check_out, adults, search_intent=search_intent)
             q_prices = parse_qs(urlparse(url).query).get("price", [])
-            exclude_vals = {_price_digits(v) for v in q_prices if _price_digits(v) > 0}
-            html = _fetch_html(url)
+            exclude_vals = _hotel_exclude_query_price_values(q_prices)
+            hint_h = search_intent.get("hotel") if isinstance(search_intent.get("hotel"), dict) else {}
+            target_nightly: tuple[int | None, int | None] | None = None
+            if isinstance(hint_h.get("price_min_usd"), (int, float)) and isinstance(
+                hint_h.get("price_max_usd"), (int, float)
+            ):
+                pmn = int(hint_h["price_min_usd"])
+                pmx = int(hint_h["price_max_usd"])
+                if pmx >= pmn > 0:
+                    target_nightly = (pmn, pmx)
+            ck = f"hotel:{hotel_index}"
+            t_html = time.perf_counter()
+            ph = pop_booking_prefetch_html(sid, dest_id, ck) if sid else None
+            html = ph if ph else _fetch_html(url)
+            acquire_ms = int((time.perf_counter() - t_html) * 1000)
+            booking_search_trace(
+                "step_html_acquired",
+                destination_id=dest_id,
+                step=step,
+                hotel_index=hotel_index,
+                cache_key=ck,
+                html_source="prefetch" if ph else "network",
+                elapsed_ms=acquire_ms,
+                html_len=len(html),
+            )
             ho: dict[str, Any]
             hotel_profile: dict[str, Any]
             h_llm_meta: dict[str, Any] | None = None
@@ -2314,6 +3640,7 @@ def run_booking_search_step(
                         dest_name=name,
                         dest_country=country,
                         exclude_price_values=exclude_vals,
+                        target_nightly_usd=target_nightly,
                     )
                     booking_search_trace(
                         "hotel_parse_llm_fallback",
@@ -2330,6 +3657,7 @@ def run_booking_search_step(
                     dest_name=name,
                     dest_country=country,
                     exclude_price_values=exclude_vals,
+                    target_nightly_usd=target_nightly,
                 )
             out_hotel: dict[str, Any] = {
                 "ok": True,
@@ -2360,6 +3688,7 @@ def run_booking_search_step(
                 search_url=url,
                 result_hotel=ho,
                 parse_field_sources=hotel_profile,
+                step_elapsed_ms=int((time.perf_counter() - t_step) * 1000),
             )
             return out_hotel
 
@@ -2371,5 +3700,6 @@ def run_booking_search_step(
             step=step,
             hotel_index=hotel_index,
             error=str(exc)[:800],
+            step_elapsed_ms=int((time.perf_counter() - t_step) * 1000),
         )
         return {"ok": False, "error": str(exc)[:800], "step": step}

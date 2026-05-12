@@ -53,13 +53,18 @@ def _merge_intervals(windows: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return out
 
 
-def compact_playwright_hotel_html(html: str, *, max_chars: int | None = None) -> str:
+def compact_playwright_hotel_html(html: str, *, max_chars: int | None = None, search_url: str = "") -> str:
     max_chars = max_chars or _max_input_chars()
+    from src.wanderly.listing_html_excerpt import listing_focus_html
+
+    focus_cap = min(220_000, max(max_chars * 2, max_chars + 40_000))
+    focused, _meth = listing_focus_html(html or "", kind="hotel", search_url=search_url, max_chars=focus_cap)
+    base_html = focused if len(focused) >= 4_000 else (html or "")
     parts: list[str] = []
     mt = re.search(r"<title>[^<]{1,240}</title>", html, flags=re.I)
     if mt:
         parts.append(mt.group(0))
-    anchor = html
+    anchor = base_html
     for needle in ("Hotel-Search", "Hotel-Information", "lodging", "property"):
         ix = anchor.lower().find(needle.lower())
         if ix >= 0:
@@ -170,6 +175,7 @@ Listings (JSON array):
 
 Rules:
 - Respect budget / vibe / who from the profile when inferring tradeoffs (e.g. avoid obvious ultra-lux if budget is tight).
+- If trip criteria mention a **per-night dollar band** for hotels, favor listings whose visible price fits that band.
 - Prefer listings with a real ``listing_url`` on expedia.com when tied on fit.
 - Return ONE JSON object: {{"best_index": <int>, "rationale": "<one short sentence>"}}
 No markdown fences, no other keys.
@@ -245,7 +251,7 @@ def run_hotel_listing_llm_parse(
         meta["llm_err"] = str(exc)
         return None, None, meta
 
-    excerpt = compact_playwright_hotel_html(html)
+    excerpt = compact_playwright_hotel_html(html, search_url=search_url)
     meta["excerpt_chars"] = len(excerpt)
     profile_json = json.dumps(profile_pills or [], ensure_ascii=True)[:14_000]
     crit = "\n".join(criteria_lines or [])[:8000]

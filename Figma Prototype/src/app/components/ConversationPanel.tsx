@@ -1,7 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { Send, X, MessageSquare, ChevronDown, Sparkles, Globe, Loader2 } from "lucide-react";
-import { advisorFeed } from "../../api/wanderly";
+import { advisorFeed, orchestrateTurn } from "../../api/wanderly";
+import {
+  startRotatingWaitCaption,
+  WAIT_ORCHESTRATE_CAPTIONS,
+  WAIT_ADVISOR_CAPTIONS,
+  WAIT_WEB_CAPTIONS,
+} from "../lib/streamCaption";
 import { renderInlineBold } from "../lib/markdownBold";
 import { logItin } from "../lib/itineraryDebug";
 import { useTrip, type ConversationMessage } from "./TripStore";
@@ -26,38 +32,26 @@ interface ConversationPanelProps {
   onModeChange: (mode: "minimized" | "footer" | "panel") => void;
 }
 
-/**
- * Detect messages that should run the real workspace refine (same as CommandBar)
- * vs lightweight Q&A (cheap advisor API with offline fallback).
- */
+/** Prefix on card chat forces full workspace refine (escape hatch). */
+const PREFIX_FORCE_REFINE = /^(>|!plan|\/trip)\s+/i;
+
 function googleSearchUrl(query: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(query.trim())}`;
 }
 
-function wantsWorkspaceRefine(raw: string): boolean {
-  const t = raw.trim().toLowerCase();
-  if (!t) return false;
-  // Prefix forces a planner refine regardless of wording
-  if (/^(>|!plan|\/trip)\s+/i.test(t)) return true;
-
-  const tripObject =
-    /\b(itinerary|day\s*\d+|the plan|my plan|this trip|schedule|trip|hotels?|flights?|activities|booking|destinations|shortlist)\b/i.test(
-      t,
-    );
-  /* Avoid treating "how different are…" / compare-only asks as planner work: no bare ``different``. */
-  const action =
-    /\b(change|update|modify|adjust|swap|replace|remove|add|delete|move|shift|reschedule|replan|redo|tweak|revise|shorten|extend|refresh|rebuild|regenerate|slow|faster|pace|include|exclude|skip|drop|cancel|upgrade|downgrade|cheaper|affordable|free day|rest day)\b/i.test(
-      t,
-    );
-  const imperative =
-    /^(make|turn|set|put|give me|can you (change|update|add|remove)|i want|i need|please (add|remove|change|update))\b/i.test(
-      t,
-    );
-
-  if (tripObject && (action || imperative)) return true;
-  if (/\b(refresh|rebuild|regenerate)\s+(the\s+)?(itinerary|plan)\b/i.test(t)) return true;
-  if (/\block\b.*\b(in|for)\b.*\b(day|itinerary|trip)\b/i.test(t)) return true;
-  return false;
+/** Live routing / advisor / planner caption — mirrors main AgentResponses stream line */
+function CardLiveProgressStrip({ caption }: { caption: string }) {
+  const line = caption.trim() || "Working…";
+  return (
+    <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/[0.07] px-3 py-2">
+      <div className="flex items-start gap-2 min-w-0">
+        <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-indigo-400 mt-0.5" aria-hidden />
+        <p className="flex-1 min-w-0 text-[11px] leading-relaxed text-indigo-100/85 whitespace-pre-wrap break-words">
+          {line}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export function ConversationPanel({ destId, destName, mode, onModeChange }: ConversationPanelProps) {
@@ -70,6 +64,8 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     phase,
     sessionId,
     destinations,
+    setAgentStreamCaption,
+    agentStreamCaption,
   } = useTrip();
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -83,7 +79,21 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
   const conversation = getConversation(destId);
 
   const globalBusy =
-    phase === "thinking" || phase === "streaming" || phase === "refining";
+    phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising";
+
+  const liveCaption = agentStreamCaption.trim();
+  /** Card chat is waiting on routing/advisor, web lookup, or main-board planner/refine */
+  const cardIsWaiting =
+    isTyping || globalBusy || Boolean(webLookupMessageId);
+
+  const composerPlaceholder =
+    cardIsWaiting && !input.trim()
+      ? liveCaption || "Working…"
+      : mode === "panel"
+        ? "Ask naturally — LLM picks planner vs quick advisor; /trip forces the planner."
+        : mode === "footer"
+          ? "Ask or describe changes — LLM routes planner vs advisor; /trip forces the planner."
+          : "Ask about this place — routing uses a small LLM; /trip forces the full planner.";
 
   useEffect(() => {
     return () => {
@@ -112,7 +122,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conversation, isTyping]);
+  }, [conversation, isTyping, agentStreamCaption]);
 
   const handleSend = async () => {
     if (!input.trim() || globalBusy) return;
@@ -127,10 +137,26 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
       onModeChange("footer");
     }
 
-    const runRefine = wantsWorkspaceRefine(userMessage);
+    const sid0 = sessionId?.trim();
+    if (!sid0) {
+      setIsTyping(true);
+      if (replyTimerRef.current) clearTimeout(replyTimerRef.current);
+      replyTimerRef.current = null;
+      void (async () => {
+        try {
+          addConversationMessage(destId, "agent", generateMockResponse(userMessage, destName));
+        } finally {
+          setIsTyping(false);
+        }
+      })();
+      return;
+    }
 
-    if (runRefine) {
-      if (!sessionId?.trim() || destinations.length === 0) {
+    const forceImmediate = PREFIX_FORCE_REFINE.test(userMessage);
+    const stripped = userMessage.replace(PREFIX_FORCE_REFINE, "").trim() || userMessage;
+
+    if (forceImmediate) {
+      if (destinations.length === 0) {
         addConversationMessage(
           destId,
           "agent",
@@ -138,30 +164,15 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
         );
         return;
       }
-      const stripped = userMessage.replace(/^(>|!plan|\/trip)\s+/i, "").trim() || userMessage;
-      const forceImmediate = /^(>|!plan|\/trip)\s+/i.test(userMessage);
-
       logItin("conversation_panel_route", {
-        branch: "planner_candidate",
-        forceImmediate,
+        branch: "force_prefix_refine",
         messagePreview: userMessage.slice(0, 160),
       });
-
-      if (forceImmediate) {
-        const refinePayload = `The traveler is focused on destination "${destName}" (id: ${destId}). ${stripped}`;
-        refineAwaitingReplyRef.current = true;
-        sawRefiningPhaseRef.current = false;
-        setIsTyping(true);
-        setPendingRefineText(refinePayload);
-        return;
-      }
-
-      addConversationMessage(
-        destId,
-        "agent",
-        "That wording will run the **full trip planner** (day-by-day plans on your cards may refresh). For a quick comparison only, tap **Not now** and ask again in neutral wording — or start your message with `/trip` next time to skip this check.\n\nTap **Yes, update trip** to run the planner with your last message.",
-        { refinePrompt: stripped },
-      );
+      const refinePayload = `The traveler is focused on destination "${destName}" (id: ${destId}). ${stripped}`;
+      refineAwaitingReplyRef.current = true;
+      sawRefiningPhaseRef.current = false;
+      setIsTyping(true);
+      setPendingRefineText(refinePayload);
       return;
     }
 
@@ -169,49 +180,120 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     if (replyTimerRef.current) clearTimeout(replyTimerRef.current);
     replyTimerRef.current = null;
     void (async () => {
+      let dispatchedRefine = false;
+      let stopSpin: (() => void) | undefined;
       try {
-        const sid = sessionId?.trim();
-        if (!sid) {
-          addConversationMessage(destId, "agent", generateMockResponse(userMessage, destName));
-          return;
+        stopSpin = startRotatingWaitCaption(setAgentStreamCaption, WAIT_ORCHESTRATE_CAPTIONS);
+        let orch: Awaited<ReturnType<typeof orchestrateTurn>>;
+        try {
+          orch = await orchestrateTurn(sid0, userMessage, { focusDestinationId: destId });
+        } finally {
+          stopSpin?.();
+          stopSpin = undefined;
         }
-        const out = await advisorFeed(sid, userMessage, { focusDestinationId: destId });
-        const sug = out.advisor_suggestion as {
-          assistant_message?: string;
-          refine_prompt?: string | null;
-          offer_web_search?: boolean;
-          suggested_search_query?: string | null;
-        } | undefined;
-        const md = String(out.feed_markdown || sug?.assistant_message || "").trim();
-        if (!md) {
-          addConversationMessage(destId, "agent", generateMockResponse(userMessage, destName));
-          return;
-        }
-        const refine =
-          (typeof out.refine_prompt === "string" && out.refine_prompt.trim()) ||
-          (typeof sug?.refine_prompt === "string" && sug.refine_prompt.trim()) ||
-          undefined;
-        const offerRaw =
-          Boolean(out.offer_web_search) ||
-          Boolean(sug?.offer_web_search);
-        const sqRaw =
-          (typeof out.suggested_search_query === "string" && out.suggested_search_query.trim()) ||
-          (typeof sug?.suggested_search_query === "string" && sug.suggested_search_query.trim()) ||
-          "";
-        const offerSearch = offerRaw && sqRaw.length > 0;
-        addConversationMessage(destId, "agent", md, {
-          ...(refine ? { refinePrompt: refine } : {}),
-          ...(offerSearch ? { offerWebSearch: true, webSearchQuery: sqRaw } : {}),
+        const action =
+          orch.parse_ok && orch.orchestration?.workspace_action
+            ? orch.orchestration.workspace_action
+            : "ambiguous";
+        logItin("conversation_panel_route", {
+          branch: action,
+          parseOk: orch.parse_ok,
+          confidence: orch.orchestration?.confidence,
+          messagePreview: userMessage.slice(0, 160),
         });
+
+        const plannerActions = new Set([
+          "refine_workspace",
+          "targeted_itinerary_edit",
+          "explicit_remove_destinations",
+        ]);
+
+        if (destinations.length === 0 && plannerActions.has(action)) {
+          addConversationMessage(
+            destId,
+            "agent",
+            "I need an active trip shortlist before I can change the plan. Finish a first plan from the bar below (when no card is expanded), then try again here.",
+          );
+          return;
+        }
+
+        if (!plannerActions.has(action) || !orch.parse_ok) {
+          stopSpin = startRotatingWaitCaption(setAgentStreamCaption, WAIT_ADVISOR_CAPTIONS);
+          let out: Awaited<ReturnType<typeof advisorFeed>>;
+          try {
+            out = await advisorFeed(sid0, userMessage, { focusDestinationId: destId });
+          } finally {
+            stopSpin?.();
+            stopSpin = undefined;
+          }
+          const sug = out.advisor_suggestion as {
+            assistant_message?: string;
+            refine_prompt?: string | null;
+            offer_web_search?: boolean;
+            suggested_search_query?: string | null;
+          } | undefined;
+          const md = String(out.feed_markdown || sug?.assistant_message || "").trim();
+          if (!md) {
+            addConversationMessage(destId, "agent", generateMockResponse(userMessage, destName));
+            return;
+          }
+          const refine =
+            (typeof out.refine_prompt === "string" && out.refine_prompt.trim()) ||
+            (typeof sug?.refine_prompt === "string" && sug.refine_prompt.trim()) ||
+            undefined;
+          const offerRaw =
+            Boolean(out.offer_web_search) ||
+            Boolean(sug?.offer_web_search);
+          const sqRaw =
+            (typeof out.suggested_search_query === "string" && out.suggested_search_query.trim()) ||
+            (typeof sug?.suggested_search_query === "string" && sug.suggested_search_query.trim()) ||
+            "";
+          const offerSearch = offerRaw && sqRaw.length > 0;
+          addConversationMessage(destId, "agent", md, {
+            ...(refine ? { refinePrompt: refine } : {}),
+            ...(offerSearch ? { offerWebSearch: true, webSearchQuery: sqRaw } : {}),
+          });
+          return;
+        }
+
+        if (action === "explicit_remove_destinations") {
+          const ok = window.confirm(
+            "The assistant thinks you want to remove destination(s) from your shortlist. Run the full trip planner? " +
+              "(If the model shrinks the board, you will get a second confirmation before cards disappear.)",
+          );
+          if (!ok) {
+            addConversationMessage(
+              destId,
+              "agent",
+              "Cancelled — use the **X** on a card to dismiss a place, or describe the change differently.",
+            );
+            return;
+          }
+        }
+
+        const contentForPlanner = stripped;
+        const refinePayload =
+          action === "targeted_itinerary_edit"
+            ? `The traveler is focused on destination "${destName}" (id: ${destId}). ${contentForPlanner}`
+            : contentForPlanner;
+
+        refineAwaitingReplyRef.current = true;
+        sawRefiningPhaseRef.current = false;
+        dispatchedRefine = true;
+        setIsTyping(true);
+        setPendingRefineText(refinePayload);
       } catch (e) {
         const msg = (e as Error)?.message || String(e);
         addConversationMessage(
           destId,
           "agent",
-          `Quick advisor request failed (${msg}). You can still use /trip in this chat to update the full plan.`,
+          `Could not route your request (${msg}). Try **/trip** at the start of your message to force a planner update, or ask a quick question again in a moment.`,
         );
       } finally {
-        setIsTyping(false);
+        if (!dispatchedRefine) {
+          setIsTyping(false);
+          setAgentStreamCaption("");
+        }
       }
     })();
   };
@@ -221,6 +303,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     const q = msg.webSearchQuery?.trim();
     if (!sid || !q) return;
     setWebLookupMessageId(msg.id);
+    const stopWeb = startRotatingWaitCaption(setAgentStreamCaption, WAIT_WEB_CAPTIONS);
     try {
       const userQ = lastCardUserQuestionRef.current.trim() || q;
       const out = await advisorFeed(sid, userQ, {
@@ -248,6 +331,8 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     } catch (e) {
       addConversationMessage(destId, "agent", `Web lookup failed: ${(e as Error)?.message || String(e)}`);
     } finally {
+      stopWeb();
+      setAgentStreamCaption("");
       setWebLookupMessageId(null);
     }
   };
@@ -274,7 +359,13 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
   // Render minimized (just input bar)
   if (mode === "minimized") {
     return (
-      <div className="flex items-center gap-2 px-4 py-3 border-t border-white/[0.06] bg-black/20">
+      <div className="flex flex-col border-t border-white/[0.06] bg-black/20">
+        {cardIsWaiting && sessionId?.trim() ? (
+          <div className="px-4 pt-3 pb-0">
+            <CardLiveProgressStrip caption={liveCaption} />
+          </div>
+        ) : null}
+        <div className="flex items-center gap-2 px-4 py-3">
         <MessageSquare className="w-4 h-4 text-white/30" />
         <input
           type="text"
@@ -283,7 +374,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={globalBusy}
-          placeholder="Ask about the place or plan tweaks — open chat to tap Yes on suggestions, or /trip to always run the planner."
+          placeholder={composerPlaceholder}
           className="flex-1 bg-transparent text-[13px] text-white placeholder:text-white/30 outline-none disabled:opacity-40"
         />
         <button
@@ -301,6 +392,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
             See chat ({conversation.length})
           </button>
         )}
+        </div>
       </div>
     );
   }
@@ -350,15 +442,18 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="px-4 py-2 border-b border-white/[0.04] flex items-center gap-2"
+            className="px-4 py-2 border-b border-white/[0.04]"
           >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0 animate-pulse" />
-            <p className="text-[12px] text-white/40">Wanderly is thinking…</p>
+            <CardLiveProgressStrip caption={liveCaption} />
           </motion.div>
         )}
 
-        {/* Input bar */}
-        <div className="flex items-center gap-2 px-4 py-3">
+        {/* Input bar — extra strip when busy without the typing preview row (e.g. web lookup) */}
+        <div className="flex flex-col gap-2 px-4 pt-2 pb-3">
+          {cardIsWaiting && sessionId?.trim() && preview?.id !== "typing-placeholder" ? (
+            <CardLiveProgressStrip caption={liveCaption} />
+          ) : null}
+          <div className="flex items-center gap-2">
           <MessageSquare className="w-4 h-4 text-white/30" />
           <input
             type="text"
@@ -367,7 +462,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={globalBusy}
-            placeholder="Ask or describe changes — Yes on advisor replies applies them; /trip always runs the planner."
+            placeholder={composerPlaceholder}
             className="flex-1 bg-transparent text-[13px] text-white placeholder:text-white/30 outline-none disabled:opacity-40"
           />
           <button
@@ -383,6 +478,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           >
             <ChevronDown className="w-3.5 h-3.5" />
           </button>
+          </div>
         </div>
       </div>
     );
@@ -525,10 +621,11 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
                     <Sparkles className="w-3 h-3 text-indigo-400" />
                     <span className="text-[10px] text-white/40">Wanderly</span>
                   </div>
-                  <div className="flex gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" style={{ animationDelay: "300ms" }} />
+                  <div className="flex items-start gap-2 min-w-0">
+                    <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-indigo-400 mt-0.5" aria-hidden />
+                    <p className="text-[12px] leading-relaxed text-white/65 whitespace-pre-wrap break-words">
+                      {liveCaption || "Working…"}
+                    </p>
                   </div>
                 </div>
               </motion.div>
@@ -540,6 +637,11 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
 
       {/* Input area */}
       <div className="border-t border-white/[0.06] px-4 py-3 bg-black/10">
+        {cardIsWaiting && sessionId?.trim() && !isTyping ? (
+          <div className="mb-2">
+            <CardLiveProgressStrip caption={liveCaption} />
+          </div>
+        ) : null}
         <div className="flex items-end gap-2">
           <textarea
             data-testid="wanderly-card-chat-input"
@@ -547,7 +649,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={globalBusy}
-            placeholder="Ask naturally; use Yes on an advisor reply to apply itinerary changes, or /trip … to always run the planner."
+            placeholder={composerPlaceholder}
             rows={2}
             className="flex-1 bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-2 text-[12px] text-white placeholder:text-white/30 outline-none resize-none focus:border-indigo-500/30 transition-colors disabled:opacity-40"
           />

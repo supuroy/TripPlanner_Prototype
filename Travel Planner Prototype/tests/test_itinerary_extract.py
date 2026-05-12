@@ -9,9 +9,22 @@ from src.wanderly.itinerary_lazy import _extract_itinerary_payload, _normalize_i
 
 def test_extract_preamble_before_object() -> None:
     raw = 'Sure — here you go.\n\n{"itinerary": [{"day": 1, "label": "Arrive", "items": ["a", "b"]}], "budget_guidance": {}}'
-    rows, bg = _extract_itinerary_payload(raw)
+    rows, bg, bh = _extract_itinerary_payload(raw)
     assert len(rows) == 1
     assert bg is None  # empty budget object normalizes to None
+    assert bh is None
+
+
+def test_extract_booking_search_hints_optional() -> None:
+    raw = (
+        '{"itinerary": [{"day": 1, "label": "Arrive", "items": ["a", "b"]}], '
+        '"budget_guidance": {}, '
+        '"booking_search_hints": {"flight_to_label": "Florence, Italy", "flight_return_from_label": "Florence, Italy"}}'
+    )
+    rows, bg, bh = _extract_itinerary_payload(raw)
+    assert len(rows) == 1
+    assert bh is not None
+    assert bh.get("flight_to_label") == "Florence, Italy"
 
 
 def test_extract_pretty_printed_wrapped_itinerary() -> None:
@@ -19,7 +32,7 @@ def test_extract_pretty_printed_wrapped_itinerary() -> None:
      { "day": 1, "label": "Day one", "items": ["x", "y"] }
    ], "budget_guidance": {}
 }"""
-    rows, _bg = _extract_itinerary_payload(raw)
+    rows, _bg, _bh = _extract_itinerary_payload(raw)
     assert len(rows) == 1
 
 

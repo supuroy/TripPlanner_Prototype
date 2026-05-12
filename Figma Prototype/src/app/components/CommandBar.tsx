@@ -8,11 +8,14 @@ import {
   refineTurn,
   planWithOrchestrator,
   enrichHeroes,
+  orchestrateTurn,
+  advisorFeed,
 } from "../../api/wanderly";
 import {
   applyWanderlyWorkspace,
+  buildItineraryStalePlan,
   destinationsFromWorkspace,
-  explainItineraryInvalidate,
+  isPlanCompareOnlyQuestion,
   mergeHeroImagesFromEnriched,
   mergeProfilePillsFromDto,
   needsHeroImageEnrichment,
@@ -20,7 +23,14 @@ import {
 import { logItin } from "../lib/itineraryDebug";
 import { scheduleWorkspaceItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
+import type { WanderlyOrchestrateResponse } from "../../api/wanderly";
 import { newWanderlyTraceId, setWanderlyTurnTrace } from "../../api/traceContext";
+import {
+  streamEventToCaption,
+  startRotatingWaitCaption,
+  WAIT_ORCHESTRATE_CAPTIONS,
+  WAIT_ADVISOR_CAPTIONS,
+} from "../lib/streamCaption";
 
 const SUGGESTIONS = [
   "My partner and I want a warm beach trip in mid-March, about a week. We love food and culture.",
@@ -29,61 +39,6 @@ const SUGGESTIONS = [
 ];
 
 const useGeminiFirst = import.meta.env.VITE_USE_GEMINI_FIRST === "true";
-
-function runStatusCaption(status: string): string | null {
-  const u = status.toUpperCase();
-  if (u === "CREATING") return "Getting your travel agent ready…";
-  if (u === "RUNNING") return "Working through your trip request…";
-  if (u === "FINISHED" || u === "COMPLETED") return "Putting the finishing touches on your answer…";
-  return null;
-}
-
-/** Map Cursor SSE + our phase events to short, traveler-friendly status lines. */
-function streamEventToCaption(
-  ev: Record<string, unknown>,
-  assistantDraft: { text: string },
-  thinkingDraft: { text: string },
-): string {
-  if (ev.type === "phase" && typeof ev.message === "string") {
-    if (/parsing/i.test(ev.message)) thinkingDraft.text = "";
-    return ev.message;
-  }
-  if (ev.type === "thinking_delta" && typeof ev.delta === "string") {
-    thinkingDraft.text += ev.delta;
-    const t = thinkingDraft.text.replace(/\s+/g, " ").trim();
-    if (!t) return "";
-    const tail = t.length > 200 ? `…${t.slice(-200)}` : t;
-    return `Considering options — ${tail}`;
-  }
-  if (ev.type === "run_status" && typeof ev.status === "string") {
-    return runStatusCaption(ev.status) ?? "";
-  }
-  if (ev.type === "tool_call") {
-    return "Gathering a bit more context to compare places…";
-  }
-  if (ev.type === "run_result" && typeof ev.status === "string") {
-    return runStatusCaption(ev.status) ?? "";
-  }
-  if (ev.type === "assistant_delta" && typeof ev.delta === "string") {
-    assistantDraft.text += ev.delta;
-    if (assistantDraft.text.length > 80) thinkingDraft.text = "";
-    const oneLine = assistantDraft.text.replace(/\s+/g, " ").trim();
-    if (!oneLine) return "";
-    const looksLikeStructuredPayload =
-      /"destinations"\s*:/.test(oneLine) ||
-      /"profile_pills"\s*:/.test(oneLine) ||
-      /"itinerary"\s*:/.test(oneLine) ||
-      (/[\[{]/.test(oneLine[0] || "") && /"day"\s*:/.test(oneLine));
-    if (looksLikeStructuredPayload) {
-      return "Shaping your trip (parsing structured data)…";
-    }
-    const tail = oneLine.length <= 160 ? oneLine : `…${oneLine.slice(-160)}`;
-    return `Writing your plan — ${tail}`;
-  }
-  /* Unknown / low-signal Cursor events — keep prior caption */
-  if (ev.type === "cursor_event") return "";
-  return "";
-}
 
 function scheduleHeroEnrichment(args: {
   sessionId: string;
@@ -136,6 +91,9 @@ export function CommandBar() {
     setComposerPrefill,
     expandedDest,
     queuePlanReviewAfterItineraries,
+    setPlannerAbortController,
+    abortPlannerOperation,
+    setRefineUnlockCardNavigation,
   } = useTrip();
   const [input, setInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -160,41 +118,81 @@ export function CommandBar() {
   }, [composerPrefill, setComposerPrefill, setHasStarted]);
 
   const runRefinePipeline = useCallback(
-    async (text: string, priorDestinations: DestCard[], priorProfile: ProfilePill[]) => {
+    async (
+      text: string,
+      priorDestinations: DestCard[],
+      priorProfile: ProfilePill[],
+      confirmWorkspaceDrop = false,
+      orchestrationHint: WanderlyOrchestrateResponse | null = null,
+    ) => {
       setPhase("refining");
       setAgentStatus("Refining with AI…");
       streamDraftRef.current = { text: "" };
       thinkingDraftRef.current = { text: "" };
       setAgentStreamCaption("Starting refine…");
+      const ac = new AbortController();
+      setPlannerAbortController(ac);
+      let orchResolved: WanderlyOrchestrateResponse | null = orchestrationHint;
       try {
+        if (!orchResolved?.parse_ok || !orchResolved.orchestration) {
+          const stopOrchSpin = startRotatingWaitCaption(setAgentStreamCaption, WAIT_ORCHESTRATE_CAPTIONS);
+          try {
+            try {
+              orchResolved = await orchestrateTurn(sessionId, text, {
+                focusDestinationId: expandedDest ?? undefined,
+              });
+            } catch {
+              orchResolved = { session_id: sessionId, parse_ok: false, orchestration: null };
+            }
+          } finally {
+            stopOrchSpin();
+          }
+        }
+        const orch = orchResolved?.orchestration;
+        setRefineUnlockCardNavigation(Boolean(orch && orch.lock_canvas_navigation === false));
+
         setWanderlyTurnTrace(newWanderlyTraceId());
         const prior = priorDestinations;
         const out = useGeminiFirst
-          ? await refineTurn(sessionId, text)
-          : await refineTurnStream(sessionId, text, (ev) => {
-              if (ev.type === "advisor_profile") {
-                const pills = (ev as { profile_pills?: unknown }).profile_pills;
-                if (Array.isArray(pills)) {
-                  const sans = pills.filter(
-                    (p) =>
-                      p &&
-                      typeof p === "object" &&
-                      String((p as { key?: unknown }).key ?? "").trim() !== "tags",
-                  );
-                  setProfile((cur) => mergeProfilePillsFromDto(cur, sans as WanderlyWorkspaceDTO["profile_pills"]));
+          ? await refineTurn(sessionId, text, { confirmWorkspaceDrop: confirmWorkspaceDrop })
+          : await refineTurnStream(
+              sessionId,
+              text,
+              (ev) => {
+                if (ev.type === "advisor_profile") {
+                  const pills = (ev as { profile_pills?: unknown }).profile_pills;
+                  if (Array.isArray(pills)) {
+                    const sans = pills.filter(
+                      (p) =>
+                        p &&
+                        typeof p === "object" &&
+                        String((p as { key?: unknown }).key ?? "").trim() !== "tags",
+                    );
+                    setProfile((cur) =>
+                      mergeProfilePillsFromDto(cur, sans as WanderlyWorkspaceDTO["profile_pills"]),
+                    );
+                  }
+                  const note = (ev as { advisor_note?: unknown }).advisor_note;
+                  if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
                 }
-                const note = (ev as { advisor_note?: unknown }).advisor_note;
-                if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
-              }
-              const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
-              if (cap) setAgentStreamCaption(cap);
-            });
+                const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
+                if (cap) setAgentStreamCaption(cap);
+              },
+              { confirmWorkspaceDrop: confirmWorkspaceDrop, signal: ac.signal },
+            );
         if (out.session_id) setSessionId(out.session_id);
-        const inv = explainItineraryInvalidate(text, priorProfile, out.wanderly.profile_pills);
-        const markStale = inv.shouldInvalidate;
+        const validIds = new Set(priorDestinations.map((d) => d.id));
+        const stalePlan = buildItineraryStalePlan(
+          text,
+          priorProfile,
+          out.wanderly.profile_pills,
+          orch ?? null,
+          validIds,
+          expandedDest ?? null,
+        );
         logItin("refine_apply_workspace", {
-          markItinerariesStale: markStale,
-          invalidateReasons: inv.reasons,
+          itineraryStalePlan: stalePlan,
+          compareOnlyBypass: isPlanCompareOnlyQuestion(text),
           messagePreview: text.slice(0, 160),
         });
         applyWanderlyWorkspace(out.wanderly, {
@@ -204,9 +202,9 @@ export function CommandBar() {
           setEnrichmentPending,
           priorDestinations: prior,
           priorProfile: priorProfile,
-          markItinerariesStale: markStale,
+          itineraryStalePlan: stalePlan,
         });
-        /* Hero fetch is async and does not block the refine response or itinerary prefetch. */
+        /* Hero fetch + prefetch: run even when we may prompt for shortlist shrink confirmation. */
         scheduleHeroEnrichment({
           sessionId: out.session_id || sessionId,
           wanderly: out.wanderly,
@@ -224,12 +222,38 @@ export function CommandBar() {
         });
         const sidR = out.session_id || sessionId;
         queuePlanReviewAfterItineraries(sidR);
+
+        if (
+          !confirmWorkspaceDrop &&
+          out.shortlist_drop_blocked &&
+          (out.model_omitted_destination_ids?.length ?? 0) > 0
+        ) {
+          const ids = out.model_omitted_destination_ids ?? [];
+          const names = prior
+            .filter((d) => ids.includes(String(d.id)))
+            .map((d) => String(d.name || d.id).trim())
+            .filter(Boolean)
+            .join(", ");
+          const ok = window.confirm(
+            `The assistant omitted ${names || ids.join(", ")} from the shortlist in JSON. Those cards were kept.\n\n` +
+              `OK: run refine again and allow removing those destinations. Cancel: keep the full shortlist as shown.`,
+          );
+          if (ok) {
+            await runRefinePipeline(text, priorDestinations, priorProfile, true, orchResolved);
+          }
+          return;
+        }
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        const msg = String(err instanceof Error ? err.message : err);
+        if (/abort/i.test(msg)) return;
         addResponse({
           type: "warning",
-          text: `Refine request failed: ${String(err)}`,
+          text: `Refine request failed: ${msg}`,
         });
       } finally {
+        setPlannerAbortController(null);
+        setRefineUnlockCardNavigation(false);
         setWanderlyTurnTrace(null);
         setPhase("complete");
         setAgentStatus("");
@@ -249,12 +273,14 @@ export function CommandBar() {
       setEnrichmentPending,
       expandedDest,
       queuePlanReviewAfterItineraries,
+      setPlannerAbortController,
+      setRefineUnlockCardNavigation,
     ],
   );
 
   useEffect(() => {
     if (!pendingRefineText?.trim()) return;
-    if (phase === "thinking" || phase === "streaming" || phase === "refining") return;
+    if (phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising") return;
     const t = pendingRefineText.trim();
     setPendingRefineText(null);
     if (destinations.length === 0) return;
@@ -278,7 +304,88 @@ export function CommandBar() {
     setInput("");
 
     if (destinations.length > 0) {
-      await runRefinePipeline(text, destinations, profile);
+      setPhase("advising");
+      setAgentStatus("Understanding your request…");
+      streamDraftRef.current = { text: "" };
+      thinkingDraftRef.current = { text: "" };
+      try {
+        setWanderlyTurnTrace(newWanderlyTraceId());
+        let orch: Awaited<ReturnType<typeof orchestrateTurn>>;
+        const stopOrchSpin = startRotatingWaitCaption(setAgentStreamCaption, WAIT_ORCHESTRATE_CAPTIONS);
+        try {
+          try {
+            orch = await orchestrateTurn(sessionId, text, {
+              focusDestinationId: expandedDest ?? undefined,
+            });
+          } catch {
+            orch = { session_id: sessionId, parse_ok: false, orchestration: null };
+          }
+        } finally {
+          stopOrchSpin();
+        }
+        const action =
+          orch.parse_ok && orch.orchestration?.workspace_action
+            ? orch.orchestration.workspace_action
+            : "ambiguous";
+        logItin("command_bar_orchestrate", {
+          action,
+          parseOk: orch.parse_ok,
+          confidence: orch.orchestration?.confidence,
+          messagePreview: text.slice(0, 160),
+        });
+        const plannerActions = new Set([
+          "refine_workspace",
+          "targeted_itinerary_edit",
+          "explicit_remove_destinations",
+        ]);
+        if (!plannerActions.has(action) || !orch.parse_ok) {
+          setAgentStatus("Quick advisor…");
+          const stopAdvSpin = startRotatingWaitCaption(setAgentStreamCaption, WAIT_ADVISOR_CAPTIONS);
+          let out: Awaited<ReturnType<typeof advisorFeed>>;
+          try {
+            out = await advisorFeed(sessionId, text, {});
+          } finally {
+            stopAdvSpin();
+          }
+          const md = String(out.feed_markdown || "").trim();
+          if (md) {
+            addResponse({ type: "message", role: "agent", text: md });
+          } else {
+            addResponse({
+              type: "warning",
+              text: "Advisor returned an empty reply. Try rephrasing, or prefix with /trip to run the full planner.",
+            });
+          }
+          return;
+        }
+        if (action === "explicit_remove_destinations") {
+          const ok = window.confirm(
+            "The assistant thinks you want to remove place(s) from your shortlist. Run the full trip planner? " +
+              "(If the model shrinks the board, you will get a confirmation before cards disappear.)",
+          );
+          if (!ok) {
+            addResponse({
+              type: "info",
+              text: "Skipped planner — use **X** on a card to remove a destination, or ask again.",
+            });
+            return;
+          }
+        }
+        await runRefinePipeline(text, destinations, profile, false, orch);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        const msg = String(err instanceof Error ? err.message : err);
+        if (/abort/i.test(msg)) return;
+        addResponse({
+          type: "warning",
+          text: `Request failed: ${msg}`,
+        });
+      } finally {
+        setWanderlyTurnTrace(null);
+        setPhase("complete");
+        setAgentStatus("");
+        setAgentStreamCaption("");
+      }
       return;
     }
 
@@ -289,8 +396,17 @@ export function CommandBar() {
     setAgentStreamCaption(useGeminiFirst ? "Running full planner (may take a few minutes)…" : "Getting your trip ready…");
     try {
       setWanderlyTurnTrace(newWanderlyTraceId());
+      const plannerAbort = new AbortController();
+      setPlannerAbortController(plannerAbort);
+      try {
       if (useGeminiFirst) {
-        const out = await planWithOrchestrator(sessionId, text);
+        const stopPlanSpin = startRotatingWaitCaption(setAgentStreamCaption, WAIT_ORCHESTRATE_CAPTIONS);
+        let out: Awaited<ReturnType<typeof planWithOrchestrator>>;
+        try {
+          out = await planWithOrchestrator(sessionId, text);
+        } finally {
+          stopPlanSpin();
+        }
         if (out.session_id) setSessionId(out.session_id);
         applyWanderlyWorkspace(out.wanderly, {
           setProfile,
@@ -333,7 +449,7 @@ export function CommandBar() {
           }
           const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
           if (cap) setAgentStreamCaption(cap);
-        });
+        }, { signal: plannerAbort.signal });
         if (out.session_id) setSessionId(out.session_id);
         applyWanderlyWorkspace(out.wanderly, {
           setProfile,
@@ -360,10 +476,16 @@ export function CommandBar() {
         const sidS = out.session_id || sessionId;
         queuePlanReviewAfterItineraries(sidS);
       }
+      } finally {
+        setPlannerAbortController(null);
+      }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      const msg = String(err instanceof Error ? err.message : err);
+      if (/abort/i.test(msg)) return;
       addResponse({
         type: "warning",
-        text: `Planner request failed: ${String(err)}`,
+        text: `Planner request failed: ${msg}`,
       });
     } finally {
       setWanderlyTurnTrace(null);
@@ -374,15 +496,19 @@ export function CommandBar() {
   };
 
   const handleSubmit = () => {
-    if (!input.trim() || phase === "thinking" || phase === "streaming" || phase === "refining") return;
+    if (!input.trim() || phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising")
+      return;
     void runAgent(input.trim());
   };
 
-  const isWorking = phase === "thinking" || phase === "streaming" || phase === "refining";
+  const isWorking =
+    phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising";
 
   const inputPlaceholder = (() => {
     if (isWorking) {
-      return phase === "refining" ? "Refining your trip…" : "Working…";
+      if (phase === "refining") return "Refining your trip…";
+      if (phase === "advising") return "Advisor reply…";
+      return "Working…";
     }
     return hasStarted ? "Tell me what to change or refine..." : "Describe your dream trip...";
   })();
@@ -425,14 +551,23 @@ export function CommandBar() {
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="mx-auto mb-2 max-w-2xl px-4 sm:px-6"
+            className="mx-auto mb-2 max-w-2xl px-4 sm:px-6 flex flex-wrap items-center gap-2"
           >
             <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.05] backdrop-blur-md border border-white/[0.08] w-fit">
               <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
               <span className="text-[12px] text-white/50">
-                {phase === "refining" ? "Adjusting…" : "Working…"}
+                {phase === "refining" ? "Adjusting…" : phase === "advising" ? "Advisor…" : "Working…"}
               </span>
             </div>
+            {(phase === "thinking" || phase === "streaming" || phase === "refining") && (
+              <button
+                type="button"
+                onClick={() => abortPlannerOperation()}
+                className="text-[11px] px-3 py-1.5 rounded-full border border-amber-500/35 bg-amber-500/10 text-amber-200/90 hover:bg-amber-500/20 transition-colors"
+              >
+                Stop planner
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -449,11 +584,19 @@ export function CommandBar() {
               placeholder={inputPlaceholder}
               aria-busy={isWorking}
               className="flex-1 bg-transparent text-white/90 placeholder:text-white/25 outline-none text-[15px]"
-              disabled={phase === "thinking" || phase === "streaming" || phase === "refining"}
+              disabled={
+                phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising"
+              }
             />
             <button
               onClick={handleSubmit}
-              disabled={!input.trim() || phase === "thinking" || phase === "streaming" || phase === "refining"}
+              disabled={
+                !input.trim() ||
+                phase === "thinking" ||
+                phase === "streaming" ||
+                phase === "refining" ||
+                phase === "advising"
+              }
               className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white/40 hover:bg-white/20 hover:text-white/80 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {isWorking ? (

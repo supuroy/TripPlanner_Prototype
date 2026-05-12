@@ -13,6 +13,7 @@ import { syncUi, buildItineraryStream } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
+import { streamEventToCaption } from "../lib/streamCaption";
 import { ConversationPanel } from "./ConversationPanel";
 import {
   SummaryFlightStrip,
@@ -495,11 +496,15 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const [itinLoading, setItinLoading] = useState(false);
   const [itinErrorKind, setItinErrorKind] = useState<ExpandedItinErrorKind | null>(null);
   const [itinThought, setItinThought] = useState("");
+  const itinStreamAssistantRef = useRef({ text: "" });
+  const itinStreamThinkingRef = useRef({ text: "" });
   const [bookingFace, setBookingFace] = useState(false);
   const [bookingHydrated, setBookingHydrated] = useState(() => bookingProgressDoneIds.has(dest.id));
 
   useEffect(() => {
     setItinThought("");
+    itinStreamAssistantRef.current = { text: "" };
+    itinStreamThinkingRef.current = { text: "" };
     setItinErrorKind(null);
     setBookingFace(false);
     setBookingHydrated(bookingProgressDoneIds.has(dest.id));
@@ -522,6 +527,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     }
     setItinErrorKind(null);
     setItinThought("");
+    itinStreamAssistantRef.current = { text: "" };
+    itinStreamThinkingRef.current = { text: "" };
     const ac = new AbortController();
     const requestId =
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -555,13 +562,10 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             profile,
             (ev) => {
               if (ac.signal.aborted) return;
-              if (ev.type === "phase" && typeof ev.message === "string") {
-                const line = ev.message.trim();
-                if (line) setItinThought((t) => `${(t + "\n\n" + line).trim()}\n`.slice(-14000));
-              }
-              if (ev.type === "thinking_delta" && typeof ev.delta === "string") {
-                setItinThought((t) => (t + ev.delta).slice(-14000));
-              }
+              const cap = streamEventToCaption(ev, itinStreamAssistantRef.current, itinStreamThinkingRef.current, {
+                structuredStreamMode: "itinerary",
+              });
+              if (cap) setItinThought(cap);
             },
             { signal: ac.signal, requestId },
           );
@@ -588,7 +592,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           setDestinations((prev) => {
             const next = prev.map((d) => {
               if (d.id !== dest.id) return d;
-              return mergeItineraryBuildIntoDest(d, rows, budget);
+              return mergeItineraryBuildIntoDest(d, rows, budget, res.booking_search_hints ?? null);
             });
             queueMicrotask(() => {
               void syncUi(sessionId, next as unknown[]).catch(() => {});
@@ -1320,7 +1324,7 @@ function CollapsedDestinationStrip({
   destinations: DestCard[];
   onExpand: () => void;
 }) {
-  const { setExpandedDest } = useTrip();
+  const { setExpandedDest, setIsCanvasCollapsed } = useTrip();
 
   return (
     <motion.div
@@ -1334,7 +1338,10 @@ function CollapsedDestinationStrip({
           <motion.button
             key={dest.id}
             layout
-            onClick={() => setExpandedDest(dest.id)}
+            onClick={() => {
+              setIsCanvasCollapsed(false);
+              setExpandedDest(dest.id);
+            }}
             className={`group flex items-center gap-2 rounded-xl px-3 py-2 transition-all ${
               dest.pinned
                 ? "border border-indigo-500/40 bg-indigo-500/20 text-white/90"
@@ -1374,14 +1381,20 @@ export function DestinationCanvas() {
     profile,
     setDestinations,
     phase,
+    refineUnlockCardNavigation,
   } = useTrip();
   const [comparisonStartIndex, setComparisonStartIndex] = useState(0);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** Only the main planner (command bar / refine) locks navigation — background itinerary builds stay serialized but you can still open cards. */
+  /**
+   * Lock switching cards during smoke/stream, or refine unless orchestrator allows browsing (**refineUnlockCardNavigation**).
+   */
   const expandInteractionsLocked = useMemo(
-    () => phase === "thinking" || phase === "streaming" || phase === "refining",
-    [phase],
+    () =>
+      phase === "thinking" ||
+      phase === "streaming" ||
+      (phase === "refining" && !refineUnlockCardNavigation),
+    [phase, refineUnlockCardNavigation],
   );
 
   useEffect(() => {

@@ -335,18 +335,10 @@ function ResponseCard({ response }: { response: AgentResponse }) {
 export function AgentResponses() {
   const { responses, phase, agentStatus, agentStreamCaption } = useTrip();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isWorking = phase === "thinking" || phase === "streaming" || phase === "refining";
+  const isWorking =
+    phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising";
 
-  // Keep long streaming lines in view as they update
-  useEffect(() => {
-    if (!scrollRef.current || !agentStreamCaption) return;
-    scrollRef.current.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [agentStreamCaption]);
-
-  // Auto-scroll to bottom on new response
+  // Auto-scroll to bottom when a new agent response is appended (conversation grows).
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -367,7 +359,7 @@ export function AgentResponses() {
             <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-indigo-400" aria-hidden />
             <div className="min-w-0 flex-1">
               <p className="mb-1 text-[10px] uppercase tracking-wider text-white/30">Live progress</p>
-              <div className="max-h-[min(38vh,320px)] overflow-y-auto rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2.5">
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2.5">
                 <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-white/70">
                   {agentStreamCaption.trim() || agentStatus || "Getting your trip ready…"}
                 </p>
@@ -404,7 +396,7 @@ export function AgentResponses() {
                 <span>{agentStatus || "Still working…"}</span>
               </div>
               {agentStreamCaption.trim() ? (
-                <div className="mb-3 max-h-[min(28vh,240px)] overflow-y-auto rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
+                <div className="mb-3 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
                   <p className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-white/55">
                     {agentStreamCaption.trim()}
                   </p>

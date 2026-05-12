@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import traceback
@@ -11,6 +12,7 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from src.orchestrator import TravelPlannerOrchestrator
+from src.stages.criteria_stage import CriteriaStage
 from src.ui.web import HTML_SCAFFOLD
 from src.wanderly.mapper import map_workspace_to_wanderly
 from src.wanderly.hero_enrichment import enrich_destinations_hero_images
@@ -40,6 +42,7 @@ from src.wanderly.smoke_service import (
     run_smoke_turn,
     run_smoke_turn_streaming,
 )
+from src.wanderly.user_intent_llm import run_orchestrate_turn
 
 
 def _itinerary_request_id(handler: BaseHTTPRequestHandler) -> str:
@@ -75,6 +78,15 @@ def _timeline(msg: str) -> None:
     log_itinerary_build(msg)
 
 
+def _truthy_flag(val: Any) -> bool:
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return val != 0
+    s = str(val or "").strip().lower()
+    return s in ("1", "true", "yes", "on")
+
+
 _itinerary_build_locks: dict[str, threading.Lock] = {}
 _itinerary_build_locks_guard = threading.Lock()
 
@@ -84,6 +96,18 @@ def _itinerary_build_lock(key: str) -> threading.Lock:
         if key not in _itinerary_build_locks:
             _itinerary_build_locks[key] = threading.Lock()
         return _itinerary_build_locks[key]
+
+
+_booking_prepare_locks: dict[str, threading.Lock] = {}
+_booking_prepare_locks_guard = threading.Lock()
+
+
+def _booking_prepare_lock(session_id: str, destination_id: str) -> threading.Lock:
+    key = f"prep:{(session_id or '').strip()}\n{(destination_id or '').strip()}"
+    with _booking_prepare_locks_guard:
+        if key not in _booking_prepare_locks:
+            _booking_prepare_locks[key] = threading.Lock()
+        return _booking_prepare_locks[key]
 
 
 def _cors_headers(handler: BaseHTTPRequestHandler) -> dict[str, str]:
@@ -281,6 +305,7 @@ def run_web_server(
                 if path == "/api/wanderly/refine":
                     msg = (payload.get("message") or "").strip()
                     sid = (payload.get("session_id") or "").strip()
+                    confirm_drop = _truthy_flag(payload.get("confirm_workspace_drop"))
                     if not msg or not sid:
                         self._send_json({"error": "Missing 'message' or 'session_id'."}, status=400)
                         return
@@ -290,7 +315,7 @@ def run_web_server(
                         _timeline(
                             f"TIMELINE refine_turn_begin trace={tid!r} sid={sid[:12]!r} msg_len={len(msg)}"
                         )
-                        out = run_refine_turn(msg, sid)
+                        out = run_refine_turn(msg, sid, confirm_workspace_drop=confirm_drop)
                         wly_r = out.get("wanderly")
                         nd_r = (
                             len(wly_r["destinations"])
@@ -313,6 +338,7 @@ def run_web_server(
                 if path == "/api/wanderly/refine_stream":
                     msg = (payload.get("message") or "").strip()
                     sid = (payload.get("session_id") or "").strip()
+                    confirm_drop_rs = _truthy_flag(payload.get("confirm_workspace_drop"))
                     if not msg or not sid:
                         self._send_json({"error": "Missing 'message' or 'session_id'."}, status=400)
                         return
@@ -335,15 +361,21 @@ def run_web_server(
                             f"TIMELINE refine_stream_begin trace={tid_r!r} sid={sid[:12]!r} msg_len={len(msg)}"
                         )
                         try:
-                            out_r = run_refine_turn_streaming(msg, sid, emit=emit_r)
-                            emit_r(
-                                {
-                                    "type": "done",
-                                    "session_id": sid,
-                                    "wanderly": out_r["wanderly"],
-                                    "parse_ok": out_r.get("parse_ok"),
-                                }
+                            out_r = run_refine_turn_streaming(
+                                msg, sid, emit=emit_r, confirm_workspace_drop=confirm_drop_rs
                             )
+                            done_payload: dict[str, Any] = {
+                                "type": "done",
+                                "session_id": sid,
+                                "wanderly": out_r["wanderly"],
+                                "parse_ok": out_r.get("parse_ok"),
+                            }
+                            if out_r.get("shortlist_drop_blocked"):
+                                done_payload["shortlist_drop_blocked"] = True
+                                done_payload["model_omitted_destination_ids"] = (
+                                    out_r.get("model_omitted_destination_ids") or []
+                                )
+                            emit_r(done_payload)
                         finally:
                             nd_rs = -1
                             if isinstance(out_r, dict):
@@ -368,6 +400,24 @@ def run_web_server(
                             self._write_sse({"type": "error", "message": str(exc)})
                         except OSError:
                             return
+                    return
+
+                if path == "/api/wanderly/orchestrate":
+                    msg = (payload.get("message") or "").strip()
+                    sid = (payload.get("session_id") or "").strip()
+                    focus_oid = (payload.get("focus_destination_id") or "").strip() or None
+                    if not msg or not sid:
+                        self._send_json({"error": "Missing 'message' or 'session_id'."}, status=400)
+                        return
+                    try:
+                        out_o = run_orchestrate_turn(
+                            user_message=msg, session_id=sid, focus_destination_id=focus_oid
+                        )
+                        self._send_json(out_o, status=200)
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/orchestrate error: {exc!r}")
+                        traceback.print_exc()
+                        self._send_json({"error": str(exc)}, status=500)
                     return
 
                 if path == "/api/wanderly/sync_ui":
@@ -511,6 +561,7 @@ def run_web_server(
                             )
                         rows = itin_out.get("itinerary") or []
                         bg = itin_out.get("budget_guidance")
+                        bsh = itin_out.get("booking_search_hints")
                         print(
                             f"[web] /api/wanderly/build_itinerary ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -523,16 +574,17 @@ def run_web_server(
                             dest_id=did,
                             rows=len(rows),
                             budget=bool(bg),
+                            booking_hints=bool(bsh),
                         )
-                        self._send_json(
-                            {
-                                "session_id": sid,
-                                "destination_id": did,
-                                "itinerary": rows,
-                                "budget_guidance": bg,
-                            },
-                            status=200,
-                        )
+                        resp_body: dict[str, Any] = {
+                            "session_id": sid,
+                            "destination_id": did,
+                            "itinerary": rows,
+                            "budget_guidance": bg,
+                        }
+                        if isinstance(bsh, dict) and bsh:
+                            resp_body["booking_search_hints"] = bsh
+                        self._send_json(resp_body, status=200)
                     except Exception as exc:
                         print(f"[web] /api/wanderly/build_itinerary error: {exc!r}")
                         traceback.print_exc()
@@ -608,6 +660,7 @@ def run_web_server(
                             )
                         rows = itin_out.get("itinerary") or []
                         bg = itin_out.get("budget_guidance")
+                        bsh = itin_out.get("booking_search_hints")
                         print(
                             f"[web] /api/wanderly/build_itinerary_stream ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -620,16 +673,18 @@ def run_web_server(
                             dest_id=did,
                             rows=len(rows),
                             budget=bool(bg),
+                            booking_hints=bool(bsh),
                         )
-                        emit_itin(
-                            {
-                                "type": "done",
-                                "session_id": sid,
-                                "destination_id": did,
-                                "itinerary": rows,
-                                "budget_guidance": bg,
-                            }
-                        )
+                        done_payload: dict[str, Any] = {
+                            "type": "done",
+                            "session_id": sid,
+                            "destination_id": did,
+                            "itinerary": rows,
+                            "budget_guidance": bg,
+                        }
+                        if isinstance(bsh, dict) and bsh:
+                            done_payload["booking_search_hints"] = bsh
+                        emit_itin(done_payload)
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         _trace_itin_web(
                             "build_itinerary_stream_client_disconnect",
@@ -699,20 +754,36 @@ def run_web_server(
                         k = str(p.get("key") or "")
                         v = str(p.get("value") or "")
                         if k == "budget":
-                            digits = "".join(ch for ch in v if ch.isdigit())
-                            if digits:
-                                patch["budget_max_usd"] = float(digits)
+                            parsed_b = CriteriaStage._extract_budget_max_usd(v)
+                            if parsed_b is not None:
+                                patch["budget_max_usd"] = parsed_b
+                            elif v.strip().lower() in ("flexible", "not specified", "tbd", "unknown", "n/a"):
+                                patch["budget_max_usd"] = None
+                        elif k == "from":
+                            vv = v.strip()
+                            if vv and vv.lower() not in ("not specified", "tbd", "unknown", "n/a"):
+                                patch["traveler_origin"] = vv[:200]
                         elif k == "who":
-                            num = "".join(ch for ch in v if ch.isdigit())
-                            if num:
-                                patch["group_size"] = int(num)
+                            m = re.match(r"^\s*(\d+)", v)
+                            if m:
+                                patch["group_size"] = int(m.group(1))
                             patch["editable_notes"] = v[:500]
                         elif k == "vibe":
                             patch["destination_preferences"] = [x.strip() for x in v.split(",") if x.strip()][:12]
                         elif k == "when":
                             patch["traveler_summary"] = v[:2000]
                         elif k == "duration":
-                            patch["pace_preference"] = v[:120]
+                            vv = v.strip()
+                            if re.search(r"\b\d{1,2}\s*(?:day|days|week|weeks|night|nights)\b", vv.lower()):
+                                prev = (
+                                    orchestrator.session.get_traveler_profile().editable_notes or ""
+                                ).strip()
+                                tid = f"Trip length: {vv[:100]}"
+                                patch["editable_notes"] = (
+                                    f"{prev}; {tid}".strip("; ") if prev else tid
+                                )[:2000]
+                            else:
+                                patch["pace_preference"] = vv[:120]
                     updated = orchestrator.update_traveler_profile(patch, source="wanderly_profile_patch")
                     wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
                     self._send_json({"traveler_profile": updated, "wanderly": wanderly}, status=200)
@@ -900,7 +971,19 @@ def run_web_server(
                     return
 
                 if path == "/api/wanderly/booking_search_prepare":
-                    from src.wanderly.ota_booking_search import build_booking_criteria
+                    import copy as _copy_mod
+                    import time as _time_mod
+
+                    from src.wanderly.ota_booking_search import (
+                        booking_prepare_request_fingerprint,
+                        booking_search_trace,
+                        build_booking_criteria,
+                    )
+                    from src.wanderly.session_store import (
+                        clear_booking_prepare_caches,
+                        get_booking_prepare_response_cache,
+                        set_booking_prepare_response_cache,
+                    )
 
                     sid_bs = (payload.get("session_id") or "").strip()
                     did_bs = (payload.get("destination_id") or "").strip()
@@ -922,17 +1005,38 @@ def run_web_server(
                     else:
                         pills_bs = snapshot_profile_pills(sid_bs)
                     try:
-                        s_prep = get_session(sid_bs)
-                        bp = s_prep.setdefault("booking_hotels_plans", {})
-                        if isinstance(bp, dict):
-                            bp.pop(did_bs, None)
-                        bi = s_prep.setdefault("booking_search_intents", {})
-                        if isinstance(bi, dict):
-                            bi.pop(did_bs, None)
-                        out_bs = build_booking_criteria(
-                            dest_bs, pills_bs, date_hints=dh_bs, session_id=sid_bs
-                        )
-                        self._send_json(out_bs, status=200)
+                        fp_bs = booking_prepare_request_fingerprint(dest_bs, pills_bs, dh_bs)
+                        with _booking_prepare_lock(sid_bs, did_bs):
+                            cached_bs = get_booking_prepare_response_cache(sid_bs, did_bs, fp_bs)
+                            if cached_bs is not None:
+                                booking_search_trace(
+                                    "booking_prepare_served_from_cache",
+                                    destination_id=did_bs,
+                                    session_id_prefix=sid_bs[:12] if len(sid_bs) >= 12 else sid_bs,
+                                    fp_sha8=fp_bs[:8],
+                                )
+                                self._send_json(cached_bs, status=200)
+                                return
+                            booking_search_trace(
+                                "booking_prepare_begin",
+                                destination_id=did_bs,
+                                session_id_prefix=sid_bs[:12] if len(sid_bs) >= 12 else sid_bs,
+                            )
+                            t_prep = _time_mod.perf_counter()
+                            clear_booking_prepare_caches(sid_bs, did_bs)
+                            out_bs = build_booking_criteria(
+                                dest_bs, pills_bs, date_hints=dh_bs, session_id=sid_bs
+                            )
+                            set_booking_prepare_response_cache(
+                                sid_bs, did_bs, fp_bs, _copy_mod.deepcopy(out_bs)
+                            )
+                            booking_search_trace(
+                                "booking_prepare_done",
+                                destination_id=did_bs,
+                                session_id_prefix=sid_bs[:12] if len(sid_bs) >= 12 else sid_bs,
+                                elapsed_ms=int((_time_mod.perf_counter() - t_prep) * 1000),
+                            )
+                            self._send_json(out_bs, status=200)
                     except Exception as exc:
                         print(f"[web] /api/wanderly/booking_search_prepare error: {exc!r}")
                         traceback.print_exc()

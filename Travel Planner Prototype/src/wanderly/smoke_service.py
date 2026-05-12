@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import concurrent.futures
 import json
 import re
 import threading
@@ -21,6 +20,7 @@ from src.wanderly.cursor_advisor import (
     merge_profile_pills_advisor_precedence,
     run_profile_listener_cursor,
 )
+from src.wanderly.itinerary_debug_log import log_itinerary_build
 from src.wanderly.refinement_cursor import refinement_model_id
 from src.wanderly.schemas import SmokeDestDTO, SmokeProfilePillDTO, WanderlyWorkspaceDTO, coerce_profile_pill
 from src.wanderly.session_store import (
@@ -79,7 +79,10 @@ Rules:
 - Always return the full profile_pills array for the six keys when, who, from, vibe, budget, duration (not a partial list; placeholders ok; a fast companion pass may refine).
 - Do **not** emit a ``tags`` pill; fold constraints into the appropriate one of the six fields or assistant_markdown.
 - Update profile_pills whenever the user states new trip facts (dates, budget, party, vibe, home airport / "flying from …").
+- If the user only **compares**, **contrasts**, or **chooses between** places (no request to change days, hotels, flights, or itineraries), return **every non-dismissed** row from workspace_destinations (same ids). You may refresh hook/score text. Do **not** drop unpinned destinations from the shortlist.
+- If the user asks to **redo / rebuild / regenerate** one destination's plan, still return **the full non-dismissed shortlist** (same ids): update only the rows they mentioned; omit ``itinerary`` on other rows so the UI keeps existing day-by-day content.
 - You may omit per-destination "itinerary" in JSON; the UI keeps existing day-by-day plans unless the user asks to change them.
+- **Never remove a non-dismissed destination by omitting its id** from ``destinations``. Travelers remove cards only via the UI (dismiss). If they ask to drop a place in chat, still list that id until the product confirms removal — the server will merge safely.
 
 Structured context (JSON) follows:
 """.strip()
@@ -288,18 +291,74 @@ def _reattach_pinned_missing(prior: list[dict[str, Any]], merged: list[dict[str,
     return extra + merged if extra else merged
 
 
-def _maybe_merge_advisor_profile(
+def _reattach_non_dismissed_missing(prior: list[dict[str, Any]], merged: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Re-append prior rows missing from ``merged`` (same id) so a partial model JSON cannot shrink the board."""
+    ids = {str(d.get("id") or "").strip() for d in merged if str(d.get("id") or "").strip()}
+    extra: list[dict[str, Any]] = []
+    for p in prior:
+        if p.get("dismissed"):
+            continue
+        pid = str(p.get("id") or "").strip()
+        if pid and pid not in ids:
+            extra.append(dict(p))
+    return list(merged) + extra
+
+
+def _prior_non_dismissed_ids(prior: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(p.get("id") or "").strip()
+        for p in prior
+        if not p.get("dismissed") and str(p.get("id") or "").strip()
+    }
+
+
+def _non_dismissed_ids_in_merged(merged: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(d.get("id") or "").strip()
+        for d in merged
+        if not d.get("dismissed") and str(d.get("id") or "").strip()
+    }
+
+
+def _maybe_fill_missing_shortlist(
+    prior: list[dict[str, Any]],
+    merged: list[dict[str, Any]],
+    session_id: str,
+    *,
+    allow_shortlist_shrink: bool,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """
+    Refine JSON is only iterated in ``_merge_dest_ui_flags`` — any id omitted disappears from the UI.
+
+    Unless ``allow_shortlist_shrink`` (traveler confirmed in the client after the model tried to drop
+    non-dismissed cards), restore every prior non-dismissed row missing from the model output.
+    Returns ``(destinations, omitted_ids_that_were_restored)``.
+    """
+    prior_ids = _prior_non_dismissed_ids(prior)
+    merged_nd_ids = _non_dismissed_ids_in_merged(merged)
+    omitted = sorted(pid for pid in prior_ids if pid and pid not in merged_nd_ids)
+    if allow_shortlist_shrink or not omitted:
+        return merged, []
+    before_n = len(merged)
+    out = _reattach_non_dismissed_missing(prior, merged)
+    if len(out) > before_n:
+        log_itinerary_build(
+            f"path=wanderly.refine.shortlist_reattach sid={session_id[:12]!r} "
+            f"restored_ids={omitted!r} before_rows={before_n} after_rows={len(out)} "
+            f"allow_shrink={allow_shortlist_shrink}"
+        )
+    return out, omitted
+
+
+def _merge_advisor_listener_tuple(
     session_id: str,
     out: dict[str, Any],
-    fut: concurrent.futures.Future | None,
+    advisor_result: tuple[list[dict[str, Any]], str | None] | None,
 ) -> dict[str, Any]:
-    if fut is None:
+    """Merge profile_listener pills after the main planner has committed workspace + chat state."""
+    if not advisor_result:
         return out
-    try:
-        pills, note = fut.result(timeout=90)
-    except Exception as exc:
-        print(f"[wanderly] advisor profile merge skipped: {exc!r}")
-        return out
+    pills, _note = advisor_result
     if not pills:
         return out
     w = out.get("wanderly")
@@ -309,9 +368,24 @@ def _maybe_merge_advisor_profile(
     base = [x for x in pp if isinstance(x, dict)] if isinstance(pp, list) else []
     merged = merge_profile_pills_advisor_precedence(base, pills)
     w = {**w, "profile_pills": merged}
-    # Do not surface advisor_note into agent_status_hint — it was flooding the main chat as “tips”.
     set_last_profile_pills(session_id, merged)
     return {**out, "wanderly": w}
+
+
+def _run_profile_listener_after_planner(session_id: str, user_message: str) -> tuple[list[dict[str, Any]], str | None] | None:
+    """
+    Cheap profile listener: must run **after** smoke/refine commits destinations so summaries match
+    the latest shortlist (avoids stale/empty itinerary warnings racing the main model).
+    """
+    if not advisor_model_id():
+        return None
+    return run_profile_listener_cursor(
+        user_message=(user_message or "").strip(),
+        prior_pills=snapshot_profile_pills(session_id),
+        prior_chat_snippet=chat_context_snippet(session_id, max_messages=6),
+        workspace_destinations_summary=snapshot_destinations_for_model(session_id),
+        session_id=session_id,
+    )
 
 
 def _normalize_parsed(raw: dict[str, Any]) -> WanderlyWorkspaceDTO:
@@ -373,26 +447,15 @@ def run_smoke_turn(user_message: str, session_id: str) -> dict[str, Any]:
     key = get_api_key()
     um = (user_message or "").strip()
     prompt = _JSON_INSTRUCTIONS + "\n\nUser request:\n" + um
-    fut: concurrent.futures.Future | None = None
-    # max_workers=2: advisor uses lane ``profile_listener``; main smoke uses ``planner`` — independent locks.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-        if advisor_model_id():
-            fut = ex.submit(
-                run_profile_listener_cursor,
-                user_message=um,
-                prior_pills=snapshot_profile_pills(session_id),
-                prior_chat_snippet=chat_context_snippet(session_id, max_messages=6),
-                workspace_destinations_summary=[],
-                session_id=session_id,
-            )
-        with basic_client(key) as client:
-            raw_text = run_prompt_collect_assistant_text(
-                client,
-                prompt,
-                **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.json"),
-            )
-        out = _complete_smoke_turn(session_id, user_message, raw_text)
-        return _maybe_merge_advisor_profile(session_id, out, fut)
+    with basic_client(key) as client:
+        raw_text = run_prompt_collect_assistant_text(
+            client,
+            prompt,
+            **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.json"),
+        )
+    out = _complete_smoke_turn(session_id, user_message, raw_text)
+    listener = _run_profile_listener_after_planner(session_id, um)
+    return _merge_advisor_listener_tuple(session_id, out, listener)
 
 
 def run_smoke_turn_streaming(
@@ -413,50 +476,28 @@ def run_smoke_turn_streaming(
 
     if emit:
         safe_emit({"type": "phase", "message": "Starting planner…"})
-    fut: concurrent.futures.Future | None = None
-    # Advisor lane (profile_listener) is separate from main planner lane — runs in parallel when enabled.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-        if advisor_model_id():
-            safe_emit({"type": "phase", "message": "Sidebar advisor running in parallel…"})
-
-            def _listener() -> tuple[list[dict[str, Any]], str | None]:
-                return run_profile_listener_cursor(
-                    user_message=um,
-                    prior_pills=snapshot_profile_pills(session_id),
-                    prior_chat_snippet=chat_context_snippet(session_id, max_messages=6),
-                    workspace_destinations_summary=[],
-                    session_id=session_id,
-                )
-
-            fut = ex.submit(_listener)
-
-            def _on_profile_ready(fb: concurrent.futures.Future) -> None:
-                try:
-                    pills, note = fb.result()
-                    if pills:
-                        safe_emit(
-                            {
-                                "type": "advisor_profile",
-                                "profile_pills": pills,
-                                "advisor_note": note or "",
-                            }
-                        )
-                except Exception as exc:
-                    print(f"[wanderly] advisor_profile sse: {exc!r}")
-
-            fut.add_done_callback(_on_profile_ready)
-
-        with basic_client(key) as client:
-            raw_text = run_prompt_collect_assistant_text_streaming(
-                client,
-                prompt,
-                emit=safe_emit,
-                **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.sse"),
-            )
-        if emit:
-            safe_emit({"type": "phase", "message": "Parsing JSON and building cards…"})
-        out = _complete_smoke_turn(session_id, user_message, raw_text)
-        return _maybe_merge_advisor_profile(session_id, out, fut)
+    with basic_client(key) as client:
+        raw_text = run_prompt_collect_assistant_text_streaming(
+            client,
+            prompt,
+            emit=safe_emit,
+            **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.sse"),
+        )
+    if emit:
+        safe_emit({"type": "phase", "message": "Parsing JSON and building cards…"})
+    out = _complete_smoke_turn(session_id, user_message, raw_text)
+    if emit:
+        safe_emit({"type": "phase", "message": "Sidebar advisor (profile)…"})
+    listener = _run_profile_listener_after_planner(session_id, um)
+    if emit and listener and listener[0]:
+        safe_emit(
+            {
+                "type": "advisor_profile",
+                "profile_pills": listener[0],
+                "advisor_note": listener[1] or "",
+            }
+        )
+    return _merge_advisor_listener_tuple(session_id, out, listener)
 
 
 def _complete_refine_turn(
@@ -464,12 +505,18 @@ def _complete_refine_turn(
     user_message: str,
     raw_text: str,
     prior_dests: list[dict[str, Any]],
+    *,
+    allow_shortlist_shrink: bool,
 ) -> dict[str, Any]:
     parsed = _extract_json_object(raw_text)
+    restored_omitted: list[str] = []
     if parsed:
         dto = _normalize_parsed(parsed)
         merged = _merge_dest_ui_flags(prior_dests, dto.destinations)
         merged = _reattach_pinned_missing(prior_dests, merged)
+        merged, restored_omitted = _maybe_fill_missing_shortlist(
+            prior_dests, merged, session_id, allow_shortlist_shrink=allow_shortlist_shrink
+        )
         dto = dto.model_copy(update={"destinations": merged})
     else:
         dto = WanderlyWorkspaceDTO(
@@ -483,10 +530,16 @@ def _complete_refine_turn(
     append_chat(session_id, "assistant", dto.assistant_markdown)
     set_last_destinations(session_id, dto.destinations)
     set_last_profile_pills(session_id, [p.model_dump() for p in dto.profile_pills])
-    return {"wanderly": dto.model_dump(), "parse_ok": parsed is not None}
+    out: dict[str, Any] = {"wanderly": dto.model_dump(), "parse_ok": parsed is not None}
+    if parsed and restored_omitted:
+        out["shortlist_drop_blocked"] = True
+        out["model_omitted_destination_ids"] = restored_omitted
+    return out
 
 
-def run_refine_turn(user_message: str, session_id: str) -> dict[str, Any]:
+def run_refine_turn(
+    user_message: str, session_id: str, *, confirm_workspace_drop: bool = False
+) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
     prior_dests = snapshot_destinations_for_model(session_id)
@@ -504,30 +557,24 @@ def run_refine_turn(user_message: str, session_id: str) -> dict[str, Any]:
         + "\n\nUser refinement:\n"
         + um
     )
-    fut: concurrent.futures.Future | None = None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-        if advisor_model_id():
-            fut = ex.submit(
-                run_profile_listener_cursor,
-                user_message=um,
-                prior_pills=snapshot_profile_pills(session_id),
-                prior_chat_snippet=chat,
-                workspace_destinations_summary=prior_dests,
-                session_id=session_id,
-            )
-        mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.json")
-        with basic_client(key) as client:
-            raw_text = run_prompt_collect_assistant_text(
-                client, prompt, model_id_override=mod, **persist
-            )
-        out = _complete_refine_turn(session_id, um, raw_text, prior_dests)
-        return _maybe_merge_advisor_profile(session_id, out, fut)
+    mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.json")
+    with basic_client(key) as client:
+        raw_text = run_prompt_collect_assistant_text(
+            client, prompt, model_id_override=mod, **persist
+        )
+    out = _complete_refine_turn(
+        session_id, um, raw_text, prior_dests, allow_shortlist_shrink=confirm_workspace_drop
+    )
+    listener = _run_profile_listener_after_planner(session_id, um)
+    return _merge_advisor_listener_tuple(session_id, out, listener)
 
 
 def run_refine_turn_streaming(
     user_message: str,
     session_id: str,
     emit: Callable[[dict[str, Any]], None] | None,
+    *,
+    confirm_workspace_drop: bool = False,
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
@@ -553,47 +600,36 @@ def run_refine_turn_streaming(
             with emit_lock:
                 emit(obj)
 
-    fut: concurrent.futures.Future | None = None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-        if advisor_model_id():
-
-            def _listener() -> tuple[list[dict[str, Any]], str | None]:
-                return run_profile_listener_cursor(
-                    user_message=um,
-                    prior_pills=snapshot_profile_pills(session_id),
-                    prior_chat_snippet=chat,
-                    workspace_destinations_summary=prior_dests,
-                    session_id=session_id,
-                )
-
-            fut = ex.submit(_listener)
-
-            def _on_profile_ready(fb: concurrent.futures.Future) -> None:
-                try:
-                    pills, note = fb.result()
-                    if pills:
-                        safe_emit(
-                            {
-                                "type": "advisor_profile",
-                                "profile_pills": pills,
-                                "advisor_note": note or "",
-                            }
-                        )
-                except Exception as exc:
-                    print(f"[wanderly] advisor_profile sse refine: {exc!r}")
-
-            fut.add_done_callback(_on_profile_ready)
-
-        mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.sse")
-        with basic_client(key) as client:
-            raw_text = run_prompt_collect_assistant_text_streaming(
-                client,
-                prompt,
-                emit=safe_emit,
-                model_id_override=mod,
-                **persist,
-            )
-        if emit:
-            safe_emit({"type": "phase", "message": "Parsing JSON and merging pins…"})
-        out = _complete_refine_turn(session_id, um, raw_text, prior_dests)
-        return _maybe_merge_advisor_profile(session_id, out, fut)
+    mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.sse")
+    with basic_client(key) as client:
+        raw_text = run_prompt_collect_assistant_text_streaming(
+            client,
+            prompt,
+            emit=safe_emit,
+            model_id_override=mod,
+            **persist,
+        )
+    if emit:
+        safe_emit({"type": "phase", "message": "Parsing JSON and merging pins…"})
+    out = _complete_refine_turn(
+        session_id, um, raw_text, prior_dests, allow_shortlist_shrink=confirm_workspace_drop
+    )
+    if emit and out.get("shortlist_drop_blocked"):
+        safe_emit(
+            {
+                "type": "shortlist_drop_blocked",
+                "destination_ids": out.get("model_omitted_destination_ids") or [],
+            }
+        )
+    if emit:
+        safe_emit({"type": "phase", "message": "Sidebar advisor (profile)…"})
+    listener = _run_profile_listener_after_planner(session_id, um)
+    if emit and listener and listener[0]:
+        safe_emit(
+            {
+                "type": "advisor_profile",
+                "profile_pills": listener[0],
+                "advisor_note": listener[1] or "",
+            }
+        )
+    return _merge_advisor_listener_tuple(session_id, out, listener)

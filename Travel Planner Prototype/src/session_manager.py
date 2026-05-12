@@ -168,7 +168,17 @@ class SessionManager:
 
         budget = criteria.get("budget_max_usd")
         if budget is not None:
-            patch["budget_max_usd"] = budget
+            try:
+                bf = float(budget)
+            except (TypeError, ValueError):
+                pass
+            else:
+                if 0 < bf < 150:
+                    assumptions.append(
+                        f"Ignored extracted budget_max_usd={bf:g} (too small for a whole trip — likely a misread number)."
+                    )
+                else:
+                    patch["budget_max_usd"] = bf
 
         destination_prefs = criteria.get("destination_preferences")
         if destination_prefs:
@@ -273,6 +283,18 @@ class SessionManager:
                     notes.append(c)
             if notes:
                 patch["dietary_or_accessibility_notes"] = sorted(set(notes))
+
+        pace_v = patch.get("pace_preference")
+        if isinstance(pace_v, str):
+            pl = pace_v.strip().lower()
+            if re.fullmatch(r"\d{1,2}\s*(?:day|days|week|weeks|night|nights)\b", pl) or re.fullmatch(
+                r"(?:~|about|approx\.?)\s*\d{1,2}\s*(?:day|days|week|weeks|night|nights)\b", pl
+            ):
+                tid = f"Trip length: {pace_v.strip()}"
+                en = (patch.get("editable_notes") or "").strip()
+                patch["editable_notes"] = (f"{en}; {tid}".strip("; ") if en else tid)[:2000]
+                patch["pace_preference"] = current_profile.pace_preference or "balanced"
+                assumptions.append("Trip length was stored as pace; moved to notes and reset pace to a default.")
 
         patch["assumptions_used"] = sorted(set(assumptions))
         return self.upsert_traveler_profile(patch)
@@ -535,9 +557,19 @@ class SessionManager:
         ]
         if human_counts:
             return sum(human_counts)
-        numbers = [int(n) for n in re.findall(r"\b(\d+)\b", text)]
-        if numbers:
-            return sum(numbers)
+        party = re.search(
+            r"\b(?:party|group|traveling)\s+of\s+(\d+)\b|\b(\d+)\s*(?:people|persons|guests|travelers|pax)\b",
+            text,
+        )
+        if party:
+            g = party.group(1) or party.group(2)
+            try:
+                n = int(g)
+                if 1 <= n <= 20:
+                    return n
+            except (TypeError, ValueError):
+                pass
+        # Do not sum arbitrary integers (pet weights, ages, flight numbers, etc.).
         if "wife" in text or "husband" in text or "partner" in text:
             return 2
         if "family" in text:
@@ -549,15 +581,21 @@ class SessionManager:
     @staticmethod
     def _infer_group_type(travelers: str) -> Optional[str]:
         text = travelers.lower()
+        pet = bool(re.search(r"\b(pet|pets|dog|dogs|cat|cats|puppy|puppies|kitten|kittens)\b", text))
+        base: Optional[str] = None
         if "wife" in text or "husband" in text or "partner" in text or "couple" in text:
-            return "couple"
-        if "family" in text:
-            return "family"
-        if "friends" in text:
-            return "friends"
-        if "solo" in text or "just me" in text:
-            return "solo"
-        return None
+            base = "couple"
+        elif "family" in text:
+            base = "family"
+        elif "friends" in text:
+            base = "friends"
+        elif "solo" in text or "just me" in text:
+            base = "solo"
+        if pet and base in ("couple", "family", "solo"):
+            return f"{base} with pet"
+        if pet and base is None and ("two adults" in text or "2 adults" in text or "both of us" in text):
+            return "couple with pet"
+        return base
 
     @staticmethod
     def _infer_accommodation_style(criteria_output: Dict[str, Any], fallback: str) -> Optional[str]:

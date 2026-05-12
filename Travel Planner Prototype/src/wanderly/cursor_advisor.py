@@ -100,6 +100,7 @@ Rules:
 - Infer from the latest user message; use prior pills + context only to disambiguate (prefer new facts over stale values).
 - If unknown, use concise placeholders (e.g. "Flexible dates", "Not specified") for the six required pills only.
 - If the user names a home city or airport (e.g. "from Seattle", "SEA"), set "from" accordingly.
+- **when**: travel dates **and** trip length if clear (e.g. "Apr 1–8 · 8 days"). **duration**: trip length ("1 week", "10 days") when not already fully covered in **when**; otherwise a short length placeholder — **not** intraday packing density. **vibe**: style + how busy days should feel (romantic, packed days, slow mornings, …). **who**: travelers and pets only (no budget, no dates).
 """.strip()
 
 

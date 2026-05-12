@@ -12,12 +12,60 @@ def _slug(name: str) -> str:
     return (s or "dest")[:48]
 
 
+def _who_pill_value(gs: Any, gt: str) -> str:
+    """Avoid redundant text like ``2 couple with pet`` when headcount matches the group label."""
+    gt_s = (gt or "travelers").strip() or "travelers"
+    gt_l = gt_s.lower()
+    try:
+        n = int(gs) if gs is not None else None
+    except (TypeError, ValueError):
+        n = None
+    if n is None:
+        return gt_s[:120]
+    if "couple" in gt_l and n == 2:
+        return gt_s[:120]
+    if "solo" in gt_l and n == 1:
+        return gt_s[:120]
+    if "family" in gt_l and " with pet" in gt_l and n is not None and 2 <= n <= 12:
+        return gt_s[:120]
+    if " with pet" in gt_l and n is not None and 2 <= n <= 12 and ("adult" in gt_l or "traveler" in gt_l):
+        return gt_s[:120]
+    return f"{n} {gt_s}"[:120]
+
+
 def _profile_to_pills(tp: dict[str, Any]) -> list[SmokeProfilePillDTO]:
+    """Six pills in the same key order as ``merge_profile_pills_advisor_precedence`` (when, who, from, …)."""
     pills: list[SmokeProfilePillDTO] = []
     gs = tp.get("group_size")
     gt = tp.get("group_type") or "travelers"
-    who = f"{gs} {gt}" if gs is not None else str(gt)
-    pills.append(SmokeProfilePillDTO(key="who", label="Who", value=who[:120], icon="👥"))
+    who = _who_pill_value(gs, str(gt))
+    assumptions = tp.get("assumptions_used")
+    first_asm = assumptions[0] if isinstance(assumptions, list) and assumptions else "Dates TBD"
+    when_val = tp.get("traveler_summary") or first_asm
+    pills.append(
+        SmokeProfilePillDTO(
+            key="when",
+            label="When",
+            value=str(when_val)[:120],
+            icon="📅",
+        )
+    )
+    pills.append(SmokeProfilePillDTO(key="who", label="Who", value=who, icon="👥"))
+    origin = (tp.get("traveler_origin") or "").strip()
+    pills.append(
+        SmokeProfilePillDTO(
+            key="from",
+            label="Flying from",
+            value=origin[:120] if origin else "Not specified",
+            icon="✈️",
+        )
+    )
+    prefs = tp.get("destination_preferences") or []
+    if isinstance(prefs, list) and prefs:
+        vibe = ", ".join(str(p) for p in prefs[:5])
+        pills.append(SmokeProfilePillDTO(key="vibe", label="Vibe", value=vibe[:120], icon="✨"))
+    else:
+        pills.append(SmokeProfilePillDTO(key="vibe", label="Vibe", value=str(tp.get("trip_type") or "leisure"), icon="✨"))
     budget = tp.get("budget_max_usd")
     if isinstance(budget, (int, float)):
         pills.append(
@@ -30,25 +78,8 @@ def _profile_to_pills(tp: dict[str, Any]) -> list[SmokeProfilePillDTO]:
         )
     else:
         pills.append(SmokeProfilePillDTO(key="budget", label="Budget", value="Flexible", icon="💰"))
-    prefs = tp.get("destination_preferences") or []
-    if isinstance(prefs, list) and prefs:
-        vibe = ", ".join(str(p) for p in prefs[:5])
-        pills.append(SmokeProfilePillDTO(key="vibe", label="Vibe", value=vibe[:120], icon="✨"))
-    else:
-        pills.append(SmokeProfilePillDTO(key="vibe", label="Vibe", value=str(tp.get("trip_type") or "leisure"), icon="✨"))
-    assumptions = tp.get("assumptions_used")
-    first_asm = assumptions[0] if isinstance(assumptions, list) and assumptions else "Dates TBD"
-    when_val = tp.get("traveler_summary") or first_asm
-    pills.append(
-        SmokeProfilePillDTO(
-            key="when",
-            label="When",
-            value=str(when_val)[:120],
-            icon="📅",
-        )
-    )
     pace = tp.get("pace_preference") or "balanced"
-    pills.append(SmokeProfilePillDTO(key="duration", label="Pace", value=str(pace), icon="⏱"))
+    pills.append(SmokeProfilePillDTO(key="duration", label="Duration", value=str(pace), icon="⏱"))
     return pills
 
 

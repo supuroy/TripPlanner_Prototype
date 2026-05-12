@@ -25,7 +25,7 @@ You are Wanderly. Build a day-by-day trip outline for ONE destination plus rough
 Return ONLY one JSON object (no markdown fences, no prose before or after). Shape:
 {
   "itinerary": [
-    {"day": <int 1..N>, "label": "Short title → optional area", "items": ["3-5 concrete bullets"], "accent": "emerald|blue|purple|amber"}
+    {"day": <int 1..N>, "label": "Short title → optional area", "base": "Overnight base city/town (repeat on day trips)", "items": ["3-5 concrete bullets"], "accent": "emerald|blue|purple|amber"}
   ],
   "budget_guidance": {
     "trip_ballpark_usd_pp": "e.g. ≈ $2.2–3.8k pp all-in (ballpark; say if intl flights excluded)",
@@ -35,6 +35,10 @@ Return ONLY one JSON object (no markdown fences, no prose before or after). Shap
     "trip_usd_pp_short": "≤40 chars for small UI cards, e.g. ≈ $3.5–5k pp",
     "flight_band_short": "≤40 chars for small UI cards, e.g. ~$700–1.1k rt pp",
     "lodging_band_short": "≤40 chars for small UI cards, e.g. mid guesthouse ~$90–180/n"
+  },
+  "booking_search_hints": {
+    "flight_to_label": "Expedia typeahead string for flying TO this destination (e.g. primary gateway city + country)",
+    "flight_return_from_label": "Expedia typeahead for the return leg departure city (usually the last overnight base / main airport city, NOT a vague region name)"
   }
 }
 
@@ -42,7 +46,9 @@ Rules:
 - itinerary: exactly N days; day 1..N inclusive; last day travel-out / fly home style.
 - items: short strings — no exact prices inside day bullets.
 - budget_guidance: include all seven keys with non-empty strings. The four long fields are for detail panels; the three *_short fields MUST be concise (hard cap ~40 characters each, no newlines) so they fit destination mini-cards — compress ranges and drop filler words.
+- booking_search_hints: OPTIONAL. Include only when confident. Use concrete cities/airport metros Expedia would recognize (avoid broad regions like "Tuscany" alone for flight endpoints). Omit the whole object if unsure.
 - Optional accent on 1-2 highlight days only; omit accent on most days.
+- Set `base` for every day to the overnight city/town. Day trips and excursions should keep the same `base` unless there is an actual lodging move that night.
 - Default pace should be comfortable, not exhausting. Avoid "run around every day" plans unless user explicitly asks for fast-paced / whirlwind / many-city hopping.
 - Keep base changes reasonable for trip length:
   - 3-5 days: at most 2 bases
@@ -131,11 +137,25 @@ def _normalize_budget_guidance(raw: Any) -> dict[str, str] | None:
     return out or None
 
 
-def _extract_itinerary_payload(raw_text: str) -> tuple[list[Any], dict[str, str] | None]:
-    """Prefer wrapped ``{itinerary, budget_guidance}``; fall back to bare JSON array."""
+def _normalize_booking_search_hints(raw: Any) -> dict[str, str] | None:
+    if not isinstance(raw, dict):
+        return None
+    allow = frozenset({"flight_to_label", "flight_return_from_label"})
+    out: dict[str, str] = {}
+    for k in allow:
+        v = str(raw.get(k) or "").strip()
+        if v:
+            out[k] = " ".join(v.split())[:120]
+    return out or None
+
+
+def _extract_itinerary_payload(
+    raw_text: str,
+) -> tuple[list[Any], dict[str, str] | None, dict[str, str] | None]:
+    """Prefer wrapped ``{itinerary, budget_guidance, booking_search_hints?}``; fall back to bare JSON array."""
     t = _strip_code_fences(raw_text).lstrip("\ufeff")
     if not t:
-        return [], None
+        return [], None, None
     # Skip leading noise (models sometimes print a preamble before the JSON object)
     lead = t.lstrip()
     if lead and not lead.startswith(("{", "[")):
@@ -150,9 +170,10 @@ def _extract_itinerary_payload(raw_text: str) -> tuple[list[Any], dict[str, str]
         top, _end = dec.raw_decode(t, 0)
         if isinstance(top, dict) and isinstance(top.get("itinerary"), list):
             bg = _normalize_budget_guidance(top.get("budget_guidance"))
-            return list(top["itinerary"]), bg
+            bh = _normalize_booking_search_hints(top.get("booking_search_hints"))
+            return list(top["itinerary"]), bg, bh
         if isinstance(top, list):
-            return top, None
+            return top, None, None
     except json.JSONDecodeError:
         pass
     for i, ch in enumerate(t):
@@ -162,11 +183,12 @@ def _extract_itinerary_payload(raw_text: str) -> tuple[list[Any], dict[str, str]
             obj, _end = dec.raw_decode(t, i)
             if isinstance(obj, dict) and isinstance(obj.get("itinerary"), list):
                 bg = _normalize_budget_guidance(obj.get("budget_guidance"))
-                return list(obj["itinerary"]), bg
+                bh = _normalize_booking_search_hints(obj.get("booking_search_hints"))
+                return list(obj["itinerary"]), bg, bh
         except json.JSONDecodeError:
             continue
     legacy = _extract_json_array(raw_text) or []
-    return legacy, None
+    return legacy, None, None
 
 
 def _parse_itinerary_day_number(raw: Any) -> int | None:
@@ -272,6 +294,14 @@ def _normalize_itinerary_rows(raw: list[Any], *, max_days: int) -> list[dict[str
         if len(items) == 1:
             items.append("Flexible time — explore or rest")
         entry: dict[str, Any] = {"day": day, "label": label, "items": items}
+        base_raw = (
+            row.get("base")
+            or row.get("stay_base")
+            or row.get("overnight_base")
+            or row.get("city")
+        )
+        if isinstance(base_raw, str) and base_raw.strip():
+            entry["base"] = " ".join(base_raw.strip().split())[:96]
         ac = str(row.get("accent") or "").strip().lower()
         if ac in allowed_accents:
             entry["accent"] = ac
@@ -515,6 +545,18 @@ def _itinerary_prompt_and_days(
     return prompt, n
 
 
+def _itinerary_client_response(
+    *,
+    itinerary_rows: list[dict[str, Any]],
+    budget: dict[str, str] | None,
+    booking_hints: dict[str, str] | None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {"itinerary": itinerary_rows, "budget_guidance": budget}
+    if booking_hints:
+        out["booking_search_hints"] = booking_hints
+    return out
+
+
 def build_itinerary_for_destination(
     *,
     destination: dict[str, Any],
@@ -524,7 +566,7 @@ def build_itinerary_for_destination(
     request_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Call Cursor once; return ``{"itinerary": [...], "budget_guidance": {...}|None}`` for the client.
+    Call Cursor once; return itinerary rows, optional budget bands, and optional booking URL hints for the client.
     """
     rid = (request_id or "?").strip() or "?"
     did = str(destination.get("id") or "")
@@ -555,7 +597,7 @@ def build_itinerary_for_destination(
         )
         raise
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    extracted, budget = _extract_itinerary_payload(raw)
+    extracted, budget, booking_hints = _extract_itinerary_payload(raw)
     out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
     out = _enforce_comfortable_hops(
         out,
@@ -575,7 +617,7 @@ def build_itinerary_for_destination(
     if not out and itinerary_debug_verbose():
         snippet = (raw or "").strip().replace("\r", "")[:2000]
         log_itinerary_build(f"DEBUG_EMPTY rid={rid} raw_head={snippet!r}")
-    return {"itinerary": out, "budget_guidance": budget}
+    return _itinerary_client_response(itinerary_rows=out, budget=budget, booking_hints=booking_hints)
 
 
 def build_itinerary_for_destination_streaming(
@@ -630,7 +672,7 @@ def build_itinerary_for_destination_streaming(
         )
         raise
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    extracted, budget = _extract_itinerary_payload(raw)
+    extracted, budget, booking_hints = _extract_itinerary_payload(raw)
     out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
     out = _enforce_comfortable_hops(
         out,
@@ -650,7 +692,7 @@ def build_itinerary_for_destination_streaming(
     if not out and itinerary_debug_verbose():
         snippet = (raw or "").strip().replace("\r", "")[:2000]
         log_itinerary_build(f"DEBUG_EMPTY rid={rid} raw_head={snippet!r}")
-    return {"itinerary": out, "budget_guidance": budget}
+    return _itinerary_client_response(itinerary_rows=out, budget=budget, booking_hints=booking_hints)
 
 
 def default_trip_days_from_pills(profile_pills: list[dict[str, Any]]) -> int:

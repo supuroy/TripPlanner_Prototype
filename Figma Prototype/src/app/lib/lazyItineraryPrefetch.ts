@@ -110,7 +110,7 @@ export function enqueueBackgroundItineraryBuild(args: {
       args.setDestinations((prev) =>
         prev.map((x) => {
           if (String(x.id) !== id) return x;
-          return mergeItineraryBuildIntoDest(x, rows, budget);
+          return mergeItineraryBuildIntoDest(x, rows, budget, res.booking_search_hints ?? null);
         }),
       );
     } catch (err: unknown) {
