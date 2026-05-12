@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _sessions: dict[str, dict[str, Any]] = {}
 
 # Lazy JSON mirror of Cloud Agent ids (session_id -> lane -> agent_id); None = not read from disk yet.
@@ -91,6 +93,189 @@ def reset_cursor_agent_file_cache_for_tests() -> None:
     _cursor_agent_file_store = None
 
 
+# --- Wanderly session snapshot (destinations + profile + chat) for server restarts / browser return ---
+
+
+def _session_snapshot_persist_enabled() -> bool:
+    raw = (os.environ.get("WANDERLY_SESSION_SNAPSHOT_PERSIST") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _wanderly_session_snapshots_file() -> Path:
+    raw = (os.environ.get("WANDERLY_SESSION_SNAPSHOT_PATH") or "").strip()
+    if raw:
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            p = Path(os.getcwd()) / p
+    else:
+        root = Path(__file__).resolve().parent.parent.parent
+        p = root / ".cache" / "wanderly_session_snapshots.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _read_all_session_snapshots_from_disk() -> dict[str, dict[str, Any]]:
+    path = _wanderly_session_snapshots_file()
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    inner = raw.get("by_session")
+    if not isinstance(inner, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for sid, blob in inner.items():
+        sk = str(sid).strip()
+        if sk and isinstance(blob, dict):
+            out[sk] = blob
+    return out
+
+
+def _write_all_session_snapshots_to_disk(store: dict[str, dict[str, Any]]) -> None:
+    if not _session_snapshot_persist_enabled():
+        return
+    path = _wanderly_session_snapshots_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"v": 1, "by_session": store}
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=True, default=str) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _session_snapshot_entry_from_session_unlocked(s: dict[str, Any]) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    ui = s.get("ui_destinations")
+    if isinstance(ui, list):
+        entry["ui_destinations"] = ui
+    pp = s.get("profile_pills")
+    if isinstance(pp, list):
+        entry["profile_pills"] = pp
+    ch = s.get("chat")
+    if isinstance(ch, list):
+        entry["chat"] = ch
+    ld = s.get("last_destinations")
+    if isinstance(ld, list):
+        entry["last_destinations"] = ld
+    return entry
+
+
+def persist_wanderly_session_snapshot(session_id: str) -> None:
+    """Write ui destinations, profile pills, chat, and last destinations for one session to disk."""
+    if not _session_snapshot_persist_enabled():
+        return
+    sid = (session_id or "").strip()
+    if not sid:
+        return
+    with _lock:
+        s = _sessions.get(sid)
+        if not s:
+            return
+        disk = _read_all_session_snapshots_from_disk()
+        disk[sid] = _session_snapshot_entry_from_session_unlocked(s)
+        _write_all_session_snapshots_to_disk(disk)
+
+
+def delete_wanderly_session_snapshot(session_id: str) -> None:
+    sid = (session_id or "").strip()
+    if not sid or not _session_snapshot_persist_enabled():
+        return
+    with _lock:
+        disk = _read_all_session_snapshots_from_disk()
+        if sid in disk:
+            del disk[sid]
+            _write_all_session_snapshots_to_disk(disk)
+
+
+def _apply_session_snapshot_blob_to_session_unlocked(s: dict[str, Any], blob: dict[str, Any]) -> None:
+    ui = blob.get("ui_destinations")
+    if isinstance(ui, list):
+        s["ui_destinations"] = ui
+    pp = blob.get("profile_pills")
+    if isinstance(pp, list):
+        s["profile_pills"] = [x for x in pp if isinstance(x, dict)]
+    ch = blob.get("chat")
+    if isinstance(ch, list):
+        s["chat"] = [x for x in ch if isinstance(x, dict)]
+    ld = blob.get("last_destinations")
+    if isinstance(ld, list):
+        s["last_destinations"] = [x for x in ld if isinstance(x, dict)]
+
+
+def hydrate_wanderly_session_from_disk(session_id: str) -> bool:
+    """
+    Load persisted cards/profile/chat into memory when the in-memory session has no UI cards yet.
+
+    Skips when the session already has ``ui_destinations`` (warm RAM path).
+    Returns True when snapshot data was merged from disk into this session.
+    """
+    if not _session_snapshot_persist_enabled():
+        return False
+    sid = (session_id or "").strip()
+    if not sid:
+        return False
+    disk = _read_all_session_snapshots_from_disk()
+    blob = disk.get(sid)
+    if not isinstance(blob, dict) or not blob:
+        return False
+    with _lock:
+        warm = _sessions.get(sid)
+        if warm and isinstance(warm.get("ui_destinations"), list) and len(warm["ui_destinations"]) > 0:
+            return False
+        s = _sessions.setdefault(
+            sid,
+            {
+                "chat": [],
+                "last_destinations": [],
+                "mode": "idle",
+            },
+        )
+        _apply_session_snapshot_blob_to_session_unlocked(s, blob)
+    return True
+
+
+def clear_all_cursor_agent_ids_for_session(session_id: str) -> None:
+    """Remove every stored Cursor Cloud Agent id for ``session_id`` (memory + optional JSON file)."""
+    sid = (session_id or "").strip()
+    if not sid:
+        return
+    with _lock:
+        s = _sessions.get(sid)
+        if s and isinstance(s.get("cursor_agents"), dict):
+            s["cursor_agents"].clear()
+        if _cursor_agent_ids_persist_enabled():
+            store = _cursor_agent_file_store_ensure_unlocked()
+            store.pop(sid, None)
+            _write_cursor_agent_file_unlocked(store)
+
+
+def start_new_wanderly_trip_session(old_session_id: str | None) -> tuple[str, dict[str, Any]]:
+    """
+    Start a fresh Wanderly trip: new ``session_id``, empty workspace payload, drop old snapshot + Cursor ids.
+
+    Returns ``(new_session_id, wanderly_workspace_dict)``.
+    """
+    old = (old_session_id or "").strip()
+    new_sid = str(uuid.uuid4())
+    if old:
+        with _lock:
+            _sessions.pop(old, None)
+        delete_wanderly_session_snapshot(old)
+        clear_all_cursor_agent_ids_for_session(old)
+    get_session(new_sid)
+    persist_wanderly_session_snapshot(new_sid)
+    empty: dict[str, Any] = {"assistant_markdown": "", "profile_pills": [], "destinations": []}
+    return new_sid, empty
+
+
+def reset_wanderly_session_snapshot_cache_for_tests() -> None:
+    """No-op placeholder for tests that monkeypatch disk paths (keeps API surface stable)."""
+    return
+
+
 def get_session(session_id: str) -> dict[str, Any]:
     with _lock:
         if session_id not in _sessions:
@@ -105,16 +290,19 @@ def get_session(session_id: str) -> dict[str, Any]:
 def append_chat(session_id: str, role: str, text: str) -> None:
     s = get_session(session_id)
     s["chat"].append({"role": role, "text": text})
+    persist_wanderly_session_snapshot(session_id)
 
 
 def set_last_destinations(session_id: str, destinations: list[dict[str, Any]]) -> None:
     s = get_session(session_id)
     s["last_destinations"] = destinations
+    persist_wanderly_session_snapshot(session_id)
 
 
 def set_last_profile_pills(session_id: str, pills: list[dict[str, Any]]) -> None:
     s = get_session(session_id)
     s["profile_pills"] = [x for x in pills if isinstance(x, dict)]
+    persist_wanderly_session_snapshot(session_id)
 
 
 def snapshot_profile_pills(session_id: str) -> list[dict[str, Any]]:

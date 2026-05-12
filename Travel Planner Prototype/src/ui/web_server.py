@@ -31,10 +31,13 @@ from src.wanderly.cursor_advisor import (
 )
 from src.wanderly.session_store import (
     get_session,
+    hydrate_wanderly_session_from_disk,
+    persist_wanderly_session_snapshot,
     set_last_destinations,
     set_last_profile_pills,
     snapshot_destinations_for_model,
     snapshot_profile_pills,
+    start_new_wanderly_trip_session,
 )
 from src.wanderly.smoke_service import (
     run_refine_turn,
@@ -191,12 +194,22 @@ def run_web_server(
                 qs = parse_qs(parsed.query or "")
                 sid_list = qs.get("session_id") or []
                 sid = sid_list[0] if sid_list else ""
+                snap = False
                 wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
                 if sid:
+                    snap = bool(hydrate_wanderly_session_from_disk(sid))
                     s = get_session(sid)
-                    if s.get("ui_destinations"):
-                        wanderly["destinations"] = s["ui_destinations"]
-                self._send_json({"wanderly": wanderly}, status=200)
+                    pills = snapshot_profile_pills(sid)
+                    if pills:
+                        wanderly["profile_pills"] = pills
+                    ui = s.get("ui_destinations")
+                    if isinstance(ui, list) and len(ui) > 0:
+                        wanderly["destinations"] = ui
+                    else:
+                        ld = s.get("last_destinations")
+                        if isinstance(ld, list) and len(ld) > 0:
+                            wanderly["destinations"] = ld
+                self._send_json({"wanderly": wanderly, "wanderly_snapshot_restored": snap}, status=200)
                 return
             self._send_json({"error": "Not found"}, status=404)
 
@@ -420,6 +433,18 @@ def run_web_server(
                         self._send_json({"error": str(exc)}, status=500)
                     return
 
+                if path == "/api/wanderly/new_trip":
+                    old_sid = (payload.get("session_id") or "").strip() or None
+                    try:
+                        new_sid, wly = start_new_wanderly_trip_session(old_sid)
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/new_trip error: {exc!r}")
+                        traceback.print_exc()
+                        self._send_json({"error": str(exc)}, status=500)
+                        return
+                    self._send_json({"session_id": new_sid, "wanderly": wly}, status=200)
+                    return
+
                 if path == "/api/wanderly/sync_ui":
                     sid = (payload.get("session_id") or "").strip()
                     dests = payload.get("destinations")
@@ -431,6 +456,7 @@ def run_web_server(
                         return
                     s = get_session(sid)
                     s["ui_destinations"] = dests
+                    persist_wanderly_session_snapshot(sid)
                     self._send_json({"ok": True}, status=200)
                     return
 
@@ -475,6 +501,7 @@ def run_web_server(
                                 else:
                                     merged_ui.append(u)
                             s["ui_destinations"] = merged_ui
+                        persist_wanderly_session_snapshot(sid)
                         self._send_json(
                             {
                                 "session_id": sid,

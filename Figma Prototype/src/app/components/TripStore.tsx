@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO } from "../../types/workspace";
-import { planReview } from "../../api/wanderly";
+import { planReview, fetchWorkspace, newTrip, syncUi } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
@@ -235,9 +235,8 @@ interface TripStoreType {
   setRefineUnlockCardNavigation: (v: boolean) => void;
   /** Active planner HTTP stream — call from CommandBar before smoke/refine SSE. */
   setPlannerAbortController: (ac: AbortController | null) => void;
-  /** Emergency cancel: aborts fetch + clears planner phase. */
-  abortPlannerOperation: () => void;
-}
+  /** Abort in-flight planner work and clear server-side Cursor reuse for a fresh trip. */
+  startNewTrip: () => Promise<void>;
 
 const Ctx = createContext<TripStoreType | null>(null);
 
@@ -447,10 +446,33 @@ const RESERVE_DESTINATIONS: DestCard[] = [
 function readOrCreateSessionId(): string {
   try {
     const k = "wanderly_session_id";
-    const existing = sessionStorage.getItem(k);
+    let existing: string | null = null;
+    if (typeof localStorage !== "undefined") {
+      existing = localStorage.getItem(k);
+    }
+    if (!existing && typeof sessionStorage !== "undefined") {
+      const legacy = sessionStorage.getItem(k);
+      if (legacy) {
+        try {
+          localStorage.setItem(k, legacy);
+          sessionStorage.removeItem(k);
+        } catch {
+          /* ignore */
+        }
+        existing = legacy;
+      }
+    }
     if (existing) return existing;
     const id = crypto.randomUUID();
-    sessionStorage.setItem(k, id);
+    try {
+      localStorage.setItem(k, id);
+    } catch {
+      try {
+        sessionStorage.setItem(k, id);
+      } catch {
+        /* ignore */
+      }
+    }
     return id;
   } catch {
     return crypto.randomUUID();
@@ -488,6 +510,43 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   destinationsRef.current = destinations;
   const profileRef = useRef(profile);
   profileRef.current = profile;
+
+  useEffect(() => {
+    try {
+      if (sessionId) localStorage.setItem("wanderly_session_id", sessionId);
+    } catch {
+      /* ignore */
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    const sid = sessionId;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetchWorkspace(sid);
+        if (cancelled) return;
+        if (!res.wanderly_snapshot_restored) return;
+        const wanderly = res.wanderly;
+        const dests = (wanderly.destinations || []) as DestCard[];
+        const pills = (wanderly.profile_pills || []) as ProfilePill[];
+        if (dests.length > 0) {
+          setDestinations(dests);
+        }
+        if (pills.length > 0) {
+          setProfile(pills);
+        }
+        if (dests.length > 0 || pills.length >= 4) {
+          setHasStarted(true);
+        }
+      } catch {
+        /* offline or server down */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   const addMessage = useCallback((role: "user" | "agent", text: string, undoId?: string) => {
     setMessages((prev) => [...prev, { id: crypto.randomUUID(), role, text, ts: Date.now(), undoId }]);
@@ -560,6 +619,36 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       },
     ]);
   }, []);
+
+  const startNewTrip = useCallback(async () => {
+    plannerAbortControllerRef.current?.abort();
+    plannerAbortControllerRef.current = null;
+    const out = await newTrip(sessionId);
+    const sid = out.session_id;
+    try {
+      localStorage.setItem("wanderly_session_id", sid);
+    } catch {
+      /* ignore */
+    }
+    setSessionId(sid);
+    setDestinations([]);
+    setProfile([]);
+    setResponses([]);
+    setMessages([]);
+    setInsights([]);
+    setUndoStack([]);
+    setExpandedDest(null);
+    setSelectedDest(null);
+    setHasStarted(false);
+    setPhase("idle");
+    setAgentStatus("");
+    setAgentStreamCaption("");
+    setEnrichmentPending(false);
+    setPendingRefineText(null);
+    setComposerPrefill(null);
+    setRefineUnlockCardNavigation(false);
+    await syncUi(sid, []).catch(() => {});
+  }, [sessionId]);
 
   const dismissResponse = useCallback((id: string) => {
     setResponses((prev) => prev.map(i => i.id === id ? { ...i, dismissed: true } : i));
@@ -700,6 +789,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         refineUnlockCardNavigation,
         setRefineUnlockCardNavigation,
         setPlannerAbortController,
+        startNewTrip,
         abortPlannerOperation,
       }}
     >

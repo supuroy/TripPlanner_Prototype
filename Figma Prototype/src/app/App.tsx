@@ -93,6 +93,7 @@ function Workspace() {
     setDestinations,
     setEnrichmentPending,
     itineraryLaneQueueDepth,
+    startNewTrip,
   } = useTrip();
 
   useEffect(() => {
@@ -161,6 +162,13 @@ function Workspace() {
             </motion.div>
           )}
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void startNewTrip()}
+              className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/85"
+            >
+              New trip
+            </button>
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-[11px] text-white">
               J
             </div>

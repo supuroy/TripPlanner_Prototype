@@ -175,9 +175,18 @@ export async function planWithOrchestrator(sessionId: string, input: string) {
   );
 }
 
+export async function newTrip(sessionId: string) {
+  return apiFetch<{ session_id: string; wanderly: WanderlyWorkspaceDTO }>("/api/wanderly/new_trip", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
 export async function fetchWorkspace(sessionId: string) {
   const q = new URLSearchParams({ session_id: sessionId });
-  return apiFetch<{ wanderly: WanderlyWorkspaceDTO }>(`/api/wanderly/workspace?${q.toString()}`);
+  return apiFetch<{ wanderly: WanderlyWorkspaceDTO; wanderly_snapshot_restored?: boolean }>(
+    `/api/wanderly/workspace?${q.toString()}`,
+  );
 }
 
 export async function syncUi(sessionId: string, destinations: unknown[]) {
