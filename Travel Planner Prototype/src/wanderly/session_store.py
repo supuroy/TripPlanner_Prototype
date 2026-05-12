@@ -1,11 +1,94 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
+from pathlib import Path
 from typing import Any
 
 _lock = threading.Lock()
 _sessions: dict[str, dict[str, Any]] = {}
+
+# Lazy JSON mirror of Cloud Agent ids (session_id -> lane -> agent_id); None = not read from disk yet.
+_cursor_agent_file_store: dict[str, dict[str, str]] | None = None
+
+
+def _cursor_agent_ids_persist_enabled() -> bool:
+    """When true (default), ``get/set/clear_cursor_agent_id`` sync to ``WANDERLY_CURSOR_AGENT_IDS_PATH``."""
+    raw = (os.environ.get("WANDERLY_CURSOR_AGENT_IDS_PERSIST") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _cursor_agent_ids_file() -> Path:
+    raw = (os.environ.get("WANDERLY_CURSOR_AGENT_IDS_PATH") or "").strip()
+    if raw:
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            p = Path(os.getcwd()) / p
+    else:
+        root = Path(__file__).resolve().parent.parent.parent
+        p = root / ".cache" / "cursor_agent_ids.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _parse_cursor_agent_file_payload(raw: object) -> dict[str, dict[str, str]]:
+    if not isinstance(raw, dict):
+        return {}
+    inner = raw.get("by_session")
+    if not isinstance(inner, dict):
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for sid, lanes in inner.items():
+        sk = str(sid).strip()
+        if not sk or not isinstance(lanes, dict):
+            continue
+        slot: dict[str, str] = {}
+        for lane, aid in lanes.items():
+            lk = str(lane).strip()
+            av = str(aid).strip()
+            if lk and av:
+                slot[lk] = av
+        if slot:
+            out[sk] = slot
+    return out
+
+
+def _read_cursor_agent_file_unlocked() -> dict[str, dict[str, str]]:
+    path = _cursor_agent_ids_file()
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return _parse_cursor_agent_file_payload(raw)
+
+
+def _cursor_agent_file_store_ensure_unlocked() -> dict[str, dict[str, str]]:
+    global _cursor_agent_file_store
+    if not _cursor_agent_ids_persist_enabled():
+        return {}
+    if _cursor_agent_file_store is None:
+        _cursor_agent_file_store = _read_cursor_agent_file_unlocked()
+    return _cursor_agent_file_store
+
+
+def _write_cursor_agent_file_unlocked(store: dict[str, dict[str, str]]) -> None:
+    if not _cursor_agent_ids_persist_enabled():
+        return
+    path = _cursor_agent_ids_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"v": 1, "by_session": store}
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def reset_cursor_agent_file_cache_for_tests() -> None:
+    """Drop in-memory file mirror (tests only)."""
+    global _cursor_agent_file_store
+    _cursor_agent_file_store = None
 
 
 def get_session(session_id: str) -> dict[str, Any]:
@@ -335,42 +418,82 @@ def cursor_lane_key(model_id_override: str | None) -> str:
 
 
 def get_cursor_agent_id(session_id: str, lane: str) -> str | None:
+    sid = (session_id or "").strip()
+    lane_k = (lane or "").strip()
+    if not sid or not lane_k:
+        return None
     with _lock:
-        s = _sessions.get(session_id)
-        if not s:
+        s = _sessions.get(sid)
+        if s:
+            agents = s.get("cursor_agents")
+            if isinstance(agents, dict):
+                raw = agents.get(lane_k)
+                if raw is not None:
+                    out = str(raw).strip()
+                    if out:
+                        return out
+        if not _cursor_agent_ids_persist_enabled():
             return None
-        agents = s.get("cursor_agents")
-        if not isinstance(agents, dict):
+        store = _cursor_agent_file_store_ensure_unlocked()
+        inner = store.get(sid)
+        if not isinstance(inner, dict):
             return None
-        aid = agents.get(lane)
+        aid = inner.get(lane_k)
         if aid is None:
             return None
-        out = str(aid).strip()
-        return out or None
+        out2 = str(aid).strip()
+        if not out2:
+            return None
+        if s is not None:
+            box = s.setdefault("cursor_agents", {})
+            if isinstance(box, dict):
+                box[lane_k] = out2
+        return out2
 
 
 def set_cursor_agent_id(session_id: str, lane: str, agent_id: str) -> None:
+    sid = (session_id or "").strip()
+    lane_k = (lane or "").strip()
+    aid = (agent_id or "").strip()
+    if not sid or not lane_k or not aid:
+        return
     with _lock:
-        if session_id not in _sessions:
-            _sessions[session_id] = {
+        if sid not in _sessions:
+            _sessions[sid] = {
                 "chat": [],
                 "last_destinations": [],
                 "mode": "idle",
             }
-        s = _sessions[session_id]
+        s = _sessions[sid]
         if "cursor_agents" not in s or not isinstance(s.get("cursor_agents"), dict):
             s["cursor_agents"] = {}
-        s["cursor_agents"][lane] = agent_id
+        s["cursor_agents"][lane_k] = aid
+        if _cursor_agent_ids_persist_enabled():
+            store = _cursor_agent_file_store_ensure_unlocked()
+            slot = store.setdefault(sid, {})
+            slot[lane_k] = aid
+            _write_cursor_agent_file_unlocked(store)
 
 
 def clear_cursor_agent_id(session_id: str, lane: str) -> None:
+    sid = (session_id or "").strip()
+    lane_k = (lane or "").strip()
+    if not sid or not lane_k:
+        return
     with _lock:
-        s = _sessions.get(session_id)
-        if not s:
-            return
-        agents = s.get("cursor_agents")
-        if isinstance(agents, dict) and lane in agents:
-            del agents[lane]
+        s = _sessions.get(sid)
+        if s:
+            agents = s.get("cursor_agents")
+            if isinstance(agents, dict) and lane_k in agents:
+                del agents[lane_k]
+        if _cursor_agent_ids_persist_enabled():
+            store = _cursor_agent_file_store_ensure_unlocked()
+            inner = store.get(sid)
+            if isinstance(inner, dict) and lane_k in inner:
+                del inner[lane_k]
+                if not inner:
+                    del store[sid]
+                _write_cursor_agent_file_unlocked(store)
 
 
 def cursor_run_persist_kwargs(
@@ -379,6 +502,10 @@ def cursor_run_persist_kwargs(
     """
     Optional kwargs for ``run_prompt_collect_assistant_text*`` when
     ``cursor_reuse_agents_enabled()`` and session_id are set.
+
+    When ``WANDERLY_CURSOR_AGENT_IDS_PERSIST`` is on (default), agent ids are also stored in
+    ``WANDERLY_CURSOR_AGENT_IDS_PATH`` (default ``.cache/cursor_agent_ids.json`` under Travel Planner Prototype)
+    so a restarted server can resume the same Cloud Agent for the same ``session_id`` and lane.
 
     ``trace_path`` is copied into ``cursor_trace_path`` for ``.cache/itinerary_debug.log`` lines
     (which Wanderly code path hit Cursor / 409).
@@ -422,6 +549,8 @@ def cursor_run_persist_kwargs_for_lane(
     """
     Like ``cursor_run_persist_kwargs`` but uses an explicit persistence lane key
     (e.g. ``itinerary_lazy``) so callers do not share a Cloud Agent with unrelated flows.
+
+    Shares the same on-disk agent id map as ``cursor_run_persist_kwargs`` when file persist is enabled.
 
     ``trace_path`` → ``cursor_trace_path`` for log correlation (see ``cursor_run_persist_kwargs``).
 
