@@ -20,7 +20,7 @@ from src.wanderly.cursor_advisor import (
     merge_profile_pills_advisor_precedence,
     run_profile_listener_cursor,
 )
-from src.wanderly.itinerary_debug_log import log_itinerary_build
+from src.wanderly.itinerary_debug_log import itinerary_file_log_enabled, log_itinerary_build
 from src.wanderly.refinement_cursor import refinement_model_id
 from src.wanderly.schemas import SmokeDestDTO, SmokeProfilePillDTO, WanderlyWorkspaceDTO, coerce_profile_pill
 from src.wanderly.session_store import (
@@ -71,7 +71,10 @@ You are Wanderly. The user is refining an existing shortlist. Reply ONLY with JS
 using the SAME shape as before (assistant_markdown, profile_pills, destinations).
 
 Rules:
-- workspace_destinations is the live shortlist (includes pinned/dismissed flags from the UI).
+- workspace_destinations in the context JSON is an **abbreviated** view of the live shortlist
+  (ids, hooks, pinned/dismissed, capped day-by-day plans, short warnings). Hero images, commerce,
+  booking HTML, and rich flight/hotel rows are omitted to save tokens; the server still merges your
+  JSON with the real UI cards by stable ``id``.
 - Keep every destination with pinned=true in your destinations array unless the user explicitly
   asks to remove or replace that place (stable id, you may refresh hook/score).
 - Do not include destinations with dismissed=true unless the user asks to bring one back.
@@ -220,6 +223,141 @@ def _minimal_dest_card(d: dict[str, Any]) -> dict[str, Any]:
         ],
         "activities": [],
     }
+
+
+def _vibe_tokens_for_refine(raw: object, *, max_n: int = 8, max_len: int = 48) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for x in raw[:max_n]:
+        if isinstance(x, str) and x.strip():
+            out.append(x.strip()[:max_len])
+    return out
+
+
+def _slim_itinerary_for_refine_prompt(
+    it: object,
+    *,
+    max_days: int = 14,
+    max_items: int = 8,
+    max_item_chars: int = 200,
+    max_label: int = 160,
+) -> list[dict[str, Any]]:
+    if not isinstance(it, list) or not it:
+        return []
+    rows: list[dict[str, Any]] = []
+    for row in it[:max_days]:
+        if not isinstance(row, dict):
+            continue
+        items_in = row.get("items")
+        items: list[str] = []
+        if isinstance(items_in, list):
+            for itm in items_in[:max_items]:
+                if isinstance(itm, str) and itm.strip():
+                    items.append(itm.strip()[:max_item_chars])
+                elif isinstance(itm, dict):
+                    s = str(
+                        itm.get("text")
+                        or itm.get("item")
+                        or itm.get("title")
+                        or itm.get("label")
+                        or itm.get("description")
+                        or ""
+                    ).strip()
+                    if s:
+                        items.append(s[:max_item_chars])
+        rows.append(
+            {
+                "day": row.get("day"),
+                "label": str(row.get("label") or "")[:max_label],
+                "items": items,
+            }
+        )
+    return rows
+
+
+def _slim_warnings_for_refine(w: object, *, max_n: int = 6, max_text: int = 180) -> list[str]:
+    if not isinstance(w, list) or not w:
+        return []
+    out: list[str] = []
+    for x in w[:max_n]:
+        if isinstance(x, str) and x.strip():
+            out.append(x.strip()[:max_text])
+        elif isinstance(x, dict):
+            t = str(x.get("text") or x.get("message") or x.get("body") or "").strip()
+            if t:
+                out.append(t[:max_text])
+        if len(out) >= max_n:
+            break
+    return out
+
+
+def _slim_destination_row_for_refine_prompt(d: dict[str, Any]) -> dict[str, Any]:
+    """Strip bulky UI fields; keep enough for shortlist + itinerary edits (Tier A #1)."""
+    out: dict[str, Any] = {
+        "id": str(d.get("id") or ""),
+        "name": str(d.get("name") or ""),
+        "country": str(d.get("country") or ""),
+        "pinned": bool(d.get("pinned")),
+        "dismissed": bool(d.get("dismissed")),
+    }
+    hook = str(d.get("hook") or "").strip()
+    if hook:
+        out["hook"] = hook[:280]
+    sc = d.get("score")
+    if sc is not None:
+        try:
+            out["score"] = int(sc)
+        except (TypeError, ValueError):
+            pass
+    if isinstance(d.get("itinerary_dirty"), bool):
+        out["itinerary_dirty"] = d["itinerary_dirty"]
+    vibe = _vibe_tokens_for_refine(d.get("vibe"))
+    if vibe:
+        out["vibe"] = vibe
+    ws = str(d.get("weather_summary") or "").strip()
+    if ws:
+        out["weather_summary"] = ws[:220]
+    it_slim = _slim_itinerary_for_refine_prompt(d.get("itinerary"))
+    if it_slim:
+        out["itinerary"] = it_slim
+    war = _slim_warnings_for_refine(d.get("warnings"))
+    if war:
+        out["warnings"] = war
+    return out
+
+
+def _slim_destinations_for_refine_prompt(destinations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_slim_destination_row_for_refine_prompt(x) for x in destinations if isinstance(x, dict)]
+
+
+def _refine_prompt_context_json(session_id: str) -> tuple[str, list[dict[str, Any]]]:
+    """
+    Build the JSON block embedded in the refine planner prompt.
+
+    Returns ``(context_json, prior_dests_full)`` — the model sees slim cards; merge logic uses full prior.
+    """
+    prior = snapshot_destinations_for_model(session_id)
+    chat = chat_context_snippet(session_id, max_messages=6)
+    slim = _slim_destinations_for_refine_prompt(prior)
+    slim_ctx = json.dumps(
+        {"prior_chat": chat, "workspace_destinations": slim},
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    if itinerary_file_log_enabled():
+        full_ctx = json.dumps(
+            {"prior_chat": chat, "workspace_destinations": prior},
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        fc, sc = len(full_ctx), len(slim_ctx)
+        pct = round(100.0 * (1.0 - sc / max(fc, 1)), 1)
+        log_itinerary_build(
+            f"path=wanderly.refine_context_slim sid={session_id[:12]!r} dest_n={len(prior)} "
+            f"context_json_chars_full={fc} context_json_chars_slim={sc} context_shrink_pct={pct}"
+        )
+    return slim_ctx, prior
 
 
 def _is_placeholderish_image(url: object) -> bool:
@@ -542,13 +680,7 @@ def run_refine_turn(
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
-    prior_dests = snapshot_destinations_for_model(session_id)
-    chat = chat_context_snippet(session_id, max_messages=6)
-    context = json.dumps(
-        {"prior_chat": chat, "workspace_destinations": prior_dests},
-        ensure_ascii=True,
-        separators=(",", ":"),
-    )
+    context, prior_dests = _refine_prompt_context_json(session_id)
     um = (user_message or "").strip()
     prompt = (
         _REFINE_INSTRUCTIONS
@@ -578,13 +710,7 @@ def run_refine_turn_streaming(
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
-    prior_dests = snapshot_destinations_for_model(session_id)
-    chat = chat_context_snippet(session_id, max_messages=6)
-    context = json.dumps(
-        {"prior_chat": chat, "workspace_destinations": prior_dests},
-        ensure_ascii=True,
-        separators=(",", ":"),
-    )
+    context, prior_dests = _refine_prompt_context_json(session_id)
     um = (user_message or "").strip()
     prompt = (
         _REFINE_INSTRUCTIONS
