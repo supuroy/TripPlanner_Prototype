@@ -427,6 +427,53 @@ def cursor_reuse_agents_enabled() -> bool:
     return raw not in ("0", "false", "no", "off")
 
 
+_REUSE_FOLLOWUP_HINT_DEFAULT = (
+    "Follow-up on this same Cloud Agent thread: keep the same output format and every rule you were given "
+    "earlier in this thread (they still apply). Do not restate the long instructions. "
+    "Respond using only the new information below."
+)
+
+
+def cursor_reuse_strip_static_instructions_enabled() -> bool:
+    """
+    When true (default), follow-up runs on an existing agent may omit a leading static instruction block
+    that was already sent on the first run (see ``persistent_instruction_prefix`` on run helpers).
+    New-agent paths always send the full prompt text.
+    """
+    raw = (os.environ.get("CURSOR_REUSE_STRIP_STATIC_INSTRUCTIONS") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def effective_followup_prompt_for_reuse(
+    *,
+    full_prompt: str,
+    persistent_instruction_prefix: str | None,
+    existing_agent_id: str | None,
+) -> str:
+    """
+    For ``POST …/agents/{id}/runs``, optionally replace ``full_prompt`` with a shorter follow-up body.
+
+    Callers pass the same ``full_prompt`` as for a fresh agent; when reusing an agent id and
+    ``persistent_instruction_prefix`` matches the start of ``full_prompt``, the prefix is stripped and a
+    short reminder is prepended so the model still knows prior rules apply.
+    """
+    if not (existing_agent_id or "").strip():
+        return full_prompt
+    if not cursor_reuse_strip_static_instructions_enabled():
+        return full_prompt
+    pfx = (persistent_instruction_prefix or "").strip()
+    if not pfx:
+        return full_prompt
+    base = full_prompt or ""
+    if not base.startswith(pfx):
+        return full_prompt
+    tail = base[len(pfx) :].lstrip("\n")
+    if len(tail.strip()) < 12:
+        return full_prompt
+    hint = (os.environ.get("CURSOR_REUSE_FOLLOWUP_HINT") or "").strip() or _REUSE_FOLLOWUP_HINT_DEFAULT
+    return f"{hint}\n\n{tail}"
+
+
 def create_followup_run(client: httpx.Client, agent_id: str, prompt_text: str) -> str:
     """Start a new run on an existing Cloud Agent (same repo/workspace context as prior runs)."""
     r = client.post(f"/v1/agents/{agent_id}/runs", json={"prompt": {"text": prompt_text}})
@@ -445,6 +492,7 @@ def _begin_cloud_agent_run(
     *,
     model_id_override: str | None = None,
     existing_agent_id: str | None = None,
+    persistent_instruction_prefix: str | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
     cursor_trace_path: str | None = None,
@@ -452,12 +500,22 @@ def _begin_cloud_agent_run(
     tp = (cursor_trace_path or "").strip() or None
     aid_in = (existing_agent_id or "").strip()
     if cursor_reuse_agents_enabled() and aid_in:
+        followup_prompt = effective_followup_prompt_for_reuse(
+            full_prompt=prompt_text,
+            persistent_instruction_prefix=persistent_instruction_prefix,
+            existing_agent_id=aid_in,
+        )
+        if followup_prompt != prompt_text:
+            _trace_cursor(
+                f"reuse_prompt_strip reuse=1 chars_in={len(prompt_text)} chars_out={len(followup_prompt)}",
+                path=tp,
+            )
         _trace_cursor(f"reuse_attempt agent_tail={aid_in[-8:]!r} reuse=1", path=tp)
         last_err: httpx.HTTPStatusError | None = None
         max_busy_tries = 6
         for busy_try in range(max_busy_tries):
             try:
-                run_id = create_followup_run(client, aid_in, prompt_text)
+                run_id = create_followup_run(client, aid_in, followup_prompt)
                 _trace_cursor(f"reuse_ok agent_tail={aid_in[-8:]!r} run_tail={str(run_id)[-8:]!r}", path=tp)
                 return aid_in, run_id
             except httpx.HTTPStatusError as e:
@@ -535,6 +593,7 @@ def run_prompt_collect_assistant_text(
     *,
     model_id_override: str | None = None,
     existing_agent_id: str | None = None,
+    persistent_instruction_prefix: str | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
     cursor_trace_path: str | None = None,
@@ -548,6 +607,7 @@ def run_prompt_collect_assistant_text(
             prompt_text,
             model_id_override=model_id_override,
             existing_agent_id=existing_agent_id,
+            persistent_instruction_prefix=persistent_instruction_prefix,
             on_new_agent=on_new_agent,
             on_agent_cleared=on_agent_cleared,
             cursor_trace_path=tp,
@@ -589,6 +649,7 @@ def run_prompt_collect_assistant_text_streaming(
     emit: Callable[[dict[str, Any]], None] | None = None,
     model_id_override: str | None = None,
     existing_agent_id: str | None = None,
+    persistent_instruction_prefix: str | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
     cursor_trace_path: str | None = None,
@@ -608,6 +669,7 @@ def run_prompt_collect_assistant_text_streaming(
             prompt_text,
             model_id_override=model_id_override,
             existing_agent_id=existing_agent_id,
+            persistent_instruction_prefix=persistent_instruction_prefix,
             on_new_agent=on_new_agent,
             on_agent_cleared=on_agent_cleared,
             cursor_trace_path=tp,

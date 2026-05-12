@@ -146,6 +146,7 @@ def classify_user_intent_llm(
                 client,
                 prompt,
                 model_id_override=mid,
+                persistent_instruction_prefix=_INTENT_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_INTENT, trace_path="wanderly.user_intent_llm"
                 ),

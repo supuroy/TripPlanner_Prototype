@@ -588,6 +588,7 @@ def build_itinerary_for_destination(
                 client,
                 prompt,
                 model_id_override=light,
+                persistent_instruction_prefix=_ITINERARY_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(session_id or "", _lane, trace_path=_tp),
             )
     except Exception as e:
@@ -663,6 +664,7 @@ def build_itinerary_for_destination_streaming(
                 prompt,
                 emit=_safe_emit if emit else None,
                 model_id_override=light,
+                persistent_instruction_prefix=_ITINERARY_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(session_id or "", _lane, trace_path=_tp),
             )
     except Exception as e:

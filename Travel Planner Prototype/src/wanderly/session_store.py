@@ -507,6 +507,9 @@ def cursor_run_persist_kwargs(
     ``WANDERLY_CURSOR_AGENT_IDS_PATH`` (default ``.cache/cursor_agent_ids.json`` under Travel Planner Prototype)
     so a restarted server can resume the same Cloud Agent for the same ``session_id`` and lane.
 
+    Follow-up runs may send a shorter prompt when ``CURSOR_REUSE_STRIP_STATIC_INSTRUCTIONS`` is on and callers
+    pass ``persistent_instruction_prefix`` to ``run_prompt_collect_assistant_text*`` (see ``cursor_agent_client``).
+
     ``trace_path`` is copied into ``cursor_trace_path`` for ``.cache/itinerary_debug.log`` lines
     (which Wanderly code path hit Cursor / 409).
 

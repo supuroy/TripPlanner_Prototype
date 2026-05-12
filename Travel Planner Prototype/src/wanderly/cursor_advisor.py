@@ -187,6 +187,7 @@ def run_profile_listener_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
+                persistent_instruction_prefix=_PROFILE_LISTENER_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_PROFILE_LISTENER, trace_path="cursor_advisor.profile_listener"
                 ),
@@ -271,6 +272,7 @@ def run_plan_review_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
+                persistent_instruction_prefix=_PLAN_REVIEW_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_PLAN_REVIEW, trace_path="cursor_advisor.plan_review"
                 ),
@@ -597,6 +599,7 @@ def run_advisor_chat_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
+                persistent_instruction_prefix=_ADVISOR_CHAT_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_ADVISOR_FEED, trace_path="cursor_advisor.advisor_feed"
                 ),
@@ -728,6 +731,7 @@ def run_profile_change_advisor_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
+                persistent_instruction_prefix=_PROFILE_CHANGE_PROMPT + "\n\nContext JSON:\n",
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_PROFILE_CHANGE, trace_path="cursor_advisor.profile_change"
                 ),

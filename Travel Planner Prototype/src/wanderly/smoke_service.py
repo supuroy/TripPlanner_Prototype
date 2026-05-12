@@ -589,6 +589,7 @@ def run_smoke_turn(user_message: str, session_id: str) -> dict[str, Any]:
         raw_text = run_prompt_collect_assistant_text(
             client,
             prompt,
+            persistent_instruction_prefix=_JSON_INSTRUCTIONS + "\n\nUser request:\n",
             **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.json"),
         )
     out = _complete_smoke_turn(session_id, user_message, raw_text)
@@ -619,6 +620,7 @@ def run_smoke_turn_streaming(
             client,
             prompt,
             emit=safe_emit,
+            persistent_instruction_prefix=_JSON_INSTRUCTIONS + "\n\nUser request:\n",
             **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.sse"),
         )
     if emit:
@@ -692,7 +694,11 @@ def run_refine_turn(
     mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.json")
     with basic_client(key) as client:
         raw_text = run_prompt_collect_assistant_text(
-            client, prompt, model_id_override=mod, **persist
+            client,
+            prompt,
+            model_id_override=mod,
+            persistent_instruction_prefix=_REFINE_INSTRUCTIONS + "\n",
+            **persist,
         )
     out = _complete_refine_turn(
         session_id, um, raw_text, prior_dests, allow_shortlist_shrink=confirm_workspace_drop
@@ -733,6 +739,7 @@ def run_refine_turn_streaming(
             prompt,
             emit=safe_emit,
             model_id_override=mod,
+            persistent_instruction_prefix=_REFINE_INSTRUCTIONS + "\n",
             **persist,
         )
     if emit:
