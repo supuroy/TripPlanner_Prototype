@@ -144,7 +144,7 @@ function Workspace() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex max-w-[min(440px,58vw)] flex-col items-end gap-0.5 text-right"
+              className="flex min-w-0 max-w-[min(440px,58vw)] flex-1 flex-col items-end gap-0.5 text-right"
             >
               <div className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 shrink-0 rounded-full bg-indigo-400 animate-pulse" />
@@ -161,11 +161,11 @@ function Workspace() {
               ) : null}
             </motion.div>
           )}
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             <button
               type="button"
               onClick={() => void startNewTrip()}
-              className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/85"
+              className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/85"
             >
               New trip
             </button>

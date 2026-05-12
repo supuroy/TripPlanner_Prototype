@@ -476,8 +476,12 @@ def _itinerary_cursor_lane(light: str | None) -> str:
 
 
 def itinerary_parallel_dest_enabled() -> bool:
-    """When true, each destination uses its own Cursor persistence lane (parallel builds; see env README)."""
-    return (os.environ.get("WANDERLY_ITINERARY_PARALLEL_DEST") or "").strip().lower() in ("1", "true", "yes", "on")
+    """When true (default), each destination uses its own Cursor persistence lane (parallel builds).
+
+    Opt out with ``WANDERLY_ITINERARY_PARALLEL_DEST=0`` (or ``false`` / ``off``).
+    """
+    raw = (os.environ.get("WANDERLY_ITINERARY_PARALLEL_DEST") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def _cursor_lane_for_itinerary_build(session_id: str, destination_id: str, light: str | None) -> str:
