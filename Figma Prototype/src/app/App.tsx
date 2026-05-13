@@ -85,6 +85,7 @@ function AgentResponsesHeader() {
 function Workspace() {
   const {
     hasStarted,
+    wanderlyWorkspaceBootstrapped,
     agentStatus,
     profile,
     expandedDest,
@@ -181,12 +182,21 @@ function Workspace() {
         <div className="min-h-0 flex-1 overflow-hidden">
           <AnimatePresence mode="wait">
             {!hasStarted ? (
-              <div
-                key="idle"
-                className="mx-auto flex h-full max-w-[1400px] flex-col justify-center overflow-y-auto px-4 py-6 sm:px-6"
-              >
-                <IdleState />
-              </div>
+              !wanderlyWorkspaceBootstrapped ? (
+                <div
+                  key="workspace-boot"
+                  className="mx-auto flex h-full max-w-[1400px] flex-col items-center justify-center px-4 py-6 sm:px-6"
+                >
+                  <div className="text-[13px] text-white/35">Loading your workspace…</div>
+                </div>
+              ) : (
+                <div
+                  key="idle"
+                  className="mx-auto flex h-full max-w-[1400px] flex-col justify-center overflow-y-auto px-4 py-6 sm:px-6"
+                >
+                  <IdleState />
+                </div>
+              )
             ) : (
               <motion.div
                 key="workspace"

@@ -200,10 +200,16 @@ export async function installWanderlyApiMocks(page: Page, opts: WanderlyMockOpti
   });
 
   await page.route("**/api/wanderly/workspace?**", async (route) => {
-    const url = new URL(route.request().url());
-    const sessionId = url.searchParams.get("session_id") || "e2e-session";
     await route.fulfill(
-      json({ wanderly: initialFn(sessionId), wanderly_snapshot_restored: false }),
+      json({
+        wanderly: {
+          assistant_markdown: "",
+          profile_pills: [],
+          destinations: [],
+          enrichment_pending: false,
+        },
+        wanderly_snapshot_restored: false,
+      }),
     );
   });
 }

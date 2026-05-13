@@ -209,6 +209,9 @@ def run_web_server(
                         ld = s.get("last_destinations")
                         if isinstance(ld, list) and len(ld) > 0:
                             wanderly["destinations"] = ld
+                        else:
+                            # Do not leak global orchestrator itinerary cards into a session-scoped view.
+                            wanderly["destinations"] = []
                 self._send_json({"wanderly": wanderly, "wanderly_snapshot_restored": snap}, status=200)
                 return
             self._send_json({"error": "Not found"}, status=404)

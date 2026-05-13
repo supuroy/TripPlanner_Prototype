@@ -237,6 +237,13 @@ interface TripStoreType {
   setPlannerAbortController: (ac: AbortController | null) => void;
   /** Abort in-flight planner work and clear server-side Cursor reuse for a fresh trip. */
   startNewTrip: () => Promise<void>;
+  abortPlannerOperation: () => void;
+  /**
+   * True after the first ``GET /api/wanderly/workspace`` for the current session completes
+   * (success or failure). Used to avoid flashing the idle landing when a saved trip is restored.
+   */
+  wanderlyWorkspaceBootstrapped: boolean;
+}
 
 const Ctx = createContext<TripStoreType | null>(null);
 
@@ -493,6 +500,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [isCanvasCollapsed, setIsCanvasCollapsed] = useState(false);
   const [itineraryLaneQueueDepth, setItineraryLaneQueueDepth] = useState(0);
   const [hasStarted, setHasStarted] = useState(false);
+  const [wanderlyWorkspaceBootstrapped, setWanderlyWorkspaceBootstrapped] = useState(false);
   const [sessionId, setSessionId] = useState<string>(readOrCreateSessionId);
   const [enrichmentPending, setEnrichmentPending] = useState(false);
   const [pendingRefineText, setPendingRefineText] = useState<string | null>(null);
@@ -522,12 +530,13 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const sid = sessionId;
     let cancelled = false;
+    setWanderlyWorkspaceBootstrapped(false);
     void (async () => {
       try {
         const res = await fetchWorkspace(sid);
         if (cancelled) return;
-        if (!res.wanderly_snapshot_restored) return;
         const wanderly = res.wanderly;
+        const restored = Boolean(res.wanderly_snapshot_restored);
         const dests = (wanderly.destinations || []) as DestCard[];
         const pills = (wanderly.profile_pills || []) as ProfilePill[];
         if (dests.length > 0) {
@@ -536,11 +545,18 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         if (pills.length > 0) {
           setProfile(pills);
         }
-        if (dests.length > 0 || pills.length >= 4) {
+        if (typeof wanderly.enrichment_pending === "boolean") {
+          setEnrichmentPending(wanderly.enrichment_pending);
+        }
+        /* Session-scoped cards from the server, or profile restored from a disk snapshot. */
+        const hasSavedPlan = dests.length > 0 || (restored && pills.length >= 4);
+        if (hasSavedPlan) {
           setHasStarted(true);
         }
       } catch {
         /* offline or server down */
+      } finally {
+        if (!cancelled) setWanderlyWorkspaceBootstrapped(true);
       }
     })();
     return () => {
@@ -791,6 +807,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         setPlannerAbortController,
         startNewTrip,
         abortPlannerOperation,
+        wanderlyWorkspaceBootstrapped,
       }}
     >
       {children}
