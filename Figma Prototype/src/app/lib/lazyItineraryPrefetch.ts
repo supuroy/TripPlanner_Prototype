@@ -1,4 +1,4 @@
-import { buildItinerary } from "../../api/wanderly";
+import { buildItinerary, syncUi } from "../../api/wanderly";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
 import type { DestCard, ProfilePill } from "../components/TripStore";
 import { destinationsFromWorkspace, mergeProfilePillsFromDto } from "./applyWorkspaceDto";
@@ -107,12 +107,16 @@ export function enqueueBackgroundItineraryBuild(args: {
         rowCount: rows.length,
         source: args.source,
       });
-      args.setDestinations((prev) =>
-        prev.map((x) => {
+      args.setDestinations((prev) => {
+        const next = prev.map((x) => {
           if (String(x.id) !== id) return x;
           return mergeItineraryBuildIntoDest(x, rows, budget, res.booking_search_hints ?? null);
-        }),
-      );
+        });
+        queueMicrotask(() => {
+          void syncUi(args.sessionId, next as unknown[]).catch(() => {});
+        });
+        return next;
+      });
     } catch (err: unknown) {
       logItin("background_prefetch_error", { destId: id, message: String(err), source: args.source });
       args.setDestinations((prev) =>

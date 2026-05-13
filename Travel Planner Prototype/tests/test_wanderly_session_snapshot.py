@@ -73,3 +73,42 @@ def test_hydrate_skips_when_ui_already_warm(snapshot_paths: tuple[Path, Path]) -
     s["ui_destinations"] = [{"id": "live"}, {"id": "extra"}]
     assert ss.hydrate_wanderly_session_from_disk(sid) is False
     assert len(ss.get_session(sid)["ui_destinations"]) == 2
+
+
+def test_wanderly_destinations_for_session_merges_itinerary_from_last(
+    snapshot_paths: tuple[Path, Path],
+) -> None:
+    from src.wanderly import session_store as ss
+
+    sid = "sess-merge-itin"
+    s = ss.get_session(sid)
+    s["ui_destinations"] = [{"id": "lisbon", "name": "Lisbon", "itinerary": []}]
+    s["last_destinations"] = [
+        {"id": "lisbon", "name": "Lisbon", "itinerary": [{"day": 1, "label": "Day 1", "items": ["Walk"]}]}
+    ]
+    out = ss.wanderly_destinations_for_session(s)
+    assert len(out) == 1
+    assert len(out[0]["itinerary"]) == 1
+    assert out[0]["itinerary"][0]["day"] == 1
+
+
+def test_patch_session_destination_itinerary_updates_ui_and_last(
+    snapshot_paths: tuple[Path, Path],
+) -> None:
+    from src.wanderly import session_store as ss
+
+    sid = "sess-patch-itin"
+    s = ss.get_session(sid)
+    s["ui_destinations"] = [{"id": "x", "itinerary": [], "itinerary_dirty": True}]
+    s["last_destinations"] = [{"id": "x", "itinerary": [], "itinerary_dirty": True}]
+    ss.patch_session_destination_itinerary(
+        sid,
+        "x",
+        itinerary=[{"day": 1, "label": "Day 1", "items": ["Museum"]}],
+        budget_guidance={"notes": "mock"},
+    )
+    s2 = ss.get_session(sid)
+    assert len(s2["ui_destinations"][0]["itinerary"]) == 1
+    assert s2["ui_destinations"][0]["itinerary_dirty"] is False
+    assert s2["last_destinations"][0]["itinerary_dirty"] is False
+    assert s2["last_destinations"][0]["budget_guidance"]["notes"] == "mock"

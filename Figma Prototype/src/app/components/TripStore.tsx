@@ -540,7 +540,15 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         const dests = (wanderly.destinations || []) as DestCard[];
         const pills = (wanderly.profile_pills || []) as ProfilePill[];
         if (dests.length > 0) {
-          setDestinations(dests);
+          const normalized = dests.map((d) => {
+            const it = d.itinerary;
+            const hasItin = Array.isArray(it) && it.length > 0;
+            if (hasItin && d.itinerary_dirty !== true) {
+              return { ...d, itinerary_dirty: false };
+            }
+            return d;
+          });
+          setDestinations(normalized);
         }
         if (pills.length > 0) {
           setProfile(pills);

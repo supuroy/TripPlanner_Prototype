@@ -190,6 +190,111 @@ def delete_wanderly_session_snapshot(session_id: str) -> None:
             _write_all_session_snapshots_to_disk(disk)
 
 
+def _itinerary_row_count(row: dict[str, Any]) -> int:
+    it = row.get("itinerary")
+    return len(it) if isinstance(it, list) else 0
+
+
+def wanderly_destinations_for_session(s: dict[str, Any]) -> list[dict[str, Any]]:
+    """Session-scoped cards for ``GET /api/wanderly/workspace``.
+
+    Prefer ``ui_destinations`` (client mirror). When a UI row has no day-by-day ``itinerary`` but
+    ``last_destinations`` has one for the same id (planner kept slim UI rows), backfill so restores
+    do not look like an empty plan and the client does not immediately queue lazy rebuilds.
+    """
+    ui = s.get("ui_destinations")
+    last_raw = s.get("last_destinations")
+    ui_list = [dict(x) for x in ui if isinstance(x, dict)] if isinstance(ui, list) else []
+    last_list = [x for x in last_raw if isinstance(x, dict)] if isinstance(last_raw, list) else []
+    if not ui_list:
+        return [dict(x) for x in last_list]
+    if not last_list:
+        return ui_list
+    last_by_id = {str(x.get("id") or ""): x for x in last_list}
+    out: list[dict[str, Any]] = []
+    for u in ui_list:
+        uid = str(u.get("id") or "")
+        alt = last_by_id.get(uid)
+        if not alt or not isinstance(alt, dict):
+            out.append(u)
+            continue
+        if _itinerary_row_count(u) > 0:
+            out.append(u)
+            continue
+        if _itinerary_row_count(alt) == 0:
+            out.append(u)
+            continue
+        merged = dict(u)
+        merged["itinerary"] = [dict(d) if isinstance(d, dict) else d for d in (alt.get("itinerary") or [])]
+        dirty_a = alt.get("itinerary_dirty")
+        merged["itinerary_dirty"] = bool(dirty_a) if isinstance(dirty_a, bool) else False
+        bg = alt.get("budget_guidance")
+        if isinstance(bg, dict) and bg and not merged.get("budget_guidance"):
+            merged["budget_guidance"] = dict(bg)
+        bsh = alt.get("booking_search_hints")
+        if isinstance(bsh, dict) and bsh and not merged.get("booking_search_hints"):
+            merged["booking_search_hints"] = dict(bsh)
+        out.append(merged)
+    return out
+
+
+def patch_session_destination_itinerary(
+    session_id: str,
+    destination_id: str,
+    *,
+    itinerary: list[Any],
+    budget_guidance: dict[str, Any] | None = None,
+    booking_search_hints: dict[str, Any] | None = None,
+) -> None:
+    """Merge a completed lazy itinerary into stored session rows and persist (survives tab close)."""
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return
+    if not isinstance(itinerary, list) or not itinerary:
+        return
+
+    def merge_list(target: Any) -> list[Any] | None:
+        if not isinstance(target, list) or not target:
+            return None
+        out_list: list[Any] = []
+        hit = False
+        for raw in target:
+            if not isinstance(raw, dict):
+                out_list.append(raw)
+                continue
+            row = dict(raw)
+            if str(row.get("id") or "").strip() != did:
+                out_list.append(row)
+                continue
+            hit = True
+            row["itinerary"] = [dict(x) if isinstance(x, dict) else x for x in itinerary]
+            row["itinerary_dirty"] = False
+            if isinstance(budget_guidance, dict) and budget_guidance:
+                row["budget_guidance"] = budget_guidance
+            if isinstance(booking_search_hints, dict) and booking_search_hints:
+                row["booking_search_hints"] = booking_search_hints
+            out_list.append(row)
+        return out_list if hit else None
+
+    with _lock:
+        s = _sessions.setdefault(
+            sid,
+            {
+                "chat": [],
+                "last_destinations": [],
+                "mode": "idle",
+            },
+        )
+        for key in ("ui_destinations", "last_destinations"):
+            cur = s.get(key)
+            merged = merge_list(cur)
+            if merged is not None:
+                s[key] = merged
+
+    persist_wanderly_session_snapshot(sid)
+
+
 def _apply_session_snapshot_blob_to_session_unlocked(s: dict[str, Any], blob: dict[str, Any]) -> None:
     ui = blob.get("ui_destinations")
     if isinstance(ui, list):

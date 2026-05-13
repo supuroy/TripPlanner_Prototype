@@ -32,12 +32,14 @@ from src.wanderly.cursor_advisor import (
 from src.wanderly.session_store import (
     get_session,
     hydrate_wanderly_session_from_disk,
+    patch_session_destination_itinerary,
     persist_wanderly_session_snapshot,
     set_last_destinations,
     set_last_profile_pills,
     snapshot_destinations_for_model,
     snapshot_profile_pills,
     start_new_wanderly_trip_session,
+    wanderly_destinations_for_session,
 )
 from src.wanderly.smoke_service import (
     run_refine_turn,
@@ -202,16 +204,7 @@ def run_web_server(
                     pills = snapshot_profile_pills(sid)
                     if pills:
                         wanderly["profile_pills"] = pills
-                    ui = s.get("ui_destinations")
-                    if isinstance(ui, list) and len(ui) > 0:
-                        wanderly["destinations"] = ui
-                    else:
-                        ld = s.get("last_destinations")
-                        if isinstance(ld, list) and len(ld) > 0:
-                            wanderly["destinations"] = ld
-                        else:
-                            # Do not leak global orchestrator itinerary cards into a session-scoped view.
-                            wanderly["destinations"] = []
+                    wanderly["destinations"] = wanderly_destinations_for_session(s)
                 self._send_json({"wanderly": wanderly, "wanderly_snapshot_restored": snap}, status=200)
                 return
             self._send_json({"error": "Not found"}, status=404)
@@ -614,6 +607,14 @@ def run_web_server(
                         }
                         if isinstance(bsh, dict) and bsh:
                             resp_body["booking_search_hints"] = bsh
+                        if rows:
+                            patch_session_destination_itinerary(
+                                sid,
+                                did,
+                                itinerary=rows,
+                                budget_guidance=bg if isinstance(bg, dict) else None,
+                                booking_search_hints=bsh if isinstance(bsh, dict) else None,
+                            )
                         self._send_json(resp_body, status=200)
                     except Exception as exc:
                         print(f"[web] /api/wanderly/build_itinerary error: {exc!r}")
@@ -715,6 +716,14 @@ def run_web_server(
                         if isinstance(bsh, dict) and bsh:
                             done_payload["booking_search_hints"] = bsh
                         emit_itin(done_payload)
+                        if rows:
+                            patch_session_destination_itinerary(
+                                sid,
+                                did,
+                                itinerary=rows,
+                                budget_guidance=bg if isinstance(bg, dict) else None,
+                                booking_search_hints=bsh if isinstance(bsh, dict) else None,
+                            )
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         _trace_itin_web(
                             "build_itinerary_stream_client_disconnect",
@@ -902,8 +911,7 @@ def run_web_server(
                         wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
                         if sid:
                             s = get_session(sid)
-                            if isinstance(s.get("ui_destinations"), list) and s["ui_destinations"]:
-                                wanderly["destinations"] = s["ui_destinations"]
+                            wanderly["destinations"] = wanderly_destinations_for_session(s)
                         self._send_json(
                             {
                                 "advisor_suggestion": sug,
