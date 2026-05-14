@@ -1151,7 +1151,10 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                           </>
                         )}
 
-                        {destHasPersistentBookingSummary(dest) ? (
+                        {/* ``readyToBook`` alone hides ``showReadyToBookCta`` — if live OTA rows never became
+                         * ``destHasPersistentBookingSummary`` (e.g. hotel-only / ground trip with no flight rows,
+                         * or a restored session), neither CTA rendered. Always offer reset when booking was armed. */}
+                        {destHasPersistentBookingSummary(dest) || dest.readyToBook ? (
                           <button
                             type="button"
                             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 py-3 text-[13px] font-medium text-amber-100/95 transition-colors hover:bg-amber-500/20 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
