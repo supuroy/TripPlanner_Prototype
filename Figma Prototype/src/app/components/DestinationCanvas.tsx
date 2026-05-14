@@ -748,11 +748,15 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   }, [dest.id, dest.name, sessionId, setDestinations, addResponse]);
 
   const readyToBook = Boolean(dest.readyToBook);
-  const flipTitle = !readyToBook
-    ? "Click 'Ready to Book' to view booking details"
+  const flipTooltip = !readyToBook
+    ? "Open the booking view after you tap Ready to Book on this card"
     : bookingFace
-      ? "View itinerary"
-      : "View booking details";
+      ? "Return to the itinerary view"
+      : "Open the booking view (flights and hotels)";
+  const pinTooltip = dest.pinned
+    ? "Unpin this destination (remove the comparison highlight)"
+    : "Pin this destination to keep it highlighted while you compare";
+  const dismissTooltip = "Dismiss this destination from your plan";
 
   return (
     <motion.div
@@ -830,8 +834,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           <div className="absolute top-2.5 right-2.5 z-20 flex gap-1.5">
             <motion.button
               type="button"
-              title={flipTitle}
-              aria-label={flipTitle}
+              title={flipTooltip}
+              aria-label={flipTooltip}
               disabled={!readyToBook}
               onClick={(e) => {
                 e.stopPropagation();
@@ -851,16 +855,18 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             <button
               type="button"
               onClick={togglePin}
+              title={pinTooltip}
               className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${dest.pinned ? "bg-indigo-500 text-white" : "bg-black/40 text-white/60 hover:text-white backdrop-blur-sm"}`}
-              aria-label={dest.pinned ? "Unpin destination" : "Pin destination"}
+              aria-label={pinTooltip}
             >
               {dest.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
             </button>
             <button
               type="button"
               onClick={dismiss}
+              title={dismissTooltip}
               className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
-              aria-label="Remove destination"
+              aria-label={dismissTooltip}
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -892,8 +898,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                 <ScoreBadge score={dest.score} />
                 <motion.button
                   type="button"
-                  title={flipTitle}
-                  aria-label={flipTitle}
+                  title={flipTooltip}
+                  aria-label={flipTooltip}
                   disabled={!readyToBook}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -913,18 +919,20 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                 <button
                   type="button"
                   onClick={togglePin}
+                  title={pinTooltip}
                   className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
                     dest.pinned ? "bg-indigo-500 text-white" : "bg-white/[0.06] text-white/60 hover:text-white border border-white/[0.08]"
                   }`}
-                  aria-label={dest.pinned ? "Unpin destination" : "Pin destination"}
+                  aria-label={pinTooltip}
                 >
                   {dest.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
                 </button>
                 <button
                   type="button"
                   onClick={dismiss}
+                  title={dismissTooltip}
                   className="w-8 h-8 rounded-lg bg-white/[0.06] text-white/60 hover:text-white flex items-center justify-center border border-white/[0.08]"
-                  aria-label="Remove destination"
+                  aria-label={dismissTooltip}
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1247,6 +1255,11 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
     }
   };
 
+  const pinTooltip = dest.pinned
+    ? "Unpin this destination (remove the comparison highlight)"
+    : "Pin this destination to keep it highlighted while you compare";
+  const dismissTooltip = "Dismiss this destination from your plan";
+
   return (
     <motion.div
       layout
@@ -1313,10 +1326,22 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
 
         {/* Top controls */}
         <div className="absolute top-2.5 right-2.5 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={togglePin} className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${dest.pinned ? "bg-indigo-500 text-white" : "bg-black/40 text-white/60 hover:text-white backdrop-blur-sm"}`}>
+          <button
+            type="button"
+            title={pinTooltip}
+            aria-label={pinTooltip}
+            onClick={togglePin}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${dest.pinned ? "bg-indigo-500 text-white" : "bg-black/40 text-white/60 hover:text-white backdrop-blur-sm"}`}
+          >
             {dest.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
           </button>
-          <button onClick={dismiss} className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm">
+          <button
+            type="button"
+            title={dismissTooltip}
+            aria-label={dismissTooltip}
+            onClick={dismiss}
+            className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
+          >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
