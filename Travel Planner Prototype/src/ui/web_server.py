@@ -15,6 +15,7 @@ from src.orchestrator import TravelPlannerOrchestrator
 from src.stages.criteria_stage import CriteriaStage
 from src.ui.web import HTML_SCAFFOLD
 from src.wanderly.mapper import map_workspace_to_wanderly
+from src.wanderly.schemas import sanitize_traveler_place_pill_value
 from src.wanderly.hero_enrichment import enrich_destinations_hero_images
 from src.wanderly.stock_photo_heroes import log_hero_image
 from src.wanderly.itinerary_debug_log import log_itinerary_build
@@ -813,7 +814,7 @@ def run_web_server(
                         elif k == "from":
                             vv = v.strip()
                             if vv and vv.lower() not in ("not specified", "tbd", "unknown", "n/a"):
-                                patch["traveler_origin"] = vv[:200]
+                                patch["traveler_origin"] = sanitize_traveler_place_pill_value("from", vv)[:200]
                         elif k == "who":
                             m = re.match(r"^\s*(\d+)", v)
                             if m:

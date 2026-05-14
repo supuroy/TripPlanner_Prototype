@@ -813,6 +813,10 @@ def merge_profile_pills_advisor_precedence(
     for p in advisor_pills:
         if not isinstance(p, dict):
             continue
+        dto = coerce_profile_pill(p)
+        if dto is None:
+            continue
+        p = dto.model_dump()
         k = str(p.get("key") or "").strip()
         if not k or k == "tags":
             continue

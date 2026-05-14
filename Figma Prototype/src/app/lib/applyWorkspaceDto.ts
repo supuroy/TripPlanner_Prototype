@@ -186,17 +186,33 @@ export function mergeHeroOneCard(cards: DestCard[], row: Record<string, unknown>
   });
 }
 
+/** Strip LLM prose tails from location-like pills (must match server ``sanitize_traveler_place_pill_value``). */
+export function sanitizeTravelerPlacePillValue(key: string, value: string): string {
+  const k = key.trim().toLowerCase();
+  if (k !== "from") return value;
+  let v = value.trim().replace(/\s+/g, " ");
+  if (!v) return v;
+  v = v.replace(/-based(?=,|\s|$)/gi, "");
+  v = v.replace(/\s+based(?=,|\s|$)/gi, "");
+  v = v.replace(/-centric(?=,|\s|$)/gi, "");
+  return v.replace(/\s+/g, " ").trim().replace(/^[,\-|·\s]+|[,\-|·\s]+$/g, "");
+}
+
 export function mapDtoPillsToProfile(raw: WanderlyWorkspaceDTO["profile_pills"]): ProfilePill[] {
   return (raw || [])
     .filter((p) => String(p.key ?? "").trim() !== "tags")
-    .map((p) => ({
-      key: p.key,
-      label: p.label,
-      value: p.value,
-      icon: p.icon || "📌",
-      editable: p.editable !== false,
-      options: p.options,
-    }));
+    .map((p) => {
+      const key = String(p.key ?? "");
+      const value = sanitizeTravelerPlacePillValue(key, String(p.value ?? ""));
+      return {
+        key: p.key,
+        label: p.label,
+        value,
+        icon: p.icon || "📌",
+        editable: p.editable !== false,
+        options: p.options,
+      };
+    });
 }
 
 /**
@@ -253,6 +269,7 @@ export function isWeakTravelerProfileValue(key: string, value: string): boolean 
   if (/^(not specified|not specified yet|n\/a|tbd|unknown|—|--)$/.test(v)) return true;
   if (key === "from") {
     if (v.includes("city or airport")) return true;
+    if (/-based$|\sbased$/i.test(v)) return true;
   }
   if (key === "budget") {
     if (/not specified/.test(v)) return true;

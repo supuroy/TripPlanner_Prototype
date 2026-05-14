@@ -14,7 +14,7 @@ class SmokeProfilePillDTO(BaseModel):
     editable: bool = True
 
 
-def _sanitize_traveler_place_pill_value(key: str, value: str) -> str:
+def sanitize_traveler_place_pill_value(key: str, value: str) -> str:
     """
     Strip LLM prose tails from location-like pills (used verbatim in Expedia ``from:`` / typeahead).
 
@@ -44,7 +44,7 @@ def coerce_profile_pill(p: dict[str, Any]) -> SmokeProfilePillDTO | None:
         return None
     if str(dto.key).strip() == "tags":
         return None
-    cleaned = _sanitize_traveler_place_pill_value(str(dto.key), str(dto.value))
+    cleaned = sanitize_traveler_place_pill_value(str(dto.key), str(dto.value))
     if cleaned != str(dto.value):
         dto = dto.model_copy(update={"value": cleaned})
     return dto

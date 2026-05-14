@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from src.wanderly.commerce_stub import attach_commerce_placeholders
-from src.wanderly.schemas import SmokeProfilePillDTO, WanderlyWorkspaceDTO
+from src.wanderly.schemas import SmokeProfilePillDTO, WanderlyWorkspaceDTO, sanitize_traveler_place_pill_value
 
 
 def _slug(name: str) -> str:
@@ -51,7 +51,7 @@ def _profile_to_pills(tp: dict[str, Any]) -> list[SmokeProfilePillDTO]:
         )
     )
     pills.append(SmokeProfilePillDTO(key="who", label="Who", value=who, icon="👥"))
-    origin = (tp.get("traveler_origin") or "").strip()
+    origin = sanitize_traveler_place_pill_value("from", (tp.get("traveler_origin") or "").strip())
     pills.append(
         SmokeProfilePillDTO(
             key="from",
