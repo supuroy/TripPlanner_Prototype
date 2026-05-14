@@ -202,9 +202,9 @@ def run_web_server(
                 if sid:
                     snap = bool(hydrate_wanderly_session_from_disk(sid))
                     s = get_session(sid)
-                    pills = snapshot_profile_pills(sid)
-                    if pills:
-                        wanderly["profile_pills"] = pills
+                    # Always use session-scoped pills (including []) so a new / switched trip does not inherit
+                    # orchestrator ``map_workspace_to_wanderly`` profile from another plan.
+                    wanderly["profile_pills"] = snapshot_profile_pills(sid)
                     wanderly["destinations"] = wanderly_destinations_for_session(s)
                     tm = s.get("trip_meta")
                     if isinstance(tm, dict):

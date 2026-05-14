@@ -612,7 +612,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         const wanderly = res.wanderly;
         const restored = Boolean(res.wanderly_snapshot_restored);
         dests = (wanderly.destinations || []) as DestCard[];
-        const pills = (wanderly.profile_pills || []) as ProfilePill[];
+        const pills = (wanderly.profile_pills ?? []) as ProfilePill[];
         if (dests.length > 0) {
           const normalized = dests.map((d) => {
             const it = d.itinerary;
@@ -624,9 +624,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           });
           setDestinations(normalized);
         }
-        if (pills.length > 0) {
-          setProfile(pills);
-        }
+        /* Always mirror server session pills (including []) so a new trip does not keep prior-trip pills
+         * when the workspace response carries an empty ``profile_pills`` array. */
+        setProfile(pills);
         if (typeof wanderly.enrichment_pending === "boolean") {
           setEnrichmentPending(wanderly.enrichment_pending);
         }

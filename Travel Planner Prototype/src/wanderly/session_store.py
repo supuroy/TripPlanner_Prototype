@@ -392,7 +392,8 @@ def start_new_wanderly_trip_session(old_session_id: str | None) -> tuple[str, di
             _sessions.pop(old, None)
         delete_wanderly_session_snapshot(old)
         clear_all_cursor_agent_ids_for_session(old)
-    get_session(new_sid)
+    s = get_session(new_sid)
+    s["profile_pills"] = []
     persist_wanderly_session_snapshot(new_sid)
     empty: dict[str, Any] = {"assistant_markdown": "", "profile_pills": [], "destinations": []}
     return new_sid, empty
