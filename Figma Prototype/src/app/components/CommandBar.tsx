@@ -15,6 +15,7 @@ import {
   applyWanderlyWorkspace,
   buildItineraryStalePlan,
   destinationsFromWorkspace,
+  explainItineraryInvalidate,
   isPlanCompareOnlyQuestion,
   mergeHeroImagesFromEnriched,
   mergeProfilePillsFromDto,
@@ -182,7 +183,16 @@ export function CommandBar() {
               { confirmWorkspaceDrop: confirmWorkspaceDrop, signal: ac.signal },
             );
         if (out.session_id) setSessionId(out.session_id);
-        const validIds = new Set(priorDestinations.map((d) => d.id));
+        const incomingCardIds = (out.wanderly.destinations ?? [])
+          .map((row) => {
+            const id = (row as { id?: unknown })?.id;
+            return id != null ? String(id).trim() : "";
+          })
+          .filter((id) => id.length > 0);
+        const validIds = new Set<string>([
+          ...priorDestinations.map((d) => String(d.id)),
+          ...incomingCardIds,
+        ]);
         const stalePlan = buildItineraryStalePlan(
           text,
           priorProfile,
@@ -191,9 +201,11 @@ export function CommandBar() {
           validIds,
           expandedDest ?? null,
         );
+        const invExplain = explainItineraryInvalidate(text, priorProfile, out.wanderly.profile_pills);
         logItin("refine_apply_workspace", {
           itineraryStalePlan: stalePlan,
           compareOnlyBypass: isPlanCompareOnlyQuestion(text),
+          invalidateReasons: invExplain.reasons,
           messagePreview: text.slice(0, 160),
         });
         applyWanderlyWorkspace(out.wanderly, {

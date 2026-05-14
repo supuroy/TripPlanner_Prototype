@@ -255,16 +255,21 @@ function normalizePillValueForSig(raw: string): string {
   return s;
 }
 
-function profilePillsSignature(rows: ProfilePill[]): string {
+/** Keys that should force lazy itinerary rebuilds when their values change (dates, party, origin, length, envelope). */
+const ITINERARY_CRITICAL_PROFILE_KEYS = new Set(["when", "who", "from", "budget", "duration"]);
+
+function profileCriticalPillsSignature(rows: ProfilePill[]): string {
   return [...rows]
+    .filter((x) => ITINERARY_CRITICAL_PROFILE_KEYS.has(x.key))
     .map((x) => `${x.key}=${normalizePillValueForSig(x.value)}`)
     .sort()
     .join("|");
 }
 
 /**
- * Explains why a refine turn will mark every merged destination with ``itinerary_dirty: true``
+ * Explains why a refine turn will mark merged destinations with ``itinerary_dirty: true``
  * (see ``applyWanderlyWorkspace``), which triggers lazy ``buildItinerary*`` for dirty cards (main-screen prefetch + expanded view).
+ * Profile churn uses only itinerary-critical pill keys (when / who / from / budget / duration) so a vibe relabel on add-destination refines does not wipe every card.
  */
 export function explainItineraryInvalidate(
   message: string,
@@ -281,8 +286,8 @@ export function explainItineraryInvalidate(
   }
   if (incomingPills?.length) {
     const merged = mergeProfilePillsFromDto(priorProfile, incomingPills);
-    if (profilePillsSignature(merged) !== profilePillsSignature(priorProfile)) {
-      reasons.push("profile_pills_changed_vs_prior");
+    if (profileCriticalPillsSignature(merged) !== profileCriticalPillsSignature(priorProfile)) {
+      reasons.push("profile_pills_critical_changed");
     }
   }
   return { shouldInvalidate: reasons.length > 0, reasons };
