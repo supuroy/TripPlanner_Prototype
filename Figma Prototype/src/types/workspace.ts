@@ -28,10 +28,17 @@ export interface ItineraryBudgetGuidance {
   lodging_band_short?: string;
 }
 
+export interface WanderlyTripMeta {
+  trip_id: string;
+  trip_name: string;
+}
+
 export interface WanderlyWorkspaceDTO {
   assistant_markdown: string;
   profile_pills: WanderlyProfilePillDTO[];
   destinations: Record<string, unknown>[];
+  /** Client-owned trip label + stable id (also persisted server-side via ``sync_ui``). */
+  trip_meta?: WanderlyTripMeta | null;
   agent_status_hint?: string | null;
   enrichment_pending?: boolean;
   /** Set after POST /api/wanderly/enrich_heroes when images were resolved. */

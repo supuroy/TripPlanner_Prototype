@@ -63,6 +63,20 @@ def test_start_new_trip_clears_snapshot_and_agents(snapshot_paths: tuple[Path, P
     assert ss.hydrate_wanderly_session_from_disk(sid) is False
 
 
+def test_session_snapshot_trip_meta_round_trip(snapshot_paths: tuple[Path, Path]) -> None:
+    from src.wanderly import session_store as ss
+
+    sid = "sess-meta-1"
+    s = ss.get_session(sid)
+    s["trip_meta"] = {"trip_id": "trip-uuid-1", "trip_name": "Spring break"}
+    s["ui_destinations"] = [{"id": "a"}]
+    ss.persist_wanderly_session_snapshot(sid)
+    ss._sessions.clear()
+    assert ss.hydrate_wanderly_session_from_disk(sid) is True
+    s2 = ss.get_session(sid)
+    assert s2.get("trip_meta") == {"trip_id": "trip-uuid-1", "trip_name": "Spring break"}
+
+
 def test_hydrate_skips_when_ui_already_warm(snapshot_paths: tuple[Path, Path]) -> None:
     from src.wanderly import session_store as ss
 

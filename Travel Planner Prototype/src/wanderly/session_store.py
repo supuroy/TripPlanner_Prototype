@@ -160,6 +160,12 @@ def _session_snapshot_entry_from_session_unlocked(s: dict[str, Any]) -> dict[str
     ld = s.get("last_destinations")
     if isinstance(ld, list):
         entry["last_destinations"] = ld
+    tm = s.get("trip_meta")
+    if isinstance(tm, dict) and (str(tm.get("trip_id") or "").strip() or str(tm.get("trip_name") or "").strip()):
+        entry["trip_meta"] = {
+            "trip_id": str(tm.get("trip_id") or "").strip(),
+            "trip_name": str(tm.get("trip_name") or "").strip()[:200],
+        }
     return entry
 
 
@@ -308,6 +314,12 @@ def _apply_session_snapshot_blob_to_session_unlocked(s: dict[str, Any], blob: di
     ld = blob.get("last_destinations")
     if isinstance(ld, list):
         s["last_destinations"] = [x for x in ld if isinstance(x, dict)]
+    tm = blob.get("trip_meta")
+    if isinstance(tm, dict):
+        tid = str(tm.get("trip_id") or "").strip()
+        tname = str(tm.get("trip_name") or "").strip()[:200]
+        if tid or tname:
+            s["trip_meta"] = {"trip_id": tid, "trip_name": tname}
 
 
 def hydrate_wanderly_session_from_disk(session_id: str) -> bool:

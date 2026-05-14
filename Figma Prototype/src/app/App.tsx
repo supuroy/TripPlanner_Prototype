@@ -95,6 +95,9 @@ function Workspace() {
     setEnrichmentPending,
     itineraryLaneQueueDepth,
     startNewTrip,
+    tripName,
+    setTripName,
+    tripId,
   } = useTrip();
 
   useEffect(() => {
@@ -134,18 +137,37 @@ function Workspace() {
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0a0a0f] text-white">
       {/* Header */}
       <header className="shrink-0 z-30 border-b border-white/[0.04] bg-[#0a0a0f]/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-              <Compass className="w-3.5 h-3.5 text-white" />
+        <div className="mx-auto flex max-w-[1400px] flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:max-w-[min(420px,42vw)]">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                <Compass className="w-3.5 h-3.5 text-white" />
+              </div>
+              <span className="text-[15px] text-white/70">Wanderly</span>
             </div>
-            <span className="text-[15px] text-white/70">Wanderly</span>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <label htmlFor="wanderly-trip-name" className="text-[10px] uppercase tracking-wide text-white/35">
+                Trip name
+              </label>
+              <input
+                id="wanderly-trip-name"
+                type="text"
+                value={tripName}
+                onChange={(e) => setTripName(e.target.value)}
+                disabled={!wanderlyWorkspaceBootstrapped}
+                placeholder="Name this trip"
+                maxLength={200}
+                title={tripId ? `Trip id: ${tripId}` : undefined}
+                autoComplete="off"
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[13px] text-white/85 placeholder:text-white/25 outline-none transition-colors focus:border-indigo-500/40 disabled:cursor-wait disabled:opacity-50"
+              />
+            </div>
           </div>
           {(agentStatus || itineraryLaneQueueDepth > 0) && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex min-w-0 max-w-[min(440px,58vw)] flex-1 flex-col items-end gap-0.5 text-right"
+              className="flex min-w-0 max-w-[min(440px,58vw)] flex-1 flex-col items-end gap-0.5 text-right sm:mx-4"
             >
               <div className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 shrink-0 rounded-full bg-indigo-400 animate-pulse" />
@@ -162,7 +184,7 @@ function Workspace() {
               ) : null}
             </motion.div>
           )}
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3 sm:self-start">
             <button
               type="button"
               onClick={() => void startNewTrip()}

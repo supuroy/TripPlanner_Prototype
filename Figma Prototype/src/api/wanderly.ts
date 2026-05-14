@@ -1,5 +1,10 @@
 import { apiFetch, apiPostSseJson } from "./client";
-import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../types/workspace";
+import type {
+  ItineraryBudgetGuidance,
+  WanderlyProfilePillDTO,
+  WanderlyTripMeta,
+  WanderlyWorkspaceDTO,
+} from "../types/workspace";
 import type { FlightOption, HotelOption, ItinDay, ProfilePill } from "../app/components/TripStore";
 
 function sleepMs(ms: number): Promise<void> {
@@ -189,10 +194,21 @@ export async function fetchWorkspace(sessionId: string) {
   );
 }
 
-export async function syncUi(sessionId: string, destinations: unknown[]) {
+export async function syncUi(
+  sessionId: string,
+  destinations: unknown[],
+  opts?: { tripMeta?: WanderlyTripMeta },
+) {
+  const body: Record<string, unknown> = { session_id: sessionId, destinations };
+  if (opts?.tripMeta && (String(opts.tripMeta.trip_id || "").trim() || String(opts.tripMeta.trip_name || "").trim())) {
+    body.trip_meta = {
+      trip_id: String(opts.tripMeta.trip_id || "").trim(),
+      trip_name: String(opts.tripMeta.trip_name || "").trim().slice(0, 200),
+    };
+  }
   return apiFetch<{ ok: boolean }>("/api/wanderly/sync_ui", {
     method: "POST",
-    body: JSON.stringify({ session_id: sessionId, destinations }),
+    body: JSON.stringify(body),
   });
 }
 

@@ -205,6 +205,12 @@ def run_web_server(
                     if pills:
                         wanderly["profile_pills"] = pills
                     wanderly["destinations"] = wanderly_destinations_for_session(s)
+                    tm = s.get("trip_meta")
+                    if isinstance(tm, dict):
+                        tid = str(tm.get("trip_id") or "").strip()
+                        tname = str(tm.get("trip_name") or "").strip()[:200]
+                        if tid or tname:
+                            wanderly["trip_meta"] = {"trip_id": tid, "trip_name": tname}
                 self._send_json({"wanderly": wanderly, "wanderly_snapshot_restored": snap}, status=200)
                 return
             self._send_json({"error": "Not found"}, status=404)
@@ -452,6 +458,12 @@ def run_web_server(
                         return
                     s = get_session(sid)
                     s["ui_destinations"] = dests
+                    tm = payload.get("trip_meta")
+                    if isinstance(tm, dict):
+                        tid = str(tm.get("trip_id") or "").strip()
+                        tname = str(tm.get("trip_name") or "").strip()[:200]
+                        if tid or tname:
+                            s["trip_meta"] = {"trip_id": tid, "trip_name": tname}
                     persist_wanderly_session_snapshot(sid)
                     self._send_json({"ok": True}, status=200)
                     return

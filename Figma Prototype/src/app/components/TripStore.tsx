@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
-import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO } from "../../types/workspace";
+import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../../types/workspace";
 import { planReview, fetchWorkspace, newTrip, syncUi } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
 import { planReviewMarkdownForUi } from "../lib/planReviewMarkdown";
+import { recordTripInSavedIndex, resolveTripMetaForSession, saveTripMetaForSession } from "../lib/tripMetaStorage";
 
 export type Phase = "idle" | "thinking" | "streaming" | "refining" | "advising" | "complete";
 
@@ -223,6 +224,11 @@ interface TripStoreType {
   setHasStarted: (v: boolean) => void;
   sessionId: string;
   setSessionId: (id: string) => void;
+  /** Stable id for this trip (survives renames); used for multi-trip catalog in later steps. */
+  tripId: string;
+  /** User-visible trip name; persisted with the session snapshot and local backup. */
+  tripName: string;
+  setTripName: (name: string) => void;
   enrichmentPending: boolean;
   setEnrichmentPending: (v: boolean) => void;
   /** When set (and workspace has destinations), CommandBar runs a refine with this text. */
@@ -508,6 +514,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [hasStarted, setHasStarted] = useState(false);
   const [wanderlyWorkspaceBootstrapped, setWanderlyWorkspaceBootstrapped] = useState(false);
   const [sessionId, setSessionId] = useState<string>(readOrCreateSessionId);
+  const [tripId, setTripId] = useState("");
+  const [tripName, setTripNameState] = useState("Untitled trip");
   const [enrichmentPending, setEnrichmentPending] = useState(false);
   const [pendingAgentProfileProposal, setPendingAgentProfileProposal] = useState<ProfilePill[] | null>(null);
 
@@ -542,6 +550,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const profileRef = useRef(profile);
   profileRef.current = profile;
 
+  const setTripName = useCallback((name: string) => {
+    const trimmed = name.trim().slice(0, 200);
+    setTripNameState(trimmed.length > 0 ? trimmed : "Untitled trip");
+  }, []);
+
   useEffect(() => {
     try {
       if (sessionId) localStorage.setItem("wanderly_session_id", sessionId);
@@ -555,12 +568,15 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     setWanderlyWorkspaceBootstrapped(false);
     void (async () => {
+      let wanderlySnapshot: WanderlyWorkspaceDTO | null = null;
+      let dests: DestCard[] = [];
       try {
         const res = await fetchWorkspace(sid);
         if (cancelled) return;
+        wanderlySnapshot = res.wanderly;
         const wanderly = res.wanderly;
         const restored = Boolean(res.wanderly_snapshot_restored);
-        const dests = (wanderly.destinations || []) as DestCard[];
+        dests = (wanderly.destinations || []) as DestCard[];
         const pills = (wanderly.profile_pills || []) as ProfilePill[];
         if (dests.length > 0) {
           const normalized = dests.map((d) => {
@@ -587,6 +603,12 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       } catch {
         /* offline or server down */
       } finally {
+        if (!cancelled) {
+          const meta = resolveTripMetaForSession(sid, wanderlySnapshot?.trip_meta ?? null);
+          setTripId(meta.trip_id);
+          setTripNameState(meta.trip_name);
+          saveTripMetaForSession(sid, meta);
+        }
         if (!cancelled) setWanderlyWorkspaceBootstrapped(true);
       }
     })();
@@ -594,6 +616,17 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId.trim() || !tripId.trim()) return;
+    const t = window.setTimeout(() => {
+      saveTripMetaForSession(sessionId, { trip_id: tripId, trip_name: tripName });
+      void syncUi(sessionId, destinationsRef.current as unknown[], {
+        tripMeta: { trip_id: tripId, trip_name: tripName },
+      }).catch(() => {});
+    }, 450);
+    return () => clearTimeout(t);
+  }, [sessionId, tripId, tripName]);
 
   const addMessage = useCallback((role: "user" | "agent", text: string, undoId?: string) => {
     setMessages((prev) => [...prev, { id: crypto.randomUUID(), role, text, ts: Date.now(), undoId }]);
@@ -679,14 +712,25 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const startNewTrip = useCallback(async () => {
     plannerAbortControllerRef.current?.abort();
     plannerAbortControllerRef.current = null;
+    const oldSid = sessionId.trim();
+    const oldTid = tripId.trim();
+    const oldTname = tripName.trim() || "Untitled trip";
+    if (oldSid && oldTid) {
+      recordTripInSavedIndex({ trip_id: oldTid, session_id: oldSid, trip_name: oldTname });
+    }
     const out = await newTrip(sessionId);
     const sid = out.session_id;
+    const ntid = crypto.randomUUID();
+    const nname = "Untitled trip";
+    saveTripMetaForSession(sid, { trip_id: ntid, trip_name: nname });
     try {
       localStorage.setItem("wanderly_session_id", sid);
     } catch {
       /* ignore */
     }
     setSessionId(sid);
+    setTripId(ntid);
+    setTripNameState(nname);
     setPendingAgentProfileProposal(null);
     setDestinations([]);
     setProfile([]);
@@ -704,8 +748,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setPendingRefineText(null);
     setComposerPrefill(null);
     setRefineUnlockCardNavigation(false);
-    await syncUi(sid, []).catch(() => {});
-  }, [sessionId]);
+    await syncUi(sid, [], { tripMeta: { trip_id: ntid, trip_name: nname } }).catch(() => {});
+  }, [sessionId, tripId, tripName]);
 
   const dismissResponse = useCallback((id: string) => {
     setResponses((prev) => prev.map(i => i.id === id ? { ...i, dismissed: true } : i));
@@ -843,6 +887,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         itineraryLaneQueueDepth,
         hasStarted, setHasStarted,
         sessionId, setSessionId,
+        tripId, tripName, setTripName,
         enrichmentPending, setEnrichmentPending,
         pendingRefineText, setPendingRefineText,
         composerPrefill, setComposerPrefill,
