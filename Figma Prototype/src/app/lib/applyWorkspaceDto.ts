@@ -246,6 +246,71 @@ export function mergeProfilePillsFromDto(
     .filter((p) => p.key !== "tags");
 }
 
+/** Mapper / partial workspace JSON often emits placeholder pill text — do not replace substantive traveler choices. */
+function isWeakTravelerProfileValue(key: string, value: string): boolean {
+  const v = value.trim().toLowerCase();
+  if (!v) return true;
+  if (/^(not specified|not specified yet|n\/a|tbd|unknown|—|--)$/.test(v)) return true;
+  if (key === "from") {
+    if (v.includes("city or airport")) return true;
+  }
+  if (key === "budget") {
+    if (/not specified/.test(v)) return true;
+    if (v === "flexible" && !/\d/.test(value.replace(/\s/g, ""))) return true;
+  }
+  if (key === "duration") {
+    if (v === "balanced") return true;
+  }
+  if (key === "when" && v === "dates tbd") return true;
+  return false;
+}
+
+/**
+ * Like ``mergeProfilePillsFromDto``, but keeps prior pill text when the workspace would
+ * overwrite it with a placeholder (e.g. budget → "Not specified yet" after an itinerary-only refine).
+ */
+export function mergeProfilePillsConservative(
+  prior: ProfilePill[],
+  incoming: WanderlyWorkspaceDTO["profile_pills"],
+): ProfilePill[] {
+  const merged = mergeProfilePillsFromDto(prior, incoming);
+  return merged.map((pill) => {
+    const was = prior.find((p) => p.key === pill.key);
+    if (!was) return pill;
+    if (was.value === pill.value) return pill;
+    const nextWeak = isWeakTravelerProfileValue(pill.key, pill.value);
+    const priorWeak = isWeakTravelerProfileValue(pill.key, was.value);
+    if (nextWeak && !priorWeak) {
+      return { ...pill, value: was.value, label: was.label, icon: was.icon };
+    }
+    return pill;
+  });
+}
+
+/**
+ * Refine turns that mainly rebuild itineraries/cards should not replace sidebar traveler pills
+ * from workspace JSON (re-derived traveler state often lags the real sidebar).
+ */
+export function isItineraryPrimaryRefineMessage(message: string): boolean {
+  const m = message.trim();
+  if (!m) return false;
+  const ml = m.toLowerCase();
+  const asksItineraryCards =
+    /\b(update|refresh|rebuild|regenerate|rewrite|redo|revise)\b[\s\S]{0,220}\b(itineraries?|itinerary|day-by-day|day\s+plans?|schedule|cards?|shortlist|destination\s+cards?)\b/i.test(
+      ml,
+    ) ||
+    /\b(itineraries?|itinerary|day-by-day)\b[\s\S]{0,220}\b(update|refresh|rebuild|regenerate|rewrite|redo|revise|for\s+each|all|every)\b/i.test(
+      ml,
+    );
+  if (!asksItineraryCards) return false;
+  const asksProfileFields =
+    /\b(set|change|update|edit)\s+(my\s+)?(budget|duration|when|dates|origin|airport|travelers?|vibe|pace)\b/i.test(ml) ||
+    /\b(budget|duration)\s+(to|at)\s+/i.test(ml) ||
+    /\b(update|edit)\s+(my\s+)?(travel|traveler)\s+profile\b/i.test(ml) ||
+    /\b(profile\s+pills?|sidebar\s+profile)\b/i.test(ml);
+  return !asksProfileFields;
+}
+
 /** Regex: user message explicitly asks to change day-by-day / schedule wording. */
 const ITINERARY_INVALIDATE_MESSAGE_RE =
   /\b(itinerary|schedule|day-by-day|day\s*\d|days\s*\d|replace\s+day|change\s+day|revise(\s+the)?\s+plan|update\s+the\s+plan|update\s+(the\s+)?(itinerary|trip)|edit\s+days|swap\s+day|adjust\s+days|move\s+day|replan|redo\s+days|rebuild|regenerate|refresh\s+(the\s+)?(itinerary|plan)|shorten|extend|fewer\s+days|more\s+days)\b/i;
@@ -304,11 +369,14 @@ export function explainItineraryInvalidate(
     return { shouldInvalidate: false, reasons: ["compare_only_skip_invalidate"] };
   }
   const reasons: string[] = [];
+  if (isItineraryPrimaryRefineMessage(m)) {
+    reasons.push("itinerary_primary_refine");
+  }
   if (ITINERARY_INVALIDATE_MESSAGE_RE.test(m)) {
     reasons.push("user_message_itinerary_keywords");
   }
   if (incomingPills?.length) {
-    const merged = mergeProfilePillsFromDto(priorProfile, incomingPills);
+    const merged = mergeProfilePillsConservative(priorProfile, incomingPills);
     if (profileCriticalPillsSignature(merged) !== profileCriticalPillsSignature(priorProfile)) {
       reasons.push("profile_pills_critical_changed");
     }
@@ -384,6 +452,13 @@ export function applyWanderlyWorkspace(
     itineraryStalePlan?: ItineraryStalePlan;
     /** Current sidebar pills — merged with server pills by key so partial updates keep ``from``, etc. */
     priorProfile?: ProfilePill[];
+    /**
+     * How to merge ``w.profile_pills`` into the sidebar.
+     * - ``full``: replace/overlay per ``mergeProfilePillsFromDto`` (initial plan / smoke).
+     * - ``conservative``: keep substantive prior values when the workspace sends placeholders.
+     * - ``skip``: do not touch sidebar pills (itinerary-primary refines).
+     */
+    profilePillMergeMode?: "full" | "conservative" | "skip";
   },
 ) {
   const {
@@ -395,12 +470,21 @@ export function applyWanderlyWorkspace(
     markItinerariesStale,
     itineraryStalePlan: explicitPlan,
     priorProfile,
+    profilePillMergeMode,
   } = opts;
   const stalePlan: ItineraryStalePlan =
     explicitPlan ?? (markItinerariesStale ? { mode: "all" } : { mode: "none" });
 
   if (w.profile_pills?.length) {
-    setProfile(mergeProfilePillsFromDto(priorProfile ?? [], w.profile_pills));
+    const mode = profilePillMergeMode ?? "full";
+    const prior = priorProfile ?? [];
+    if (mode === "skip") {
+      /* Sidebar is source of truth — workspace pills are often rebuilt from partial traveler state. */
+    } else if (mode === "conservative") {
+      setProfile(mergeProfilePillsConservative(prior, w.profile_pills));
+    } else {
+      setProfile(mergeProfilePillsFromDto(prior, w.profile_pills));
+    }
   }
   if (w.destinations?.length) {
     const incoming = asDestCards(w.destinations);

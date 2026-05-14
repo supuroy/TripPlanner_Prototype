@@ -16,9 +16,10 @@ import {
   buildItineraryStalePlan,
   destinationsFromWorkspace,
   explainItineraryInvalidate,
+  isItineraryPrimaryRefineMessage,
   isPlanCompareOnlyQuestion,
   mergeHeroImagesFromEnriched,
-  mergeProfilePillsFromDto,
+  mergeProfilePillsConservative,
   needsHeroImageEnrichment,
 } from "../lib/applyWorkspaceDto";
 import { logItin } from "../lib/itineraryDebug";
@@ -171,7 +172,7 @@ export function CommandBar() {
                         String((p as { key?: unknown }).key ?? "").trim() !== "tags",
                     );
                     setProfile((cur) =>
-                      mergeProfilePillsFromDto(cur, sans as WanderlyWorkspaceDTO["profile_pills"]),
+                      mergeProfilePillsConservative(cur, sans as WanderlyWorkspaceDTO["profile_pills"]),
                     );
                   }
                   const note = (ev as { advisor_note?: unknown }).advisor_note;
@@ -208,6 +209,7 @@ export function CommandBar() {
           invalidateReasons: invExplain.reasons,
           messagePreview: text.slice(0, 160),
         });
+        const profilePillMergeMode = isItineraryPrimaryRefineMessage(text) ? "skip" : "conservative";
         applyWanderlyWorkspace(out.wanderly, {
           setProfile,
           setDestinations,
@@ -216,6 +218,7 @@ export function CommandBar() {
           priorDestinations: prior,
           priorProfile: priorProfile,
           itineraryStalePlan: stalePlan,
+          profilePillMergeMode,
         });
         /* Hero fetch + prefetch: run even when we may prompt for shortlist shrink confirmation. */
         scheduleHeroEnrichment({
@@ -455,7 +458,7 @@ export function CommandBar() {
                   typeof p === "object" &&
                   String((p as { key?: unknown }).key ?? "").trim() !== "tags",
               );
-              setProfile((cur) => mergeProfilePillsFromDto(cur, sans as WanderlyWorkspaceDTO["profile_pills"]));
+              setProfile((cur) => mergeProfilePillsConservative(cur, sans as WanderlyWorkspaceDTO["profile_pills"]));
             }
             const note = (ev as { advisor_note?: unknown }).advisor_note;
             if (typeof note === "string" && note.trim()) addInsight("info", note.trim());

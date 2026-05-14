@@ -1,7 +1,7 @@
 import { buildItinerary, syncUi } from "../../api/wanderly";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
 import type { DestCard, ProfilePill } from "../components/TripStore";
-import { destinationsFromWorkspace, mergeProfilePillsFromDto } from "./applyWorkspaceDto";
+import { destinationsFromWorkspace, mergeProfilePillsConservative } from "./applyWorkspaceDto";
 import { mergeItineraryBuildIntoDest } from "./itineraryMergeCard";
 import { logItin } from "./itineraryDebug";
 
@@ -142,7 +142,7 @@ export function scheduleWorkspaceItineraryPrefetch(opts: {
   delayMs?: number;
 }): void {
   const profile = opts.wanderly.profile_pills?.length
-    ? mergeProfilePillsFromDto(opts.priorProfile, opts.wanderly.profile_pills)
+    ? mergeProfilePillsConservative(opts.priorProfile, opts.wanderly.profile_pills)
     : opts.priorProfile;
   const merged = destinationsFromWorkspace(opts.wanderly, opts.priorDestinations) ?? [];
   const ex = opts.excludeDestinationId;
