@@ -515,7 +515,10 @@ function applyLocalGenerateReaction(
     });
   } else {
     setTimeout(() => {
-      addInsight("info", `Updated ${label.toLowerCase()} to "${value}". All plans re-evaluated.`);
+      addInsight(
+        "info",
+        `Updated ${label.toLowerCase()} to "${value}". Your saved itineraries were not changed; use the trip bar if you want the planner to rebuild them.`,
+      );
       setDestinations((prev) => prev.map((d) => ({ ...d, warnings: undefined })));
     }, 300);
   }
@@ -962,8 +965,9 @@ export function ProfilePanel() {
         </div>
         {hasPending && (
           <div className="mb-2 rounded-lg border border-amber-400/25 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-100/90 leading-snug">
-            You have unsaved traveler settings. Press <span className="font-medium text-white">Update trip</span> to
-            refresh itineraries and booking hints with your new choices.
+            You have unsaved traveler settings. Press <span className="font-medium text-white">Update trip</span> to save
+            them—existing itineraries and booking results stay until you ask the planner to refresh or follow an advisor
+            suggestion.
           </div>
         )}
         {hasPending && (

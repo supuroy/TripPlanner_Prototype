@@ -1,9 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO } from "../../types/workspace";
 import { planReview, fetchWorkspace, newTrip, syncUi } from "../../api/wanderly";
-import { clearAllBookingPipelineCompleted } from "../lib/bookingProgressIds";
 import { logItin } from "../lib/itineraryDebug";
-import { resetDestinationBookingState } from "../lib/resetDestinationBooking";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
 import { planReviewMarkdownForUi } from "../lib/planReviewMarkdown";
@@ -176,7 +174,7 @@ interface TripStoreType {
   profile: ProfilePill[];
   setProfile: (p: ProfilePill[]) => void;
   updateProfilePill: (key: string, value: string) => void;
-  /** Apply several pill edits at once (marks itineraries stale once, clears booking cache once). */
+  /** Replace traveler profile pills in the UI (no automatic itinerary rebuild or booking reset). */
   applyProfilePillBatch: (next: ProfilePill[]) => void;
   destinations: DestCard[];
   setDestinations: (d: DestCard[] | ((prev: DestCard[]) => DestCard[])) => void;
@@ -591,28 +589,19 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const applyProfilePillBatch = useCallback((next: ProfilePill[]) => {
     logItin("sidebar_profile_apply_batch", {
       keys: next.map((p) => p.key).join(","),
-      note: "Marks itinerary_dirty=true on ALL destinations (sidebar batch apply)",
+      note: "Traveler profile only; itineraries and booking left unchanged until user refines or rebuilds",
     });
     setProfile(next);
-    clearAllBookingPipelineCompleted();
-    setDestinations((prev) =>
-      prev.map((d) => ({ ...resetDestinationBookingState(d), itinerary_dirty: true })),
-    );
   }, []);
 
-  const updateProfilePill = useCallback(
-    (key: string, value: string) => {
-      let nextSnapshot: ProfilePill[] = [];
-      setProfile((prev) => {
-        nextSnapshot = prev.map((p) => (p.key === key ? { ...p, value } : p));
-        return nextSnapshot;
-      });
-      queueMicrotask(() => {
-        applyProfilePillBatch(nextSnapshot);
-      });
-    },
-    [applyProfilePillBatch],
-  );
+  const updateProfilePill = useCallback((key: string, value: string) => {
+    logItin("sidebar_profile_pill_edit", {
+      key,
+      valuePreview: value.slice(0, 80),
+      note: "Profile-only (no automatic itinerary invalidation)",
+    });
+    setProfile((prev) => prev.map((p) => (p.key === key ? { ...p, value } : p)));
+  }, []);
 
   // Push current state to undo stack
   const pushUndo = useCallback((label: string) => {
