@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback, useReducer, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
+  Trash2, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
   DollarSign, Hotel, Zap, AlertTriangle, ChevronLeft, ArrowRight,
   MapPin, Calendar, CheckCircle2, Loader2, ChevronDown, ChevronUp,
   RefreshCw, RotateCcw,
@@ -756,7 +756,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const pinTooltip = dest.pinned
     ? "Unpin this destination (remove the comparison highlight)"
     : "Pin this destination to keep it highlighted while you compare";
-  const dismissTooltip = "Dismiss this destination from your plan";
+  const dismissTooltip = "Remove this destination from your trip (discards this card)";
 
   return (
     <motion.div
@@ -868,7 +868,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
               className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
               aria-label={dismissTooltip}
             >
-              <X className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5" aria-hidden />
             </button>
           </div>
 
@@ -934,7 +934,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                   className="w-8 h-8 rounded-lg bg-white/[0.06] text-white/60 hover:text-white flex items-center justify-center border border-white/[0.08]"
                   aria-label={dismissTooltip}
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden />
                 </button>
               </div>
             </div>
@@ -1258,7 +1258,7 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
   const pinTooltip = dest.pinned
     ? "Unpin this destination (remove the comparison highlight)"
     : "Pin this destination to keep it highlighted while you compare";
-  const dismissTooltip = "Dismiss this destination from your plan";
+  const dismissTooltip = "Remove this destination from your trip (discards this card)";
 
   return (
     <motion.div
@@ -1342,7 +1342,7 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
             onClick={dismiss}
             className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
           >
-            <X className="w-3.5 h-3.5" />
+            <Trash2 className="w-3.5 h-3.5" aria-hidden />
           </button>
         </div>
 
