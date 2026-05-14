@@ -46,7 +46,7 @@ Rules:
 - itinerary: exactly N days; day 1..N inclusive; last day travel-out / fly home style.
 - items: short strings — no exact prices inside day bullets.
 - budget_guidance: include all seven keys with non-empty strings. The four long fields are for detail panels; the three *_short fields MUST be concise (hard cap ~40 characters each, no newlines) so they fit destination mini-cards — compress ranges and drop filler words.
-- booking_search_hints: OPTIONAL. Include only when confident. Use concrete cities/airport metros Expedia would recognize (avoid broad regions like "Tuscany" alone for flight endpoints). Omit the whole object if unsure.
+- booking_search_hints: OPTIONAL. Include only when confident. Use concrete cities/airport metros Expedia would recognize (avoid broad regions like "Tuscany" alone for flight endpoints). Never append prose suffixes like "-based" or " based" to city names (breaks Expedia typeahead). Omit the whole object if unsure.
 - Optional accent on 1-2 highlight days only; omit accent on most days.
 - Set `base` for every day to the overnight city/town. Day trips and excursions should keep the same `base` unless there is an actual lodging move that night.
 - Default pace should be comfortable, not exhausting. Avoid "run around every day" plans unless user explicitly asks for fast-paced / whirlwind / many-city hopping.

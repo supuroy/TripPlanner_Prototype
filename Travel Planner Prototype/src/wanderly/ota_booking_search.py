@@ -2111,6 +2111,25 @@ def _strip_route_date_noise(text: str) -> str:
     return s.strip(" ,·-|")
 
 
+def _strip_expedia_place_suffix_junk(text: str) -> str:
+    """
+    Remove LLM prose tails that are not Expedia place tokens (e.g. ``Seattle-based`` → ``Seattle``).
+
+    These often land in ``booking_search_hints.flight_to_label`` and produce ``to:`` segments that
+    never resolve, so Playwright keeps polling the same Flights-Search URL until timeout.
+    """
+    t = " ".join(str(text or "").split())
+    if not t:
+        return ""
+    # "-based" / trailing " based" before comma or end (not mid-word like "Lambased")
+    t = re.sub(r"(?i)-based(?=,|\s|$)", "", t)
+    t = re.sub(r"(?i)\s+based(?=,|\s|$)", "", t)
+    t = re.sub(r"(?i)-centric(?=,|\s|$)", "", t)
+    t = re.sub(r"(?i)-style(?=,|\s|$)", "", t)
+    t = re.sub(r"\s{2,}", " ", t)
+    return t.strip(" ,-|·")
+
+
 def _normalize_flight_location_label(text: str) -> str:
     """
     Normalize free-form destination labels into Expedia-friendly typeahead text.
@@ -2127,7 +2146,7 @@ def _normalize_flight_location_label(text: str) -> str:
     s = re.sub(r"\s*,\s*", ", ", s)
     s = re.sub(r"(,\s*){2,}", ", ", s)
     s = re.sub(r"\s{2,}", " ", s)
-    return s.strip(" ,")
+    return _strip_expedia_place_suffix_junk(s.strip(" ,"))
 
 
 def _is_broad_area_phrase(text: str) -> bool:
@@ -2477,7 +2496,9 @@ def _normalize_dest_booking_search_hints(dest: dict[str, Any]) -> dict[str, str]
     for k in _BOOKING_HINT_KEYS:
         v = str(raw.get(k) or "").strip()
         if v:
-            out[k] = " ".join(v.split())[:120]
+            v2 = " ".join(_strip_expedia_place_suffix_junk(v).split())[:120]
+            if v2:
+                out[k] = v2
     return out or None
 
 
@@ -2721,7 +2742,10 @@ def _collect_booking_prefetch_jobs(
     search_intent = _merge_profile_budget_into_hotel_search_intent(
         search_intent, profile_pills, calendar_nights=cal_nights, adults=adults
     )
-    from_l = _profile_pill_value(profile_pills, "from")
+    from_raw = _profile_pill_value(profile_pills, "from")
+    from_l = _normalize_flight_location_label(from_raw) if from_raw else None
+    if not (from_l or "").strip():
+        from_l = None
     to_l = _flight_to_label_for_booking(dest, route_hint)
     if not (to_l or "").strip():
         to_l = None
