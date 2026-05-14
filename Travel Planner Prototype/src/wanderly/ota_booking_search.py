@@ -3222,14 +3222,14 @@ def _hotel_option_from_snapshot(
             chunk = raw_html[lo:hi]
             # Prefer travel-assets hosted imagery near this listing.
             m = re.search(
-                r"https?://[^\"'\s>]*travel-assets[^\"'\s>]*\.(?:jpe?g|png|webp)",
+                r"https?://[^\"'\s>]*travel-assets[^\"'\s>]*\.(?:jpe?g|png|webp|avif)",
                 chunk,
                 flags=re.I,
             )
             if m:
                 return m.group(0)
             # Fallback to any image-like URL in this local chunk.
-            m2 = re.search(r"https?://[^\"'\s>]+\.(?:jpe?g|png|webp)", chunk, flags=re.I)
+            m2 = re.search(r"https?://[^\"'\s>]+\.(?:jpe?g|png|webp|avif)", chunk, flags=re.I)
             if m2:
                 return m2.group(0)
         return ""
@@ -3296,15 +3296,18 @@ def _hotel_option_from_snapshot(
     og = (extract_og_image_url(html) or "").strip()
     srp_img = (extract_hotel_srp_image_url(html) or "").strip()
     near_href_img = _image_near_listing_href(html, href)
-    if og:
-        image_used = og
-        image_src = "og_image"
+    # Prefer listing-adjacent thumbnails when we resolved a property link — ``og:image`` is often a generic
+    # destination/marketing still and does not track the chosen row; it also used to mask a missing
+    # ``near_listing`` extraction when the first anchor was a generic ``Hotel-Search?`` link.
+    if near_href_img:
+        image_used = near_href_img
+        image_src = "near_listing_href"
     elif srp_img:
         image_used = srp_img
         image_src = "srp_html_thumb"
-    elif near_href_img:
-        image_used = near_href_img
-        image_src = "near_listing_href"
+    elif og:
+        image_used = og
+        image_src = "og_image"
     elif (image_fallback or "").strip():
         image_used = image_fallback.strip()
         image_src = "itinerary_card"

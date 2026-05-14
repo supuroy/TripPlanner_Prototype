@@ -10,6 +10,21 @@ from urllib.parse import unquote
 from bs4 import BeautifulSoup
 
 
+def _hotel_anchor_href_priority(href: str) -> int:
+    """
+    Sort key for Expedia anchors: property/detail URLs before generic ``Hotel-Search?`` chrome links.
+
+    The SRP often includes early ``Hotel-Search?`` navigation anchors; choosing those first breaks
+    ``find(href)``-scoped thumbnail heuristics because the match is not near any listing card imagery.
+    """
+    h = (href or "").lower()
+    if "hotel-information" in h or re.search(r"\.h\d+\.", h) or ".h." in h:
+        return 0
+    if "hotel-search?" in h:
+        return 2
+    return 1
+
+
 def _urls_from_raw_hotel_info(html: str, *, limit: int) -> list[dict[str, str]]:
     """
     Fallback when Expedia renders listing URLs in JSON/script blobs instead of anchor tags.
@@ -38,6 +53,7 @@ def extract_candidate_links(html: str, *, limit: int = 15) -> list[dict[str, str
     soup = BeautifulSoup(html, "html.parser")
     out: list[dict[str, str]] = []
     seen: set[str] = set()
+    max_collect = max(80, limit * 5)
 
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
@@ -57,15 +73,22 @@ def extract_candidate_links(html: str, *, limit: int = 15) -> list[dict[str, str
                 continue
             seen.add(href)
             out.append({"href": href, "text": text[:500]})
-        if len(out) >= limit:
+        if len(out) >= max_collect:
             break
 
-    if out:
-        return out
+    # Property URLs are often duplicated inside JSON-LD / client state without a nearby <a> in the first N nodes.
+    for row in _urls_from_raw_hotel_info(html, limit=max(limit, 24)):
+        href = (row.get("href") or "").strip()
+        if not href or href in seen:
+            continue
+        seen.add(href)
+        out.append(row)
 
-    # Fallback: hydrate from raw HTML/script payloads.
-    out = _urls_from_raw_hotel_info(html, limit=limit)
-    return out
+    if not out:
+        return []
+
+    out.sort(key=lambda d: (_hotel_anchor_href_priority(d.get("href") or ""), d.get("href") or ""))
+    return out[:limit]
 
 
 def extract_document_title(html: str) -> str | None:
@@ -81,7 +104,7 @@ def extract_hotel_srp_image_url(html: str) -> str | None:
     """
     Best-effort hero/thumbnail from hotel SRP HTML when og:image is absent (Expedia embeds CDN URLs in markup/JSON).
     """
-    host_pat = r"https://[a-z0-9.-]*(?:travel-assets|expedia)\.com[^\"'\\<\s)]+\.(?:jpg|jpeg|png|webp)"
+    host_pat = r"https://[a-z0-9.-]*(?:travel-assets|expedia)\.com[^\"'\\<\s)]+\.(?:jpg|jpeg|png|webp|avif)"
     best: str | None = None
     for m in re.finditer(host_pat, html, flags=re.I):
         u = m.group(0).rstrip("\\).,;")
