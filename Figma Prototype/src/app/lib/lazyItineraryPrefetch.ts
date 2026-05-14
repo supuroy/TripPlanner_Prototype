@@ -110,7 +110,13 @@ export function enqueueBackgroundItineraryBuild(args: {
       args.setDestinations((prev) => {
         const next = prev.map((x) => {
           if (String(x.id) !== id) return x;
-          return mergeItineraryBuildIntoDest(x, rows, budget, res.booking_search_hints ?? null);
+          return mergeItineraryBuildIntoDest(
+            x,
+            rows,
+            budget,
+            res.booking_search_hints ?? null,
+            typeof res.needs_commercial_flight === "boolean" ? res.needs_commercial_flight : null,
+          );
         });
         queueMicrotask(() => {
           void syncUi(args.sessionId, next as unknown[]).catch(() => {});

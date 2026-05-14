@@ -260,6 +260,7 @@ export async function buildItinerary(
     itinerary: ItinDay[];
     budget_guidance?: ItineraryBudgetGuidance | null;
     booking_search_hints?: BookingSearchHints | null;
+    needs_commercial_flight?: boolean;
   }>(
     "/api/wanderly/build_itinerary",
     {
@@ -285,6 +286,7 @@ export async function buildItineraryStream(
   itinerary: ItinDay[];
   budget_guidance?: ItineraryBudgetGuidance | null;
   booking_search_hints?: BookingSearchHints | null;
+  needs_commercial_flight?: boolean;
 }> {
   const body: Record<string, unknown> = {
     session_id: sessionId,
@@ -302,6 +304,7 @@ export async function buildItineraryStream(
         itinerary: ItinDay[];
         budget_guidance?: ItineraryBudgetGuidance | null;
         booking_search_hints?: BookingSearchHints | null;
+        needs_commercial_flight?: boolean;
       }
     | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -319,6 +322,7 @@ export async function buildItineraryStream(
             const it = obj.itinerary;
             const bgRaw = (obj as { budget_guidance?: unknown }).budget_guidance;
             const bhRaw = (obj as { booking_search_hints?: unknown }).booking_search_hints;
+            const ncfRaw = (obj as { needs_commercial_flight?: unknown }).needs_commercial_flight;
             let budget_guidance: ItineraryBudgetGuidance | undefined;
             if (bgRaw && typeof bgRaw === "object" && !Array.isArray(bgRaw)) {
               budget_guidance = bgRaw as ItineraryBudgetGuidance;
@@ -327,12 +331,17 @@ export async function buildItineraryStream(
             if (bhRaw && typeof bhRaw === "object" && !Array.isArray(bhRaw)) {
               booking_search_hints = bhRaw as BookingSearchHints;
             }
+            let needs_commercial_flight: boolean | undefined;
+            if (typeof ncfRaw === "boolean") {
+              needs_commercial_flight = ncfRaw;
+            }
             result = {
               session_id: String(obj.session_id),
               destination_id: String(obj.destination_id),
               itinerary: Array.isArray(it) ? (it as ItinDay[]) : [],
               budget_guidance,
               booking_search_hints,
+              needs_commercial_flight,
             };
           }
         },

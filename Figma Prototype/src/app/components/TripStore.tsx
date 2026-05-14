@@ -70,6 +70,8 @@ export interface DestCard {
   booking_search_outline?: { stays?: Array<{ area?: string; nights?: number; label?: string }> };
   /** Optional Expedia-oriented flight labels from the itinerary LLM (concrete cities for URL building). */
   booking_search_hints?: { flight_to_label?: string; flight_return_from_label?: string };
+  /** Lazy itinerary JSON: when false, skip commercial flight booking (road / ground-only). */
+  needs_commercial_flight?: boolean;
 }
 
 export interface ItinDay {

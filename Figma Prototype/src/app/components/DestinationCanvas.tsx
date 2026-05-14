@@ -609,7 +609,13 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           setDestinations((prev) => {
             const next = prev.map((d) => {
               if (d.id !== dest.id) return d;
-              return mergeItineraryBuildIntoDest(d, rows, budget, res.booking_search_hints ?? null);
+              return mergeItineraryBuildIntoDest(
+                d,
+                rows,
+                budget,
+                res.booking_search_hints ?? null,
+                typeof res.needs_commercial_flight === "boolean" ? res.needs_commercial_flight : null,
+              );
             });
             queueMicrotask(() => {
               void syncUi(sessionId, next as unknown[]).catch(() => {});

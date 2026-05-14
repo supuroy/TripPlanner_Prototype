@@ -975,12 +975,13 @@ def booking_should_include_flight_search(
     profile_pills: list[dict[str, Any]] | None = None,
 ) -> bool:
     """
-    When the traveler + itinerary read as **ground / road / ferry** only (no commercial air),
-    skip Expedia flight SRP work so road trips (e.g. Tofino) do not fabricate flight rows.
-
-    If the card already has substantive non-placeholder flight rows or the text clearly mentions
-    flying, keep flight search enabled. Ambiguous cases default to **True** (preserve legacy behavior).
+    Prefer ``dest["needs_commercial_flight"]`` from the lazy itinerary agent JSON when set — that pass already
+    decided whether commercial flight booking applies. Otherwise infer from card flight rows + itinerary/profile text.
     """
+    raw_flag = dest.get("needs_commercial_flight")
+    if isinstance(raw_flag, bool):
+        return raw_flag
+
     pills = [p for p in (profile_pills or []) if isinstance(p, dict)]
     blob = _transport_hints_text_blob(dest, pills)
     blob_u = " ".join(blob.split()).upper()

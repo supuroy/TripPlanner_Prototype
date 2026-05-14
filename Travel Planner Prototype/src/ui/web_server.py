@@ -598,6 +598,7 @@ def run_web_server(
                         rows = itin_out.get("itinerary") or []
                         bg = itin_out.get("budget_guidance")
                         bsh = itin_out.get("booking_search_hints")
+                        ncf = itin_out.get("needs_commercial_flight")
                         print(
                             f"[web] /api/wanderly/build_itinerary ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -611,6 +612,7 @@ def run_web_server(
                             rows=len(rows),
                             budget=bool(bg),
                             booking_hints=bool(bsh),
+                            needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                         )
                         resp_body: dict[str, Any] = {
                             "session_id": sid,
@@ -620,6 +622,8 @@ def run_web_server(
                         }
                         if isinstance(bsh, dict) and bsh:
                             resp_body["booking_search_hints"] = bsh
+                        if isinstance(ncf, bool):
+                            resp_body["needs_commercial_flight"] = ncf
                         if rows:
                             patch_session_destination_itinerary(
                                 sid,
@@ -627,6 +631,7 @@ def run_web_server(
                                 itinerary=rows,
                                 budget_guidance=bg if isinstance(bg, dict) else None,
                                 booking_search_hints=bsh if isinstance(bsh, dict) else None,
+                                needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                             )
                         self._send_json(resp_body, status=200)
                     except Exception as exc:
@@ -705,6 +710,7 @@ def run_web_server(
                         rows = itin_out.get("itinerary") or []
                         bg = itin_out.get("budget_guidance")
                         bsh = itin_out.get("booking_search_hints")
+                        ncf = itin_out.get("needs_commercial_flight")
                         print(
                             f"[web] /api/wanderly/build_itinerary_stream ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -718,6 +724,7 @@ def run_web_server(
                             rows=len(rows),
                             budget=bool(bg),
                             booking_hints=bool(bsh),
+                            needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                         )
                         done_payload: dict[str, Any] = {
                             "type": "done",
@@ -728,6 +735,8 @@ def run_web_server(
                         }
                         if isinstance(bsh, dict) and bsh:
                             done_payload["booking_search_hints"] = bsh
+                        if isinstance(ncf, bool):
+                            done_payload["needs_commercial_flight"] = ncf
                         emit_itin(done_payload)
                         if rows:
                             patch_session_destination_itinerary(
@@ -736,6 +745,7 @@ def run_web_server(
                                 itinerary=rows,
                                 budget_guidance=bg if isinstance(bg, dict) else None,
                                 booking_search_hints=bsh if isinstance(bsh, dict) else None,
+                                needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                             )
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         _trace_itin_web(

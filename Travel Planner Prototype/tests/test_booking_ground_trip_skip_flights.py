@@ -5,6 +5,25 @@ from __future__ import annotations
 from src.wanderly.ota_booking_search import booking_should_include_flight_search
 
 
+def test_needs_commercial_flight_false_overrides_text() -> None:
+    dest = {
+        "needs_commercial_flight": False,
+        "itinerary": [{"day": 1, "label": "Fly home day", "items": ["Airport drop-off"]}],
+        "flights": [],
+    }
+    assert booking_should_include_flight_search(dest, []) is False
+
+
+def test_needs_commercial_flight_true_overrides_ground_text() -> None:
+    dest = {
+        "needs_commercial_flight": True,
+        "hook": "road trip",
+        "itinerary": [],
+        "flights": [],
+    }
+    assert booking_should_include_flight_search(dest, []) is True
+
+
 def test_road_trip_no_flying_skips_flights() -> None:
     dest = {
         "id": "tofino",

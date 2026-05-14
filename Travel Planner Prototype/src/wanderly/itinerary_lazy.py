@@ -39,7 +39,8 @@ Return ONLY one JSON object (no markdown fences, no prose before or after). Shap
   "booking_search_hints": {
     "flight_to_label": "Expedia typeahead string for flying TO this destination (e.g. primary gateway city + country)",
     "flight_return_from_label": "Expedia typeahead for the return leg departure city (usually the last overnight base / main airport city, NOT a vague region name)"
-  }
+  },
+  "needs_commercial_flight": true
 }
 
 Rules:
@@ -47,6 +48,7 @@ Rules:
 - items: short strings — no exact prices inside day bullets.
 - budget_guidance: include all seven keys with non-empty strings. The four long fields are for detail panels; the three *_short fields MUST be concise (hard cap ~40 characters each, no newlines) so they fit destination mini-cards — compress ranges and drop filler words.
 - booking_search_hints: OPTIONAL. Include only when confident. Use concrete cities/airport metros Expedia would recognize (avoid broad regions like "Tuscany" alone for flight endpoints). Never append prose suffixes like "-based" or " based" to city names (breaks Expedia typeahead). Omit the whole object if unsure.
+- needs_commercial_flight: REQUIRED boolean for downstream booking. Set **false** when the plan is **ground-only** (road trip, drive / rental car, train-only, ferry-only with no airline segments, or user said no flying). Set **true** when the plan assumes **commercial airline** travel (fly in/out, domestic flights between cities, obvious airport arrival days). If genuinely ambiguous, default **true** (safer for booking).
 - Optional accent on 1-2 highlight days only; omit accent on most days.
 - Set `base` for every day to the overnight city/town. Day trips and excursions should keep the same `base` unless there is an actual lodging move that night.
 - Default pace should be comfortable, not exhausting. Avoid "run around every day" plans unless user explicitly asks for fast-paced / whirlwind / many-city hopping.
@@ -149,13 +151,25 @@ def _normalize_booking_search_hints(raw: Any) -> dict[str, str] | None:
     return out or None
 
 
+def _normalize_needs_commercial_flight(raw: Any) -> bool | None:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("true", "yes", "1"):
+            return True
+        if s in ("false", "no", "0"):
+            return False
+    return None
+
+
 def _extract_itinerary_payload(
     raw_text: str,
-) -> tuple[list[Any], dict[str, str] | None, dict[str, str] | None]:
-    """Prefer wrapped ``{itinerary, budget_guidance, booking_search_hints?}``; fall back to bare JSON array."""
+) -> tuple[list[Any], dict[str, str] | None, dict[str, str] | None, bool | None]:
+    """Prefer wrapped object with itinerary; fall back to bare JSON array. Fourth value: explicit flight need flag."""
     t = _strip_code_fences(raw_text).lstrip("\ufeff")
     if not t:
-        return [], None, None
+        return [], None, None, None
     # Skip leading noise (models sometimes print a preamble before the JSON object)
     lead = t.lstrip()
     if lead and not lead.startswith(("{", "[")):
@@ -171,9 +185,10 @@ def _extract_itinerary_payload(
         if isinstance(top, dict) and isinstance(top.get("itinerary"), list):
             bg = _normalize_budget_guidance(top.get("budget_guidance"))
             bh = _normalize_booking_search_hints(top.get("booking_search_hints"))
-            return list(top["itinerary"]), bg, bh
+            ncf = _normalize_needs_commercial_flight(top.get("needs_commercial_flight"))
+            return list(top["itinerary"]), bg, bh, ncf
         if isinstance(top, list):
-            return top, None, None
+            return top, None, None, None
     except json.JSONDecodeError:
         pass
     for i, ch in enumerate(t):
@@ -184,11 +199,12 @@ def _extract_itinerary_payload(
             if isinstance(obj, dict) and isinstance(obj.get("itinerary"), list):
                 bg = _normalize_budget_guidance(obj.get("budget_guidance"))
                 bh = _normalize_booking_search_hints(obj.get("booking_search_hints"))
-                return list(obj["itinerary"]), bg, bh
+                ncf = _normalize_needs_commercial_flight(obj.get("needs_commercial_flight"))
+                return list(obj["itinerary"]), bg, bh, ncf
         except json.JSONDecodeError:
             continue
     legacy = _extract_json_array(raw_text) or []
-    return legacy, None, None
+    return legacy, None, None, None
 
 
 def _parse_itinerary_day_number(raw: Any) -> int | None:
@@ -554,10 +570,13 @@ def _itinerary_client_response(
     itinerary_rows: list[dict[str, Any]],
     budget: dict[str, str] | None,
     booking_hints: dict[str, str] | None,
+    needs_commercial_flight: bool | None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {"itinerary": itinerary_rows, "budget_guidance": budget}
     if booking_hints:
         out["booking_search_hints"] = booking_hints
+    if isinstance(needs_commercial_flight, bool):
+        out["needs_commercial_flight"] = needs_commercial_flight
     return out
 
 
@@ -602,7 +621,7 @@ def build_itinerary_for_destination(
         )
         raise
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    extracted, budget, booking_hints = _extract_itinerary_payload(raw)
+    extracted, budget, booking_hints, needs_cf = _extract_itinerary_payload(raw)
     out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
     out = _enforce_comfortable_hops(
         out,
@@ -622,7 +641,9 @@ def build_itinerary_for_destination(
     if not out and itinerary_debug_verbose():
         snippet = (raw or "").strip().replace("\r", "")[:2000]
         log_itinerary_build(f"DEBUG_EMPTY rid={rid} raw_head={snippet!r}")
-    return _itinerary_client_response(itinerary_rows=out, budget=budget, booking_hints=booking_hints)
+    return _itinerary_client_response(
+        itinerary_rows=out, budget=budget, booking_hints=booking_hints, needs_commercial_flight=needs_cf
+    )
 
 
 def build_itinerary_for_destination_streaming(
@@ -678,7 +699,7 @@ def build_itinerary_for_destination_streaming(
         )
         raise
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    extracted, budget, booking_hints = _extract_itinerary_payload(raw)
+    extracted, budget, booking_hints, needs_cf = _extract_itinerary_payload(raw)
     out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
     out = _enforce_comfortable_hops(
         out,
@@ -698,7 +719,9 @@ def build_itinerary_for_destination_streaming(
     if not out and itinerary_debug_verbose():
         snippet = (raw or "").strip().replace("\r", "")[:2000]
         log_itinerary_build(f"DEBUG_EMPTY rid={rid} raw_head={snippet!r}")
-    return _itinerary_client_response(itinerary_rows=out, budget=budget, booking_hints=booking_hints)
+    return _itinerary_client_response(
+        itinerary_rows=out, budget=budget, booking_hints=booking_hints, needs_commercial_flight=needs_cf
+    )
 
 
 def default_trip_days_from_pills(profile_pills: list[dict[str, Any]]) -> int:
