@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -11,6 +12,24 @@ class SmokeProfilePillDTO(BaseModel):
     value: str
     icon: str = "📌"
     editable: bool = True
+
+
+def _sanitize_traveler_place_pill_value(key: str, value: str) -> str:
+    """
+    Strip LLM prose tails from location-like pills (used verbatim in Expedia ``from:`` / typeahead).
+
+    Models sometimes emit ``Seattle-based`` or ``… based``; those yield broken flight URLs.
+    """
+    k = (key or "").strip().lower()
+    if k != "from":
+        return value
+    v = " ".join(str(value or "").split())
+    if not v:
+        return v
+    v = re.sub(r"(?i)-based(?=,|\s|$)", "", v)
+    v = re.sub(r"(?i)\s+based(?=,|\s|$)", "", v)
+    v = re.sub(r"(?i)-centric(?=,|\s|$)", "", v)
+    return " ".join(v.split()).strip(" ,-|")
 
 
 def coerce_profile_pill(p: dict[str, Any]) -> SmokeProfilePillDTO | None:
@@ -25,6 +44,9 @@ def coerce_profile_pill(p: dict[str, Any]) -> SmokeProfilePillDTO | None:
         return None
     if str(dto.key).strip() == "tags":
         return None
+    cleaned = _sanitize_traveler_place_pill_value(str(dto.key), str(dto.value))
+    if cleaned != str(dto.value):
+        dto = dto.model_copy(update={"value": cleaned})
     return dto
 
 

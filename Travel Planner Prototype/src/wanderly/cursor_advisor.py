@@ -100,6 +100,7 @@ Rules:
 - Infer from the latest user message; use prior pills + context only to disambiguate (prefer new facts over stale values).
 - If unknown, use concise placeholders (e.g. "Flexible dates", "Not specified") for the six required pills only.
 - If the user names a home city or airport (e.g. "from Seattle", "SEA"), set "from" accordingly.
+- **from** (and any city/airport you infer for it): use plain **OTA-style** place text only — e.g. ``Seattle, WA``, ``San Juan, PR``, ``SEA``, ``SFO``. Never narrative qualifiers like ``Seattle-based``, ``…-based hub``, or a trailing `` based``; those strings are not valid flight-search endpoints and confuse downstream tools.
 - **when**: travel dates **and** trip length if clear (e.g. "Apr 1–8 · 8 days"). **duration**: trip length ("1 week", "10 days") when not already fully covered in **when**; otherwise a short length placeholder — **not** intraday packing density. **vibe**: style + how busy days should feel (romantic, packed days, slow mornings, …). **who**: travelers and pets only (no budget, no dates).
 """.strip()
 
