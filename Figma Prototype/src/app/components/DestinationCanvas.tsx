@@ -10,6 +10,11 @@ import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTrip } from "./TripStore";
 import type { DestCard, ItinDay } from "./TripStore";
 import { syncUi, buildItineraryStream } from "../../api/wanderly";
+import {
+  clearBookingPipelineCompletedFor,
+  isBookingPipelineCompletedFor,
+  markBookingPipelineCompleted,
+} from "../lib/bookingProgressIds";
 import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
@@ -25,9 +30,6 @@ import {
 
 /** Auto-advance hero slideshow when multiple URLs (enrich / planner). */
 const HERO_SLIDE_MS = 4200;
-
-/** Per destination: booking timeline progressive load has completed once (session-scoped). */
-const bookingProgressDoneIds = new Set<string>();
 
 const VIBE_COLORS: Record<string, string> = {
   Culture: "bg-purple-500/20 text-purple-300",
@@ -507,7 +509,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
   const useCachedBookingTimeline =
     bookingTimelineRevision >= 0 &&
-    (bookingProgressDoneIds.has(dest.id) ||
+    (isBookingPipelineCompletedFor(dest.id) ||
       (Boolean(dest.readyToBook) &&
         liveBookingExtractLooksActionable(dest) &&
         !liveBookingPipelineStartedRef.current));
@@ -707,8 +709,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
   const onBookingFirstLoad = useCallback(() => {
     liveBookingPipelineStartedRef.current = false;
-    if (!bookingProgressDoneIds.has(dest.id)) {
-      bookingProgressDoneIds.add(dest.id);
+    if (!isBookingPipelineCompletedFor(dest.id)) {
+      markBookingPipelineCompleted(dest.id);
     }
     bumpBookingTimelineRevision();
   }, [dest.id]);
@@ -1072,7 +1074,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                             type="button"
                             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 py-3 text-[13px] font-medium text-white transition-colors hover:from-indigo-600 hover:to-purple-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
                             onClick={() => {
-                              bookingProgressDoneIds.delete(dest.id);
+                              clearBookingPipelineCompletedFor(dest.id);
                               liveBookingPipelineStartedRef.current = true;
                               setDestinations((prev) =>
                                 prev.map((d) => (d.id === dest.id ? { ...d, readyToBook: true } : d)),

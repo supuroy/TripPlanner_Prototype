@@ -1,6 +1,11 @@
 import type { AgentResponse, DestCard, ItinDay, ProfilePill } from "../components/TripStore";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
+import {
+  clearAllBookingPipelineCompleted,
+  clearBookingPipelineCompletedFor,
+} from "./bookingProgressIds";
 import { logItin } from "./itineraryDebug";
+import { resetDestinationBookingState } from "./resetDestinationBooking";
 
 function asDestCards(raw: unknown[]): DestCard[] {
   return raw.filter(Boolean).map((d) => {
@@ -386,13 +391,22 @@ export function applyWanderlyWorkspace(
         bypassItineraryPreserve: bypassPreserve,
         bypassItineraryPreserveOnlyIds: bypassOnlyIds,
       });
+      if (stalePlan.mode === "all") {
+        clearAllBookingPipelineCompleted();
+      } else if (stalePlan.mode === "focus") {
+        for (const sid of stalePlan.ids) {
+          clearBookingPipelineCompletedFor(sid);
+        }
+      }
       const final =
         stalePlan.mode === "none"
           ? merged
           : stalePlan.mode === "all"
-            ? merged.map((d) => ({ ...d, itinerary_dirty: true }))
+            ? merged.map((d) => ({ ...resetDestinationBookingState(d), itinerary_dirty: true }))
             : merged.map((d) =>
-                stalePlan.ids.includes(d.id) ? { ...d, itinerary_dirty: true } : d,
+                stalePlan.ids.includes(d.id)
+                  ? { ...resetDestinationBookingState(d), itinerary_dirty: true }
+                  : d,
               );
       if (stalePlan.mode !== "none") {
         logItin("apply_workspace_mark_itineraries_stale", {

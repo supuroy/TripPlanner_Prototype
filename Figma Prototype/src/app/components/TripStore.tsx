@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO } from "../../types/workspace";
 import { planReview, fetchWorkspace, newTrip, syncUi } from "../../api/wanderly";
+import { clearAllBookingPipelineCompleted } from "../lib/bookingProgressIds";
 import { logItin } from "../lib/itineraryDebug";
+import { resetDestinationBookingState } from "../lib/resetDestinationBooking";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
 import { planReviewMarkdownForUi } from "../lib/planReviewMarkdown";
@@ -591,7 +593,10 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       note: "Marks itinerary_dirty=true on ALL destinations (sidebar edit)",
     });
     setProfile((prev) => prev.map((p) => (p.key === key ? { ...p, value } : p)));
-    setDestinations((prev) => prev.map((d) => ({ ...d, itinerary_dirty: true })));
+    clearAllBookingPipelineCompleted();
+    setDestinations((prev) =>
+      prev.map((d) => ({ ...resetDestinationBookingState(d), itinerary_dirty: true })),
+    );
   }, []);
 
   // Push current state to undo stack
