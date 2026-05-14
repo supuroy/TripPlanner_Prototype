@@ -39,21 +39,6 @@ function googleSearchUrl(query: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(query.trim())}`;
 }
 
-/** Live routing / advisor / planner caption — mirrors main AgentResponses stream line */
-function CardLiveProgressStrip({ caption }: { caption: string }) {
-  const line = caption.trim() || "Working…";
-  return (
-    <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/[0.07] px-3 py-2">
-      <div className="flex items-start gap-2 min-w-0">
-        <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-indigo-400 mt-0.5" aria-hidden />
-        <p className="flex-1 min-w-0 text-[11px] leading-relaxed text-indigo-100/85 whitespace-pre-wrap break-words">
-          {line}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export function ConversationPanel({ destId, destName, mode, onModeChange }: ConversationPanelProps) {
   const {
     getConversation,
@@ -360,11 +345,6 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
   if (mode === "minimized") {
     return (
       <div className="flex flex-col border-t border-white/[0.06] bg-black/20">
-        {cardIsWaiting && sessionId?.trim() ? (
-          <div className="px-4 pt-3 pb-0">
-            <CardLiveProgressStrip caption={liveCaption} />
-          </div>
-        ) : null}
         <div className="flex items-center gap-2 px-4 py-3">
         <MessageSquare className="w-4 h-4 text-white/30" />
         <input
@@ -438,21 +418,8 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
             </div>
           </motion.div>
         )}
-        {preview && preview.id === "typing-placeholder" && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="px-4 py-2 border-b border-white/[0.04]"
-          >
-            <CardLiveProgressStrip caption={liveCaption} />
-          </motion.div>
-        )}
-
-        {/* Input bar — extra strip when busy without the typing preview row (e.g. web lookup) */}
+        {/* Input bar — live status only in the input placeholder (no duplicate strip above). */}
         <div className="flex flex-col gap-2 px-4 pt-2 pb-3">
-          {cardIsWaiting && sessionId?.trim() && preview?.id !== "typing-placeholder" ? (
-            <CardLiveProgressStrip caption={liveCaption} />
-          ) : null}
           <div className="flex items-center gap-2">
           <MessageSquare className="w-4 h-4 text-white/30" />
           <input
@@ -624,7 +591,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
                   <div className="flex items-start gap-2 min-w-0">
                     <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-indigo-400 mt-0.5" aria-hidden />
                     <p className="text-[12px] leading-relaxed text-white/65 whitespace-pre-wrap break-words">
-                      {liveCaption || "Working…"}
+                      Working on your question…
                     </p>
                   </div>
                 </div>
@@ -635,13 +602,8 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
         )}
       </div>
 
-      {/* Input area */}
+      {/* Input area — streaming status only in placeholder (no duplicate strip). */}
       <div className="border-t border-white/[0.06] px-4 py-3 bg-black/10">
-        {cardIsWaiting && sessionId?.trim() && !isTyping ? (
-          <div className="mb-2">
-            <CardLiveProgressStrip caption={liveCaption} />
-          </div>
-        ) : null}
         <div className="flex items-end gap-2">
           <textarea
             data-testid="wanderly-card-chat-input"

@@ -76,6 +76,7 @@ export function CommandBar() {
     setDestinations,
     setAgentStatus,
     setAgentStreamCaption,
+    agentStreamCaption,
     hasStarted,
     setHasStarted,
     destinations,
@@ -506,9 +507,10 @@ export function CommandBar() {
 
   const inputPlaceholder = (() => {
     if (isWorking) {
-      if (phase === "refining") return "Refining your trip…";
-      if (phase === "advising") return "Advisor reply…";
-      return "Working…";
+      const cap = agentStreamCaption.trim();
+      if (phase === "refining") return cap || "Refining your trip…";
+      if (phase === "advising") return cap || "Advisor reply…";
+      return cap || "Working…";
     }
     return hasStarted ? "Tell me what to change or refine..." : "Describe your dream trip...";
   })();
@@ -545,21 +547,10 @@ export function CommandBar() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {isWorking && (
-          <motion.div
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="mx-auto mb-2 max-w-2xl px-4 sm:px-6 flex flex-wrap items-center gap-2"
-          >
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.05] backdrop-blur-md border border-white/[0.08] w-fit">
-              <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
-              <span className="text-[12px] text-white/50">
-                {phase === "refining" ? "Adjusting…" : phase === "advising" ? "Advisor…" : "Working…"}
-              </span>
-            </div>
-            {(phase === "thinking" || phase === "streaming" || phase === "refining") && (
+      <div className="bg-gradient-to-t from-[#0a0a0f] via-[#0a0a0f]/95 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5 sm:pt-4">
+        <div className="mx-auto w-full max-w-2xl">
+          {(phase === "thinking" || phase === "streaming" || phase === "refining") && (
+            <div className="mb-2 flex justify-end">
               <button
                 type="button"
                 onClick={() => abortPlannerOperation()}
@@ -567,13 +558,8 @@ export function CommandBar() {
               >
                 Stop planner
               </button>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="bg-gradient-to-t from-[#0a0a0f] via-[#0a0a0f]/95 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5 sm:pt-4">
-        <div className="mx-auto w-full max-w-2xl">
+            </div>
+          )}
           <div className="flex items-center gap-3 bg-white/[0.07] border border-white/[0.1] rounded-2xl px-5 py-3 backdrop-blur-xl focus-within:border-white/[0.2] transition-all">
             <input
               ref={inputRef}

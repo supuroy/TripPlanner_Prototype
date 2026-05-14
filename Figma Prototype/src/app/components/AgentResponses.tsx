@@ -333,7 +333,7 @@ function ResponseCard({ response }: { response: AgentResponse }) {
 }
 
 export function AgentResponses() {
-  const { responses, phase, agentStatus, agentStreamCaption } = useTrip();
+  const { responses, phase, agentStatus } = useTrip();
   const scrollRef = useRef<HTMLDivElement>(null);
   const isWorking =
     phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising";
@@ -361,7 +361,10 @@ export function AgentResponses() {
               <p className="mb-1 text-[10px] uppercase tracking-wider text-white/30">Live progress</p>
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2.5">
                 <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-white/70">
-                  {agentStreamCaption.trim() || agentStatus || "Getting your trip ready…"}
+                  {agentStatus.trim() || "Trip planner is running…"}
+                </p>
+                <p className="mt-2 text-[11px] leading-snug text-white/35">
+                  Detailed status rotates in the trip bar input below.
                 </p>
               </div>
             </div>
@@ -395,13 +398,6 @@ export function AgentResponses() {
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-indigo-400" aria-hidden />
                 <span>{agentStatus || "Still working…"}</span>
               </div>
-              {agentStreamCaption.trim() ? (
-                <div className="mb-3 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
-                  <p className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-white/55">
-                    {agentStreamCaption.trim()}
-                  </p>
-                </div>
-              ) : null}
               <AgentPlanningSkeleton />
             </motion.div>
           )}
