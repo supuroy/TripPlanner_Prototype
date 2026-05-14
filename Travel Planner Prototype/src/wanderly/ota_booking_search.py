@@ -1039,6 +1039,38 @@ def _booking_include_flights_from_transport_plan(tp: Any) -> bool | None:
     return None
 
 
+def _booking_flight_gate_fingerprint(dest: dict[str, Any]) -> str:
+    """
+    Digest flight vs ground *inputs* so booking prepare / criteria caches invalidate when the
+    itinerary agent adds ``transport_plan`` or ``needs_commercial_flight`` changes without altering
+    day/label/base rows (which used to leave stale ``include_flight_search`` behind).
+    """
+    ncf = dest.get("needs_commercial_flight")
+    tp = dest.get("transport_plan")
+    tp_blob: Any = None
+    if isinstance(tp, dict):
+        segs = tp.get("commercial_flight_segments")
+        n_segs = len([x for x in segs if isinstance(x, dict)]) if isinstance(segs, list) else 0
+        tp_blob = {
+            "primary_mode": str(tp.get("primary_mode") or "").strip().lower(),
+            "n_segs": n_segs,
+            "summary": str(tp.get("summary") or "").strip()[:200],
+        }
+    flights = dest.get("flights")
+    fr0 = ""
+    ph0: Any = None
+    if isinstance(flights, list) and flights and isinstance(flights[0], dict):
+        f0 = flights[0]
+        fr0 = str(f0.get("route") or "").strip()[:160]
+        ph0 = f0.get("isPlaceholder")
+    payload = {"ncf": ncf, "tp": tp_blob, "flight0_route": fr0, "flight0_placeholder": ph0}
+    try:
+        raw = json.dumps(payload, sort_keys=True, default=str)
+    except TypeError:
+        raw = repr(payload)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def booking_should_include_flight_search(
     dest: dict[str, Any],
     profile_pills: list[dict[str, Any]] | None = None,
@@ -2116,6 +2148,7 @@ def build_booking_criteria(
         fp = date_hints_fingerprint(date_hints if isinstance(date_hints, dict) else None)
         snap = dict(ret)
         snap["_date_hints_fp"] = fp
+        snap["_flight_gate_fp"] = _booking_flight_gate_fingerprint(dest)
         set_booking_criteria_snapshot(sid, did, snap)
         booking_search_trace(
             "criteria_snapshot_stored",
@@ -2765,6 +2798,7 @@ def booking_prepare_request_fingerprint(
         "dh": date_hints if isinstance(date_hints, dict) else {},
         "itin": rows_digest,
         "hints": hints,
+        "flight_gate_fp": _booking_flight_gate_fingerprint(dest),
     }
     return hashlib.sha256(json.dumps(blob, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
@@ -3579,8 +3613,15 @@ def run_booking_search_step(
     sid = (session_id or "").strip()
     fp = date_hints_fingerprint(date_hints if isinstance(date_hints, dict) else None)
     t_crit = time.perf_counter()
+    cur_fg = _booking_flight_gate_fingerprint(dest) if sid else ""
     snap = get_booking_criteria_snapshot(sid, dest_id) if sid else None
-    if snap and isinstance(snap, dict) and snap.get("_date_hints_fp") == fp:
+    snap_fg = str(snap.get("_flight_gate_fp") or "") if isinstance(snap, dict) else ""
+    if (
+        snap
+        and isinstance(snap, dict)
+        and snap.get("_date_hints_fp") == fp
+        and snap_fg == cur_fg
+    ):
         meta = {k: v for k, v in snap.items() if not (isinstance(k, str) and k.startswith("_"))}
         crit_src = "snapshot"
     else:

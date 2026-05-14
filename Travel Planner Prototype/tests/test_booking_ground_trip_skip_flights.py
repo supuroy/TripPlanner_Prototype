@@ -208,3 +208,27 @@ def test_transport_plan_mixed_empty_segments_falls_through() -> None:
         "flights": [],
     }
     assert booking_should_include_flight_search(dest, []) is True
+
+
+def test_booking_prepare_fingerprint_includes_flight_gate() -> None:
+    """Prepare cache key must change when ``transport_plan`` / flags change without itinerary row edits."""
+    from src.wanderly.ota_booking_search import booking_prepare_request_fingerprint
+
+    dest = {
+        "id": "t",
+        "name": "Tofino",
+        "country": "Canada",
+        "itinerary": [{"day": 1, "label": "Drive", "base": "Tofino", "items": ["a", "b"]}],
+    }
+    fp_before = booking_prepare_request_fingerprint(dest, [], None)
+    dest2 = {
+        **dest,
+        "needs_commercial_flight": False,
+        "transport_plan": {
+            "primary_mode": "ground_only",
+            "summary": "Road trip",
+            "commercial_flight_segments": [],
+        },
+    }
+    fp_after = booking_prepare_request_fingerprint(dest2, [], None)
+    assert fp_before != fp_after

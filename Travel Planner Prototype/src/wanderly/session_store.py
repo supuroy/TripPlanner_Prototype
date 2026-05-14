@@ -289,6 +289,7 @@ def patch_session_destination_itinerary(
             out_list.append(row)
         return out_list if hit else None
 
+    changed = False
     with _lock:
         s = _sessions.setdefault(
             sid,
@@ -303,8 +304,11 @@ def patch_session_destination_itinerary(
             merged = merge_list(cur)
             if merged is not None:
                 s[key] = merged
+                changed = True
 
-    persist_wanderly_session_snapshot(sid)
+    if changed:
+        persist_wanderly_session_snapshot(sid)
+        clear_booking_prepare_caches(sid, did)
 
 
 def _apply_session_snapshot_blob_to_session_unlocked(s: dict[str, Any], blob: dict[str, Any]) -> None:
