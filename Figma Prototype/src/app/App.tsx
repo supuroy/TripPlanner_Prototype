@@ -98,6 +98,7 @@ function Workspace() {
     tripName,
     setTripName,
     tripId,
+    newTripTransitioning,
   } = useTrip();
 
   useEffect(() => {
@@ -188,7 +189,9 @@ function Workspace() {
             <button
               type="button"
               onClick={() => void startNewTrip()}
-              className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/85"
+              disabled={newTripTransitioning}
+              title={newTripTransitioning ? "Finishing new trip setup…" : undefined}
+              className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/85 disabled:cursor-wait disabled:opacity-40"
             >
               New trip
             </button>

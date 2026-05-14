@@ -140,6 +140,7 @@ export function CommandBar() {
     abortPlannerOperation,
     setRefineUnlockCardNavigation,
     stageAgentProfileProposal,
+    newTripTransitioning,
   } = useTrip();
   const [input, setInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -171,6 +172,7 @@ export function CommandBar() {
       confirmWorkspaceDrop = false,
       orchestrationHint: WanderlyOrchestrateResponse | null = null,
     ) => {
+      if (newTripTransitioning) return;
       setPhase("refining");
       setAgentStatus("Refining with AI…");
       streamDraftRef.current = { text: "" };
@@ -347,6 +349,7 @@ export function CommandBar() {
       setPlannerAbortController,
       setRefineUnlockCardNavigation,
       stageAgentProfileProposal,
+      newTripTransitioning,
     ],
   );
 
@@ -370,6 +373,7 @@ export function CommandBar() {
   ]);
 
   const runAgent = async (text: string) => {
+    if (newTripTransitioning) return;
     addResponse({ type: "message", role: "user", text });
     setHasStarted(true);
     setShowSuggestions(false);
@@ -593,6 +597,7 @@ export function CommandBar() {
   };
 
   const handleSubmit = () => {
+    if (newTripTransitioning) return;
     if (!input.trim() || phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising")
       return;
     void runAgent(input.trim());
@@ -602,6 +607,7 @@ export function CommandBar() {
     phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising";
 
   const inputPlaceholder = (() => {
+    if (newTripTransitioning) return "Starting new trip…";
     if (isWorking) {
       const cap = agentStreamCaption.trim();
       if (phase === "refining") return cap || "Refining your trip…";
@@ -667,12 +673,17 @@ export function CommandBar() {
               aria-busy={isWorking}
               className="flex-1 bg-transparent text-white/90 placeholder:text-white/25 outline-none text-[15px]"
               disabled={
-                phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising"
+                newTripTransitioning ||
+                phase === "thinking" ||
+                phase === "streaming" ||
+                phase === "refining" ||
+                phase === "advising"
               }
             />
             <button
               onClick={handleSubmit}
               disabled={
+                newTripTransitioning ||
                 !input.trim() ||
                 phase === "thinking" ||
                 phase === "streaming" ||
