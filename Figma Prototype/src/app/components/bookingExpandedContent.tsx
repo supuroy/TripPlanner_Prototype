@@ -1171,6 +1171,7 @@ export function BookingTimelineFace({
     if (runMode === "demo") return true;
     if (runMode === "cached") return true;
     if (prepareError) return true;
+    if (runMode === "live" && preparePending && !prepareError) return false;
     // In live mode, render the full planned lodging path immediately.
     // Placeholder rows are prebuilt from itinerary and later replaced in-place by real results.
     if (hotels[idx]?.isPlaceholder) return true;
@@ -1197,7 +1198,13 @@ export function BookingTimelineFace({
   };
 
   const showFlightSection =
-    (flights.length > 0 || runMode === "live" || runMode === "demo") && !(runMode === "live" && liveSkipFlights);
+    (flights.length > 0 || runMode === "live" || runMode === "demo") &&
+    !(runMode === "live" && liveSkipFlights) &&
+    /* No flight / hotel timeline chrome until prepare returns — avoids empty plane icons during criteria summary. */
+    !(runMode === "live" && preparePending && !prepareError);
+
+  /** Hide the vertical spine and timeline nodes while live criteria prepare is in flight (cleaner first paint). */
+  const hideLivePrepareTimelineChrome = runMode === "live" && preparePending && !prepareError;
   const showCriteriaBlock = runMode === "live" && sessionId;
 
   const livePipelineIdle =
@@ -1238,10 +1245,12 @@ export function BookingTimelineFace({
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
       <div className="relative lg:col-span-2">
-        <div
-          className="pointer-events-none absolute bottom-0 left-9 top-8 w-px bg-gradient-to-b from-indigo-500/40 via-purple-500/40 to-indigo-500/40"
-          aria-hidden
-        />
+        {!hideLivePrepareTimelineChrome ? (
+          <div
+            className="pointer-events-none absolute bottom-0 left-9 top-8 w-px bg-gradient-to-b from-indigo-500/40 via-purple-500/40 to-indigo-500/40"
+            aria-hidden
+          />
+        ) : null}
         <div className="relative space-y-6 pl-12">
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
