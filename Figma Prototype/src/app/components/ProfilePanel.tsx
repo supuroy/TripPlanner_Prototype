@@ -843,7 +843,7 @@ export function ProfilePanel() {
     const priorProfile = profile.map((p) => ({ ...p }));
     const destForAdvisor = destinations as unknown as Record<string, unknown>[];
 
-    if (!sessionId || destSnap.length === 0) {
+    if (!sessionId || destinations.length === 0) {
       applyProfilePillBatch(nextDraft);
       setDraftProfile(null);
       const changed = nextDraft.find(
@@ -934,7 +934,7 @@ export function ProfilePanel() {
         applyLocalGenerateReaction(d0.key, d0.new, d0.label, addInsight, setDestinations);
       }
     } catch {
-      /* keep draft so user can retry */
+      addInsight("warning", "Could not save traveler profile to the server. Check your connection and try again.");
     } finally {
       setApplyBusy(false);
     }
