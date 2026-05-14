@@ -176,6 +176,8 @@ interface TripStoreType {
   profile: ProfilePill[];
   setProfile: (p: ProfilePill[]) => void;
   updateProfilePill: (key: string, value: string) => void;
+  /** Apply several pill edits at once (marks itineraries stale once, clears booking cache once). */
+  applyProfilePillBatch: (next: ProfilePill[]) => void;
   destinations: DestCard[];
   setDestinations: (d: DestCard[] | ((prev: DestCard[]) => DestCard[])) => void;
   
@@ -586,18 +588,31 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setInsights((prev) => prev.map(i => i.id === id ? { ...i, dismissed: true } : i));
   }, []);
 
-  const updateProfilePill = useCallback((key: string, value: string) => {
-    logItin("sidebar_profile_pill_edit", {
-      key,
-      valuePreview: value.slice(0, 80),
-      note: "Marks itinerary_dirty=true on ALL destinations (sidebar edit)",
+  const applyProfilePillBatch = useCallback((next: ProfilePill[]) => {
+    logItin("sidebar_profile_apply_batch", {
+      keys: next.map((p) => p.key).join(","),
+      note: "Marks itinerary_dirty=true on ALL destinations (sidebar batch apply)",
     });
-    setProfile((prev) => prev.map((p) => (p.key === key ? { ...p, value } : p)));
+    setProfile(next);
     clearAllBookingPipelineCompleted();
     setDestinations((prev) =>
       prev.map((d) => ({ ...resetDestinationBookingState(d), itinerary_dirty: true })),
     );
   }, []);
+
+  const updateProfilePill = useCallback(
+    (key: string, value: string) => {
+      let nextSnapshot: ProfilePill[] = [];
+      setProfile((prev) => {
+        nextSnapshot = prev.map((p) => (p.key === key ? { ...p, value } : p));
+        return nextSnapshot;
+      });
+      queueMicrotask(() => {
+        applyProfilePillBatch(nextSnapshot);
+      });
+    },
+    [applyProfilePillBatch],
+  );
 
   // Push current state to undo stack
   const pushUndo = useCallback((label: string) => {
@@ -793,6 +808,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         phase, setPhase,
         profile, setProfile,
         updateProfilePill,
+        applyProfilePillBatch,
         destinations, setDestinations,
         messages, addMessage,
         insights, addInsight, dismissInsight,
