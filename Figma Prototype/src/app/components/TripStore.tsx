@@ -174,8 +174,12 @@ interface TripStoreType {
   profile: ProfilePill[];
   setProfile: (p: ProfilePill[]) => void;
   updateProfilePill: (key: string, value: string) => void;
-  /** Replace traveler profile pills in the UI (no automatic itinerary rebuild or booking reset). */
-  applyProfilePillBatch: (next: ProfilePill[]) => void;
+  /** Planner returned different traveler pills than the sidebar — confirm before applying. */
+  pendingAgentProfileProposal: ProfilePill[] | null;
+  /** Store a planner-suggested profile for in-chat confirmation (does not replace sidebar until confirmed). */
+  stageAgentProfileProposal: (proposed: ProfilePill[]) => void;
+  confirmAgentProfileProposal: () => void;
+  dismissAgentProfileProposal: () => void;
   destinations: DestCard[];
   setDestinations: (d: DestCard[] | ((prev: DestCard[]) => DestCard[])) => void;
   
@@ -505,6 +509,23 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [wanderlyWorkspaceBootstrapped, setWanderlyWorkspaceBootstrapped] = useState(false);
   const [sessionId, setSessionId] = useState<string>(readOrCreateSessionId);
   const [enrichmentPending, setEnrichmentPending] = useState(false);
+  const [pendingAgentProfileProposal, setPendingAgentProfileProposal] = useState<ProfilePill[] | null>(null);
+
+  const stageAgentProfileProposal = useCallback((proposed: ProfilePill[]) => {
+    setPendingAgentProfileProposal(proposed);
+  }, []);
+
+  const dismissAgentProfileProposal = useCallback(() => {
+    setPendingAgentProfileProposal(null);
+  }, []);
+
+  const confirmAgentProfileProposal = useCallback(() => {
+    setPendingAgentProfileProposal((cur) => {
+      if (cur?.length) setProfile(cur);
+      return null;
+    });
+  }, []);
+
   const [pendingRefineText, setPendingRefineText] = useState<string | null>(null);
   const [composerPrefill, setComposerPrefill] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
@@ -591,10 +612,12 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       keys: next.map((p) => p.key).join(","),
       note: "Traveler profile only; itineraries and booking left unchanged until user refines or rebuilds",
     });
+    setPendingAgentProfileProposal(null);
     setProfile(next);
   }, []);
 
   const updateProfilePill = useCallback((key: string, value: string) => {
+    setPendingAgentProfileProposal(null);
     logItin("sidebar_profile_pill_edit", {
       key,
       valuePreview: value.slice(0, 80),
@@ -664,6 +687,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
     setSessionId(sid);
+    setPendingAgentProfileProposal(null);
     setDestinations([]);
     setProfile([]);
     setResponses([]);
@@ -798,6 +822,10 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         profile, setProfile,
         updateProfilePill,
         applyProfilePillBatch,
+        pendingAgentProfileProposal,
+        stageAgentProfileProposal,
+        confirmAgentProfileProposal,
+        dismissAgentProfileProposal,
         destinations, setDestinations,
         messages, addMessage,
         insights, addInsight, dismissInsight,

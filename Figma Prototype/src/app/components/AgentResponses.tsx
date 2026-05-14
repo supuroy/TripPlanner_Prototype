@@ -333,7 +333,14 @@ function ResponseCard({ response }: { response: AgentResponse }) {
 }
 
 export function AgentResponses() {
-  const { responses, phase, agentStatus } = useTrip();
+  const {
+    responses,
+    phase,
+    agentStatus,
+    pendingAgentProfileProposal,
+    confirmAgentProfileProposal,
+    dismissAgentProfileProposal,
+  } = useTrip();
   const scrollRef = useRef<HTMLDivElement>(null);
   const isWorking =
     phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising";
@@ -383,6 +390,37 @@ export function AgentResponses() {
         </div>
       ) : (
         <>
+          {pendingAgentProfileProposal && (
+            <div
+              className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-4"
+              role="region"
+              aria-label="Pending traveler profile changes from the planner"
+            >
+              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-amber-200/90">
+                Confirm traveler profile
+              </p>
+              <p className="mb-3 text-[12px] leading-relaxed text-white/65">
+                The planner suggested different profile values than your sidebar. Destination cards already used your
+                current profile. Apply only if you agree with the planner&apos;s version.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => confirmAgentProfileProposal()}
+                  className="rounded-lg bg-amber-500/90 px-3 py-2 text-[12px] font-medium text-zinc-950 hover:bg-amber-400"
+                >
+                  Apply suggested profile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismissAgentProfileProposal()}
+                  className="rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-[12px] text-white/80 hover:bg-white/[0.07]"
+                >
+                  Keep my profile
+                </button>
+              </div>
+            </div>
+          )}
           <AnimatePresence>
             {activeResponses.map((response) => (
               <ResponseCard key={response.id} response={response} />

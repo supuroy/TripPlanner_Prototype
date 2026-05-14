@@ -247,7 +247,7 @@ export function mergeProfilePillsFromDto(
 }
 
 /** Mapper / partial workspace JSON often emits placeholder pill text — do not replace substantive traveler choices. */
-function isWeakTravelerProfileValue(key: string, value: string): boolean {
+export function isWeakTravelerProfileValue(key: string, value: string): boolean {
   const v = value.trim().toLowerCase();
   if (!v) return true;
   if (/^(not specified|not specified yet|n\/a|tbd|unknown|—|--)$/.test(v)) return true;
@@ -263,6 +263,55 @@ function isWeakTravelerProfileValue(key: string, value: string): boolean {
   }
   if (key === "when" && v === "dates tbd") return true;
   return false;
+}
+
+export function normalizeProfilePillValueForCompare(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/** True when the sidebar has no real traveler constraints yet (first prompt / empty session). */
+export function isBlankTravelerProfile(pills: ProfilePill[]): boolean {
+  if (!pills.length) return true;
+  return pills.every((p) => isWeakTravelerProfileValue(p.key, p.value));
+}
+
+/** User clearly asked to edit traveler / trip constraints in the main bar (not only cards or itineraries). */
+export function workspaceUserExplicitTravelerProfileEditMessage(message: string): boolean {
+  const ml = message.trim().toLowerCase();
+  if (!ml) return false;
+  return (
+    /\b(set|change|update|edit)\s+(my\s+)?(budget|duration|trip length|length of trip|how long|when we|travel dates|dates|flying from|depart(ing)? from|origin|airport|home airport|travelers?|party size|group size|who('s| is) going|vibe|style|pace|trip style)\b/i.test(
+      ml,
+    ) ||
+    /\b(budget|duration)\s+(to|at|around|about)\b/i.test(ml) ||
+    /\b(we('re| are)|i('m| am))\s+(a\s+)?(couple|solo|family|group)\b/i.test(ml) ||
+    /\b(update|edit)\s+(my\s+)?(traveler|travel)\s+profile\b/i.test(ml) ||
+    /\b(profile|sidebar)\s+(pill|pills|field|fields)\b/i.test(ml)
+  );
+}
+
+export function profilePillsMeaningfullyDiffer(a: ProfilePill[], b: ProfilePill[]): boolean {
+  const keys = new Set([...a.map((p) => p.key), ...b.map((p) => p.key)]);
+  for (const k of keys) {
+    const va = a.find((p) => p.key === k)?.value ?? "";
+    const vb = b.find((p) => p.key === k)?.value ?? "";
+    if (normalizeProfilePillValueForCompare(va) !== normalizeProfilePillValueForCompare(vb)) return true;
+  }
+  return false;
+}
+
+export function formatProfileProposalDiffLines(baseline: ProfilePill[], proposed: ProfilePill[]): string {
+  const keys = new Set([...baseline.map((p) => p.key), ...proposed.map((p) => p.key)]);
+  const lines: string[] = [];
+  for (const k of [...keys].sort()) {
+    const label = baseline.find((p) => p.key === k)?.label ?? proposed.find((p) => p.key === k)?.label ?? k;
+    const bv = baseline.find((p) => p.key === k)?.value ?? "—";
+    const pv = proposed.find((p) => p.key === k)?.value ?? "—";
+    if (normalizeProfilePillValueForCompare(bv) !== normalizeProfilePillValueForCompare(pv)) {
+      lines.push(`**${label}**: ${bv} → ${pv}`);
+    }
+  }
+  return lines.length ? lines.join("\n") : "(No textual differences detected.)";
 }
 
 /**
