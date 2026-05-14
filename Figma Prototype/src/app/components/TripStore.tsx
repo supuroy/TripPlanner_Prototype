@@ -634,23 +634,21 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           setTripId(meta.trip_id);
           setTripNameState(meta.trip_name);
           saveTripMetaForSession(sid, meta);
+          setWanderlyWorkspaceBootstrapped(true);
+          /* Do not use a separate effect keyed on ``wanderlyWorkspaceBootstrapped``: on trip switch the first
+           * render can still have bootstrapped=true from the *previous* session while ``tripSwitchTransitioning``
+           * is true, which cleared the flag early and left the UI on the idle splash until refresh. */
+          if (tripSwitchTransitioningRef.current) {
+            tripSwitchTransitioningRef.current = false;
+            setTripSwitchTransitioning(false);
+          }
         }
-        if (!cancelled) setWanderlyWorkspaceBootstrapped(true);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [sessionId]);
-
-  /** End ``tripSwitchTransitioning`` once the new session's workspace bootstrap finishes. */
-  useEffect(() => {
-    if (!tripSwitchTransitioning) return;
-    if (wanderlyWorkspaceBootstrapped) {
-      tripSwitchTransitioningRef.current = false;
-      setTripSwitchTransitioning(false);
-    }
-  }, [tripSwitchTransitioning, wanderlyWorkspaceBootstrapped]);
 
   /** If destination cards exist but ``hasStarted`` stayed false (e.g. new-trip vs planner race), show the workspace. */
   useEffect(() => {
