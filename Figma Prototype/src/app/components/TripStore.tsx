@@ -1,5 +1,10 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
-import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../../types/workspace";
+import type {
+  ItineraryBudgetGuidance,
+  WanderlyProfilePillDTO,
+  WanderlyTransportPlan,
+  WanderlyWorkspaceDTO,
+} from "../../types/workspace";
 import { planReview, fetchWorkspace, newTrip, syncUi } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
@@ -79,6 +84,8 @@ export interface DestCard {
   booking_search_hints?: { flight_to_label?: string; flight_return_from_label?: string };
   /** Lazy itinerary JSON: when false, skip commercial flight booking (road / ground-only). */
   needs_commercial_flight?: boolean;
+  /** Itinerary agent structured transport (authoritative for booking vs regex fallback). */
+  transport_plan?: WanderlyTransportPlan;
 }
 
 export interface ItinDay {
@@ -88,6 +95,8 @@ export interface ItinDay {
   /** Overnight base from lazy itinerary LLM (used server-side for return flight origin). */
   base?: string;
   accent?: string;
+  /** Optional per-day movement mode from itinerary LLM (aligns with ``transport_plan``). */
+  day_transport?: { mode?: string; note?: string };
 }
 
 export interface FlightOption {

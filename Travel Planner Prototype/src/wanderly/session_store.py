@@ -252,6 +252,7 @@ def patch_session_destination_itinerary(
     budget_guidance: dict[str, Any] | None = None,
     booking_search_hints: dict[str, Any] | None = None,
     needs_commercial_flight: bool | None = None,
+    transport_plan: dict[str, Any] | None = None,
 ) -> None:
     """Merge a completed lazy itinerary into stored session rows and persist (survives tab close)."""
     sid = (session_id or "").strip()
@@ -283,6 +284,8 @@ def patch_session_destination_itinerary(
                 row["booking_search_hints"] = booking_search_hints
             if isinstance(needs_commercial_flight, bool):
                 row["needs_commercial_flight"] = needs_commercial_flight
+            if isinstance(transport_plan, dict) and transport_plan.get("primary_mode"):
+                row["transport_plan"] = transport_plan
             out_list.append(row)
         return out_list if hit else None
 

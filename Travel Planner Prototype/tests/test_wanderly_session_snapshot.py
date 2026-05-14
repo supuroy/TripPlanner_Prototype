@@ -121,6 +121,7 @@ def test_patch_session_destination_itinerary_updates_ui_and_last(
         itinerary=[{"day": 1, "label": "Day 1", "items": ["Museum"]}],
         budget_guidance={"notes": "mock"},
         needs_commercial_flight=False,
+        transport_plan={"primary_mode": "ground_only", "summary": "drive", "commercial_flight_segments": []},
     )
     s2 = ss.get_session(sid)
     assert len(s2["ui_destinations"][0]["itinerary"]) == 1
@@ -128,3 +129,4 @@ def test_patch_session_destination_itinerary_updates_ui_and_last(
     assert s2["last_destinations"][0]["itinerary_dirty"] is False
     assert s2["last_destinations"][0]["budget_guidance"]["notes"] == "mock"
     assert s2["ui_destinations"][0]["needs_commercial_flight"] is False
+    assert s2["ui_destinations"][0]["transport_plan"]["primary_mode"] == "ground_only"

@@ -599,6 +599,7 @@ def run_web_server(
                         bg = itin_out.get("budget_guidance")
                         bsh = itin_out.get("booking_search_hints")
                         ncf = itin_out.get("needs_commercial_flight")
+                        itp = itin_out.get("transport_plan")
                         print(
                             f"[web] /api/wanderly/build_itinerary ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -624,6 +625,8 @@ def run_web_server(
                             resp_body["booking_search_hints"] = bsh
                         if isinstance(ncf, bool):
                             resp_body["needs_commercial_flight"] = ncf
+                        if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip():
+                            resp_body["transport_plan"] = itp
                         if rows:
                             patch_session_destination_itinerary(
                                 sid,
@@ -632,6 +635,7 @@ def run_web_server(
                                 budget_guidance=bg if isinstance(bg, dict) else None,
                                 booking_search_hints=bsh if isinstance(bsh, dict) else None,
                                 needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
+                                transport_plan=itp if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip() else None,
                             )
                         self._send_json(resp_body, status=200)
                     except Exception as exc:
@@ -711,6 +715,7 @@ def run_web_server(
                         bg = itin_out.get("budget_guidance")
                         bsh = itin_out.get("booking_search_hints")
                         ncf = itin_out.get("needs_commercial_flight")
+                        itp = itin_out.get("transport_plan")
                         print(
                             f"[web] /api/wanderly/build_itinerary_stream ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -737,6 +742,8 @@ def run_web_server(
                             done_payload["booking_search_hints"] = bsh
                         if isinstance(ncf, bool):
                             done_payload["needs_commercial_flight"] = ncf
+                        if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip():
+                            done_payload["transport_plan"] = itp
                         emit_itin(done_payload)
                         if rows:
                             patch_session_destination_itinerary(
@@ -746,6 +753,7 @@ def run_web_server(
                                 budget_guidance=bg if isinstance(bg, dict) else None,
                                 booking_search_hints=bsh if isinstance(bsh, dict) else None,
                                 needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
+                                transport_plan=itp if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip() else None,
                             )
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         _trace_itin_web(

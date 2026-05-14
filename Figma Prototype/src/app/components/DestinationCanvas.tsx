@@ -615,6 +615,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                 budget,
                 res.booking_search_hints ?? null,
                 typeof res.needs_commercial_flight === "boolean" ? res.needs_commercial_flight : null,
+                res.transport_plan ?? null,
               );
             });
             queueMicrotask(() => {

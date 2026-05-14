@@ -164,3 +164,47 @@ def test_drive_route_skeleton_row_skips_flights() -> None:
         ],
     }
     assert booking_should_include_flight_search(dest, []) is False
+
+
+def test_transport_plan_ground_only_wins_over_needs_true() -> None:
+    """Structured ``transport_plan`` is authoritative vs the compact duplicate flag."""
+    dest = {
+        "needs_commercial_flight": True,
+        "transport_plan": {
+            "primary_mode": "ground_only",
+            "summary": "Drive + ferry only",
+            "commercial_flight_segments": [],
+        },
+        "itinerary": [{"day": 1, "label": "Arrive", "items": ["Flight wording in prose but no tickets"]}],
+    }
+    assert booking_should_include_flight_search(dest, []) is False
+
+
+def test_transport_plan_commercial_air_skips_heuristic_parse() -> None:
+    dest = {
+        "transport_plan": {
+            "primary_mode": "commercial_air",
+            "summary": "Fly in",
+            "commercial_flight_segments": [],
+        },
+        "hook": "ambiguous",
+        "itinerary": [],
+        "flights": [],
+    }
+    assert booking_should_include_flight_search(dest, []) is True
+
+
+def test_transport_plan_mixed_empty_segments_falls_through() -> None:
+    """``mixed`` without listed segments is ambiguous — fall back to heuristics."""
+    dest = {
+        "transport_plan": {"primary_mode": "mixed", "summary": "?", "commercial_flight_segments": []},
+        "itinerary": [
+            {
+                "day": 1,
+                "label": "Arrival",
+                "items": ["Flight to YYJ", "Pick up rental car"],
+            },
+        ],
+        "flights": [],
+    }
+    assert booking_should_include_flight_search(dest, []) is True

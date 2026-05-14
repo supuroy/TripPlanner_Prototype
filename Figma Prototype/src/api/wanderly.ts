@@ -2,6 +2,7 @@ import { apiFetch, apiPostSseJson } from "./client";
 import type {
   ItineraryBudgetGuidance,
   WanderlyProfilePillDTO,
+  WanderlyTransportPlan,
   WanderlyTripMeta,
   WanderlyWorkspaceDTO,
 } from "../types/workspace";
@@ -261,6 +262,7 @@ export async function buildItinerary(
     budget_guidance?: ItineraryBudgetGuidance | null;
     booking_search_hints?: BookingSearchHints | null;
     needs_commercial_flight?: boolean;
+    transport_plan?: WanderlyTransportPlan | null;
   }>(
     "/api/wanderly/build_itinerary",
     {
@@ -287,6 +289,7 @@ export async function buildItineraryStream(
   budget_guidance?: ItineraryBudgetGuidance | null;
   booking_search_hints?: BookingSearchHints | null;
   needs_commercial_flight?: boolean;
+  transport_plan?: WanderlyTransportPlan | null;
 }> {
   const body: Record<string, unknown> = {
     session_id: sessionId,
@@ -305,6 +308,7 @@ export async function buildItineraryStream(
         budget_guidance?: ItineraryBudgetGuidance | null;
         booking_search_hints?: BookingSearchHints | null;
         needs_commercial_flight?: boolean;
+        transport_plan?: WanderlyTransportPlan | null;
       }
     | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -323,6 +327,7 @@ export async function buildItineraryStream(
             const bgRaw = (obj as { budget_guidance?: unknown }).budget_guidance;
             const bhRaw = (obj as { booking_search_hints?: unknown }).booking_search_hints;
             const ncfRaw = (obj as { needs_commercial_flight?: unknown }).needs_commercial_flight;
+            const tpRaw = (obj as { transport_plan?: unknown }).transport_plan;
             let budget_guidance: ItineraryBudgetGuidance | undefined;
             if (bgRaw && typeof bgRaw === "object" && !Array.isArray(bgRaw)) {
               budget_guidance = bgRaw as ItineraryBudgetGuidance;
@@ -335,6 +340,15 @@ export async function buildItineraryStream(
             if (typeof ncfRaw === "boolean") {
               needs_commercial_flight = ncfRaw;
             }
+            let transport_plan: WanderlyTransportPlan | undefined;
+            if (
+              tpRaw &&
+              typeof tpRaw === "object" &&
+              !Array.isArray(tpRaw) &&
+              String((tpRaw as { primary_mode?: unknown }).primary_mode || "").trim()
+            ) {
+              transport_plan = tpRaw as WanderlyTransportPlan;
+            }
             result = {
               session_id: String(obj.session_id),
               destination_id: String(obj.destination_id),
@@ -342,6 +356,7 @@ export async function buildItineraryStream(
               budget_guidance,
               booking_search_hints,
               needs_commercial_flight,
+              transport_plan,
             };
           }
         },

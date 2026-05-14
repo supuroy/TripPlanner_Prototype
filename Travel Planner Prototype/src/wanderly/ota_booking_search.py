@@ -1014,14 +1014,49 @@ def _transport_hints_text_blob(
     return " ".join(parts)
 
 
+def _booking_include_flights_from_transport_plan(tp: Any) -> bool | None:
+    """
+    Primary gate for commercial flight search: structured ``transport_plan`` from the itinerary agent.
+
+    Returns ``None`` when the plan is absent or ambiguous so callers can fall back to legacy flags / heuristics.
+    """
+    if not isinstance(tp, dict):
+        return None
+    mode = str(tp.get("primary_mode") or "").strip().lower()
+    segs = tp.get("commercial_flight_segments")
+    n_segs = len([x for x in segs if isinstance(x, dict)]) if isinstance(segs, list) else 0
+
+    if mode == "ground_only":
+        if n_segs > 0:
+            return True
+        return False
+    if mode == "commercial_air":
+        return True
+    if mode == "mixed":
+        if n_segs > 0:
+            return True
+        return None
+    return None
+
+
 def booking_should_include_flight_search(
     dest: dict[str, Any],
     profile_pills: list[dict[str, Any]] | None = None,
 ) -> bool:
     """
-    Prefer ``dest["needs_commercial_flight"]`` from the lazy itinerary agent JSON when set — that pass already
-    decided whether commercial flight booking applies. Otherwise infer from card flight rows + itinerary/profile text.
+    Decide whether Expedia **commercial flight** search should run.
+
+    **Preference order**
+
+    1. ``dest["transport_plan"]`` from the itinerary builder (structured ``primary_mode`` + segments).
+    2. ``dest["needs_commercial_flight"]`` when set (compact legacy flag from the same pass).
+    3. Non-placeholder ``flights[]`` rows that look like airline inventory (not drive/ferry skeletons).
+    4. Regex / keyword heuristics on itinerary + profile text (last resort).
     """
+    planned = _booking_include_flights_from_transport_plan(dest.get("transport_plan"))
+    if planned is not None:
+        return planned
+
     raw_flag = dest.get("needs_commercial_flight")
     if isinstance(raw_flag, bool):
         return raw_flag
