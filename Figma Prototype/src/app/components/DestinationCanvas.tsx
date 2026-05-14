@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, useReducer, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
@@ -20,6 +20,7 @@ import {
   SummaryHotelStrip,
   BookingTimelineFace,
   computeBookingDateHints,
+  liveBookingExtractLooksActionable,
 } from "./bookingExpandedContent";
 
 /** Auto-advance hero slideshow when multiple URLs (enrich / planner). */
@@ -499,7 +500,17 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const itinStreamAssistantRef = useRef({ text: "" });
   const itinStreamThinkingRef = useRef({ text: "" });
   const [bookingFace, setBookingFace] = useState(false);
-  const [bookingHydrated, setBookingHydrated] = useState(() => bookingProgressDoneIds.has(dest.id));
+  /** True while the live Playwright booking pipeline is running for this card (blocks premature "cached" mode). */
+  const liveBookingPipelineStartedRef = useRef(false);
+  /** Increments when pipeline bookkeeping changes so we re-evaluate cached vs live (refs alone do not re-render). */
+  const [bookingTimelineRevision, bumpBookingTimelineRevision] = useReducer((x: number) => x + 1, 0);
+
+  const useCachedBookingTimeline =
+    bookingTimelineRevision >= 0 &&
+    (bookingProgressDoneIds.has(dest.id) ||
+      (Boolean(dest.readyToBook) &&
+        liveBookingExtractLooksActionable(dest) &&
+        !liveBookingPipelineStartedRef.current));
 
   useEffect(() => {
     setItinThought("");
@@ -507,7 +518,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     itinStreamThinkingRef.current = { text: "" };
     setItinErrorKind(null);
     setBookingFace(false);
-    setBookingHydrated(bookingProgressDoneIds.has(dest.id));
+    liveBookingPipelineStartedRef.current = false;
   }, [dest.id]);
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
@@ -695,10 +706,11 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   }, [dest.itinerary]);
 
   const onBookingFirstLoad = useCallback(() => {
+    liveBookingPipelineStartedRef.current = false;
     if (!bookingProgressDoneIds.has(dest.id)) {
       bookingProgressDoneIds.add(dest.id);
-      setBookingHydrated(true);
     }
+    bumpBookingTimelineRevision();
   }, [dest.id]);
 
   const readyToBook = Boolean(dest.readyToBook);
@@ -1061,7 +1073,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 py-3 text-[13px] font-medium text-white transition-colors hover:from-indigo-600 hover:to-purple-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
                             onClick={() => {
                               bookingProgressDoneIds.delete(dest.id);
-                              setBookingHydrated(false);
+                              liveBookingPipelineStartedRef.current = true;
                               setDestinations((prev) =>
                                 prev.map((d) => (d.id === dest.id ? { ...d, readyToBook: true } : d)),
                               );
@@ -1096,7 +1108,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                         dest={dest}
                         sessionId={sessionId}
                         profile={profile}
-                        useCachedResults={bookingHydrated}
+                        useCachedResults={useCachedBookingTimeline}
                         dateHints={computeBookingDateHints(profile, dest.itinerary?.length ?? 7)}
                         onSearchFinished={onBookingFirstLoad}
                       />
