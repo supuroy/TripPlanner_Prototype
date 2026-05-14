@@ -927,7 +927,8 @@ _GROUND_TRIP_TRANSPORT_HINT_RE = re.compile(
     r"\b(road\s*trip|driv(e|ing)|rental\s*car|self[-\s]?drive|by\s+car|"
     r"no\s+flying|without\s+flying|no\s+flights?|ground\s*only|drive-only|"
     r"overland|wheel\s+travel|\bferry\b|bc\s+ferries|car\s+ferry|"
-    r"pick(?:-|\s)?up\s+(?:your\s+)?(?:rental|car)|rent(?:al)?\s+car)\b",
+    r"pick(?:-|\s)?up\s+(?:your\s+)?(?:rental|car)|rent(?:al)?\s+car|"
+    r"drive\s+from\s+home|\(drive\s+from\s+home\))\b",
     re.I,
 )
 _COMMERCIAL_AIR_HINT_RE = re.compile(
@@ -936,6 +937,49 @@ _COMMERCIAL_AIR_HINT_RE = re.compile(
     r"domestic\s+air|international\s+air|in-?flight)\b",
     re.I,
 )
+# Strip negated no-flight wording before applying ``_COMMERCIAL_AIR_HINT_RE`` — otherwise ``\bflight\b``
+# matches the tail of "no flight" / "without flights" and falsely enables commercial flight search.
+_NEGATED_FLIGHT_PHRASE_RE = re.compile(
+    r"\b(?:no|not|without)\s+(?:a\s+)?(?:commercial\s+)?(?:flights?|flying)\b|"
+    r"\bno\s+flying\b|"
+    r"\bwithout\s+flying\b",
+    re.I,
+)
+
+
+def _blob_for_commercial_air_hints(blob: str) -> str:
+    return _NEGATED_FLIGHT_PHRASE_RE.sub(" ", blob or "")
+
+
+def _flight_row_implies_commercial_air(row: dict[str, Any]) -> bool:
+    """
+    Treat planner/UI "flight" skeleton rows that describe driving or ferries as **not** commercial air.
+    Otherwise a route like ``Seattle (drive from home) → Tofino`` forces flight search on a road trip.
+    """
+    rte = str(row.get("route") or "").strip().lower()
+    air = str(row.get("airline") or "").strip().lower()
+    combined = f"{air} {rte}".strip()
+    if not combined:
+        return False
+    low = combined.lower()
+    ground_markers = (
+        "drive",
+        "driving",
+        "ferry",
+        "overland",
+        "highway",
+        "rental car",
+        "from home",
+        "car ferry",
+        "bc ferries",
+        "self-drive",
+        "wheel travel",
+        "road trip",
+        "road-trip",
+    )
+    if any(m in low for m in ground_markers):
+        return False
+    return True
 
 
 def _transport_hints_text_blob(
@@ -981,10 +1025,17 @@ def booking_should_include_flight_search(
     raw_flag = dest.get("needs_commercial_flight")
     if isinstance(raw_flag, bool):
         return raw_flag
+    if isinstance(raw_flag, str):
+        s = raw_flag.strip().lower()
+        if s in ("true", "1", "yes", "y"):
+            return True
+        if s in ("false", "0", "no", "n"):
+            return False
 
     pills = [p for p in (profile_pills or []) if isinstance(p, dict)]
     blob = _transport_hints_text_blob(dest, pills)
-    blob_u = " ".join(blob.split()).upper()
+    blob_air = _blob_for_commercial_air_hints(blob)
+    blob_u = " ".join(blob_air.split()).upper()
 
     flights = dest.get("flights")
     if isinstance(flights, list):
@@ -992,6 +1043,8 @@ def booking_should_include_flight_search(
             if not isinstance(row, dict):
                 continue
             if row.get("isPlaceholder") is True:
+                continue
+            if not _flight_row_implies_commercial_air(row):
                 continue
             air = str(row.get("airline") or "").strip().lower()
             rte = str(row.get("route") or "").strip().lower()
@@ -1006,7 +1059,7 @@ def booking_should_include_flight_search(
             if re.search(r"\b[A-Z]{3}\s*[-–→]\s*[A-Z]{3}\b", rte_norm):
                 return True
 
-    air_explicit = bool(_COMMERCIAL_AIR_HINT_RE.search(blob)) or bool(
+    air_explicit = bool(_COMMERCIAL_AIR_HINT_RE.search(blob_air)) or bool(
         re.search(r"\b[A-Z]{3}\s*[-–→]\s*[A-Z]{3}\b", blob_u),
     )
     ground_explicit = bool(_GROUND_TRIP_TRANSPORT_HINT_RE.search(blob))

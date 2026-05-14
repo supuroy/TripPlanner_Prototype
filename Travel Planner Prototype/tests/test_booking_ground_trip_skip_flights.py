@@ -119,3 +119,48 @@ def test_mixed_ground_and_air_hints_keeps_flights() -> None:
         "flights": [],
     }
     assert booking_should_include_flight_search(dest, []) is True
+
+
+def test_no_flight_phrase_does_not_enable_commercial_air() -> None:
+    """``\\bflight\\b`` must not match the noun inside ``no flight`` / ``without flights``."""
+    dest = {
+        "id": "tofino",
+        "name": "Tofino",
+        "country": "Canada",
+        "hook": "Pacific Rim road trip",
+        "itinerary": [
+            {
+                "day": 1,
+                "label": "Getting there",
+                "items": ["No flight — drive from Seattle", "Ferry or highway option"],
+            },
+        ],
+        "flights": [],
+    }
+    pills = [{"key": "from", "value": "Seattle (drive from home)"}]
+    assert booking_should_include_flight_search(dest, pills) is False
+
+
+def test_needs_commercial_flight_string_false_skips() -> None:
+    dest = {"needs_commercial_flight": "false", "itinerary": [], "flights": [{"airline": "Delta", "route": "SEA-YYJ"}]}
+    assert booking_should_include_flight_search(dest, []) is False
+
+
+def test_drive_route_skeleton_row_skips_flights() -> None:
+    dest = {
+        "id": "tofino-bc",
+        "name": "Tofino",
+        "country": "Canada",
+        "hook": "Drive the island",
+        "itinerary": [],
+        "flights": [
+            {
+                "airline": "",
+                "route": "Seattle (drive from home) — Tofino, Canada",
+                "duration": "TBD",
+                "price": "TBD",
+                "best": True,
+            },
+        ],
+    }
+    assert booking_should_include_flight_search(dest, []) is False
