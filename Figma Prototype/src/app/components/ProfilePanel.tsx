@@ -2,7 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { profileChangeAdvisor, profilePatch } from "../../api/wanderly";
 import type { WanderlyProfilePillDTO } from "../../types/workspace";
-import { mapDtoPillsToProfile } from "../lib/applyWorkspaceDto";
+import { mapDtoPillsToProfile, mergeSubmittedProfileWithServerPills } from "../lib/applyWorkspaceDto";
 import { useTrip, ProfilePill, SuggestedAction, RESERVE_DESTINATIONS, type DestCard } from "./TripStore";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -858,9 +858,10 @@ export function ProfilePanel() {
     setApplyBusy(true);
     try {
       const { wanderly } = await profilePatch(sessionId, nextDraft as WanderlyProfilePillDTO[]);
-      const finalPills = wanderly.profile_pills?.length
+      const serverPills = wanderly.profile_pills?.length
         ? mapDtoPillsToProfile(wanderly.profile_pills)
-        : nextDraft;
+        : null;
+      const finalPills = mergeSubmittedProfileWithServerPills(nextDraft, priorProfile, serverPills);
       applyProfilePillBatch(finalPills);
       setDraftProfile(null);
 

@@ -199,6 +199,29 @@ export function mapDtoPillsToProfile(raw: WanderlyWorkspaceDTO["profile_pills"])
     }));
 }
 
+/**
+ * After ``profile_patch``, the server may echo pills from internal fields that lag the literal
+ * option the traveler chose (e.g. duration stored as ``Trip length:`` in notes). For keys the
+ * user actually edited, keep the submitted sidebar values so the UI does not flash back.
+ */
+export function mergeSubmittedProfileWithServerPills(
+  submitted: ProfilePill[],
+  priorCommitted: ProfilePill[],
+  serverPills: ProfilePill[] | null | undefined,
+): ProfilePill[] {
+  const changedKeys = new Set(
+    submitted
+      .filter((s) => (priorCommitted.find((p) => p.key === s.key)?.value ?? "") !== s.value)
+      .map((s) => s.key),
+  );
+  const base = serverPills?.length ? serverPills : submitted;
+  return base.map((pill) => {
+    if (!changedKeys.has(pill.key)) return pill;
+    const want = submitted.find((s) => s.key === pill.key);
+    return want ? { ...pill, value: want.value, label: want.label, icon: want.icon } : pill;
+  });
+}
+
 /** Overlay server pills onto the current sidebar so partial JSON never drops keys like ``from``. */
 export function mergeProfilePillsFromDto(
   prior: ProfilePill[],
