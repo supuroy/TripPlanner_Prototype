@@ -1,10 +1,10 @@
-import { useState, useMemo, useEffect, useRef, useCallback, useReducer, type ReactNode } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, useReducer, type ReactNode, type MouseEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
   DollarSign, Hotel, Zap, AlertTriangle, ChevronLeft, ArrowRight,
   MapPin, Calendar, CheckCircle2, Loader2, ChevronDown, ChevronUp,
-  RefreshCw,
+  RefreshCw, RotateCcw,
 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTrip } from "./TripStore";
@@ -15,6 +15,7 @@ import {
   isBookingPipelineCompletedFor,
   markBookingPipelineCompleted,
 } from "../lib/bookingProgressIds";
+import { resetDestinationBookingState } from "../lib/resetDestinationBooking";
 import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
@@ -25,6 +26,7 @@ import {
   SummaryHotelStrip,
   BookingTimelineFace,
   computeBookingDateHints,
+  destHasPersistentBookingSummary,
   liveBookingExtractLooksActionable,
 } from "./bookingExpandedContent";
 
@@ -289,11 +291,11 @@ function ActivityStrip({ dest }: { dest: DestCard }) {
 
 /** Itinerary-planner flight band (until live booking search returns real offers). */
 function PlannerFlightStrip({ dest }: { dest: DestCard }) {
-  if (!dest.flights || dest.flights.length === 0) return null;
   const flightBallpark = (
     dest.budget_guidance?.flight_ballpark || dest.budget_guidance?.flight_band_short || ""
   ).trim();
   const showFlightGuidance = hasMeaningfulEstimateText(flightBallpark);
+  if (!showFlightGuidance && (dest.flights?.length ?? 0) === 0) return null;
   return (
     <motion.div
       className="mt-4"
@@ -319,11 +321,11 @@ function PlannerFlightStrip({ dest }: { dest: DestCard }) {
 
 /** Itinerary-planner lodging band (until live booking search). */
 function PlannerHotelStrip({ dest }: { dest: DestCard }) {
-  if (!dest.hotels || dest.hotels.length === 0) return null;
   const lodgingNote = (
     dest.budget_guidance?.lodging_style || dest.budget_guidance?.lodging_band_short || ""
   ).trim();
   const showLodgingGuidance = hasMeaningfulEstimateText(lodgingNote);
+  if (!showLodgingGuidance && (dest.hotels?.length ?? 0) === 0) return null;
   return (
     <motion.div
       className="mt-4"
@@ -715,6 +717,34 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     bumpBookingTimelineRevision();
   }, [dest.id]);
 
+  const showReadyToBookCta = useMemo(() => {
+    if (dest.readyToBook) return false;
+    if ((dest.flights?.length ?? 0) > 0 || (dest.hotels?.length ?? 0) > 0) return true;
+    const fp = (dest.budget_guidance?.flight_ballpark || dest.budget_guidance?.flight_band_short || "").trim();
+    const lp = (dest.budget_guidance?.lodging_style || dest.budget_guidance?.lodging_band_short || "").trim();
+    return hasMeaningfulEstimateText(fp) || hasMeaningfulEstimateText(lp);
+  }, [dest.readyToBook, dest.flights?.length, dest.hotels?.length, dest.budget_guidance]);
+
+  const refreshBookingSummary = useCallback(() => {
+    clearBookingPipelineCompletedFor(dest.id);
+    liveBookingPipelineStartedRef.current = false;
+    setBookingFace(false);
+    setDestinations((prev) => {
+      const next = prev.map((d) => (d.id === dest.id ? resetDestinationBookingState(d) : d));
+      if (sessionId) {
+        queueMicrotask(() => {
+          void syncUi(sessionId, next as unknown[]).catch(() => {});
+        });
+      }
+      return next;
+    });
+    bumpBookingTimelineRevision();
+    addResponse({
+      type: "tip",
+      text: `Cleared saved flight and hotel results for ${dest.name}. Tap “Ready to Book” when you want fresh live prices.`,
+    });
+  }, [dest.id, dest.name, sessionId, setDestinations, addResponse]);
+
   const readyToBook = Boolean(dest.readyToBook);
   const flipTitle = !readyToBook
     ? "Click 'Ready to Book' to view booking details"
@@ -965,6 +995,21 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             )}
 
             <div className="mt-4 pt-4 border-t border-white/[0.06]">
+              {destHasPersistentBookingSummary(dest) ? (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                  <p className="text-[11px] text-white/40 leading-snug max-w-[min(100%,22rem)]">
+                    Saved prices may be from an older search or criteria. Refresh clears them for this destination.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={refreshBookingSummary}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-500/35 bg-indigo-500/15 px-2.5 py-1.5 text-[11px] font-medium text-indigo-200/95 hover:bg-indigo-500/25 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    Refresh booking
+                  </button>
+                </div>
+              ) : null}
               <div className="[perspective:1200px]">
                 <motion.div
                   className="relative grid grid-cols-1 [transform-style:preserve-3d]"
@@ -1069,7 +1114,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                           })()}
                         </motion.div>
 
-                        {!dest.readyToBook && (dest.flights?.length || dest.hotels?.length) ? (
+                        {showReadyToBookCta ? (
                           <button
                             type="button"
                             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 py-3 text-[13px] font-medium text-white transition-colors hover:from-indigo-600 hover:to-purple-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
@@ -1173,8 +1218,29 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
 /* ── Grid card (collapsed view) ── */
 function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolean }) {
-  const { setDestinations, setExpandedDest, addResponse } = useTrip();
+  const { setDestinations, setExpandedDest, addResponse, sessionId } = useTrip();
   const { src: heroSrc, count: heroCount, index: heroIndex } = useRotatingHeroSrc(dest, HERO_SLIDE_MS);
+
+  const refreshBookingOnCard = useCallback(
+    (e: MouseEvent) => {
+      e.stopPropagation();
+      clearBookingPipelineCompletedFor(dest.id);
+      setDestinations((prev) => {
+        const next = prev.map((d) => (d.id === dest.id ? resetDestinationBookingState(d) : d));
+        if (sessionId) {
+          queueMicrotask(() => {
+            void syncUi(sessionId, next as unknown[]).catch(() => {});
+          });
+        }
+        return next;
+      });
+      addResponse({
+        type: "tip",
+        text: `Cleared saved prices for ${dest.name}. Open the card and tap “Ready to Book” for a fresh search.`,
+      });
+    },
+    [dest.id, dest.name, sessionId, setDestinations, addResponse],
+  );
 
   const dismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1298,6 +1364,17 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
         {dest.commerce?.disclaimer && (
           <p className="text-[9px] text-white/25 mt-1">{dest.commerce.disclaimer}</p>
         )}
+
+        {destHasPersistentBookingSummary(dest) && !expandLocked ? (
+          <button
+            type="button"
+            onClick={refreshBookingOnCard}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2 py-1.5 text-[10px] font-medium text-indigo-200/90 hover:bg-indigo-500/20 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+          >
+            <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
+            Clear saved booking prices
+          </button>
+        ) : null}
 
         {/* Vibes */}
         <div className="flex flex-wrap gap-1 mt-3">

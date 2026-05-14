@@ -54,6 +54,15 @@ export function liveBookingExtractLooksActionable(dest: DestCard): boolean {
   return true;
 }
 
+/** True when this card still has merged live / restored OTA rows worth clearing manually. */
+export function destHasPersistentBookingSummary(dest: DestCard): boolean {
+  if (liveBookingExtractLooksActionable(dest)) return true;
+  if (dest.liveBookingEstimates && ((dest.flights?.length ?? 0) > 0 || (dest.hotels?.length ?? 0) > 0)) {
+    return true;
+  }
+  return false;
+}
+
 export function flightPriceRangeLabel(flights: FlightOption[]): string | null {
   if (!flights.length) return null;
   const nums = flights.map((f) => parsePriceDigits(f.price)).filter((n) => n > 0);
