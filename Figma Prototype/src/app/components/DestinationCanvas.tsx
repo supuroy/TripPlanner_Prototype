@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback, useReducer, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Trash2, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
+  Trash2, X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
   DollarSign, Hotel, Zap, AlertTriangle, ChevronLeft, ArrowRight,
   MapPin, Calendar, CheckCircle2, Loader2, ChevronDown, ChevronUp,
   RefreshCw, RotateCcw,
@@ -665,6 +665,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
   const dismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setExpandedDest(null);
     setDestinations((prev: DestCard[]) => prev.map(d => d.id === dest.id ? { ...d, dismissed: true } : d));
   };
 
@@ -681,6 +682,11 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
         relatedTo: dest.id,
       });
     }
+  };
+
+  const closeExpanded = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedDest(null);
   };
 
   // Extract location flow for trip visualization
@@ -757,6 +763,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     ? "Unpin this destination (remove the comparison highlight)"
     : "Pin this destination to keep it highlighted while you compare";
   const dismissTooltip = "Remove this destination from your trip (discards this card)";
+  const closeViewTooltip = "Close this view and return to all destinations (keeps this card on your trip)";
 
   return (
     <motion.div
@@ -863,6 +870,15 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             </button>
             <button
               type="button"
+              onClick={closeExpanded}
+              title={closeViewTooltip}
+              className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
+              aria-label={closeViewTooltip}
+            >
+              <X className="w-3.5 h-3.5" aria-hidden />
+            </button>
+            <button
+              type="button"
               onClick={dismiss}
               title={dismissTooltip}
               className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
@@ -926,6 +942,15 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                   aria-label={pinTooltip}
                 >
                   {dest.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={closeExpanded}
+                  title={closeViewTooltip}
+                  className="w-8 h-8 rounded-lg bg-white/[0.06] text-white/60 hover:text-white flex items-center justify-center border border-white/[0.08]"
+                  aria-label={closeViewTooltip}
+                >
+                  <X className="w-3.5 h-3.5" aria-hidden />
                 </button>
                 <button
                   type="button"
