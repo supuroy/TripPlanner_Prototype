@@ -108,6 +108,13 @@ def assistant_text_from_run_json(blob: dict[str, Any]) -> str:
         inner = assistant_text_from_run_json(out)
         if inner:
             return inner
+    resp = blob.get("response")
+    if isinstance(resp, dict):
+        inner = assistant_text_from_run_json(resp)
+        if inner:
+            return inner
+    if isinstance(resp, str) and resp.strip():
+        return resp.strip()
     return ""
 
 
@@ -126,6 +133,44 @@ def _assistant_text_from_run_resource(client: httpx.Client, agent_id: str, run_i
     if not isinstance(blob, dict):
         return ""
     return assistant_text_from_run_json(blob)
+
+
+def poll_run_for_assistant_text(
+    client: httpx.Client,
+    agent_id: str,
+    run_id: str,
+    *,
+    max_wait_s: float = 90.0,
+    interval_s: float = 0.45,
+) -> str:
+    """
+    Poll ``GET …/runs/{id}`` until assistant text appears or the run fails / timeout.
+    Used when SSE ``/stream`` consistently returns 409 (Cursor lifecycle / single-consumer semantics).
+    """
+    deadline = time.monotonic() + max_wait_s
+    terminal_fail = frozenset({"FAILED", "CANCELLED", "ERROR"})
+    while time.monotonic() < deadline:
+        try:
+            r = client.get(f"/v1/agents/{agent_id}/runs/{run_id}")
+            r.raise_for_status()
+            body = r.json()
+        except Exception:
+            time.sleep(interval_s)
+            continue
+        blob: Any = body
+        if isinstance(body, dict):
+            run_o = body.get("run")
+            if isinstance(run_o, dict):
+                blob = run_o
+        if isinstance(blob, dict):
+            txt = assistant_text_from_run_json(blob)
+            if txt.strip():
+                return txt.strip()
+            st = str(blob.get("status") or blob.get("state") or "").upper()
+            if st in terminal_fail:
+                break
+        time.sleep(interval_s)
+    return ""
 
 
 def load_env_from_roots(extra_roots: list[str] | None = None) -> None:
@@ -656,7 +701,7 @@ def _assistant_text_or_retry_sse(
                 f"run_tail={str(run_id)[-8:]!r} body_snip={_httpx_err_snip(e)!r}",
                 path=None,
             )
-            fb = _assistant_text_from_run_resource(client, agent_id, run_id)
+            fb = poll_run_for_assistant_text(client, agent_id, run_id, max_wait_s=75.0)
             return fb if (fb or "").strip() else text
         raise
     return retry if (retry or "").strip() else text
@@ -713,6 +758,16 @@ def run_prompt_collect_assistant_text(
                 )
                 raise
         if last_err:
+            if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
+                sc = last_err.response.status_code
+                if sc in _RETRYABLE_SSE_STATUS:
+                    polled = poll_run_for_assistant_text(client, agent_id, run_id)
+                    if polled.strip():
+                        _trace_cursor(
+                            f"sse_retries_exhausted_poll_ok mode=buffered sc={sc} run_tail={str(run_id)[-8:]!r}",
+                            path=tp,
+                        )
+                        return polled
             raise last_err
         return ""
 
@@ -786,6 +841,16 @@ def run_prompt_collect_assistant_text_streaming(
                 )
                 raise
         if last_err:
+            if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
+                sc = last_err.response.status_code
+                if sc in _RETRYABLE_SSE_STATUS:
+                    polled = poll_run_for_assistant_text(client, agent_id, run_id)
+                    if polled.strip():
+                        _trace_cursor(
+                            f"sse_retries_exhausted_poll_ok mode=streaming sc={sc} run_tail={str(run_id)[-8:]!r}",
+                            path=tp,
+                        )
+                        return polled
             raise last_err
         return ""
 

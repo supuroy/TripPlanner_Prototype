@@ -27,3 +27,13 @@ def test_assistant_text_from_run_json_messages_array() -> None:
 def test_assistant_text_from_run_json_nested_output() -> None:
     blob = {"output": {"text": "nested"}}
     assert assistant_text_from_run_json(blob) == "nested"
+
+
+def test_assistant_text_from_run_json_response_dict() -> None:
+    blob = {"response": {"assistant_message": "via response"}}
+    assert assistant_text_from_run_json(blob) == "via response"
+
+
+def test_assistant_text_from_run_json_response_str() -> None:
+    blob = {"response": " plain "}
+    assert assistant_text_from_run_json(blob) == "plain"
