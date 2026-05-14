@@ -74,6 +74,30 @@ function writeTripIndex(entries: SavedTripIndexEntry[]): void {
   }
 }
 
+/** Read the ordered catalog of trips saved on this browser (newest first). */
+export function listSavedTripsFromStorage(): SavedTripIndexEntry[] {
+  return readTripIndex();
+}
+
+/** Remove one trip from the saved list (by server session id). */
+export function removeTripFromSavedIndex(sessionId: string): void {
+  const sid = String(sessionId || "").trim();
+  if (!sid) return;
+  const next = readTripIndex().filter((x) => x.session_id !== sid);
+  writeTripIndex(next);
+}
+
+/** Drop local trip-name cache for a session (e.g. after delete). */
+export function clearTripMetaForSession(sessionId: string): void {
+  const sid = String(sessionId || "").trim();
+  if (!sid) return;
+  try {
+    localStorage.removeItem(metaKey(sid));
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Append or refresh an entry so future steps can list saved trips (keyed by ``session_id``). */
 export function recordTripInSavedIndex(entry: {
   trip_id: string;

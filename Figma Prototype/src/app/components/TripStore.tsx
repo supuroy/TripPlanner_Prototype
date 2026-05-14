@@ -5,7 +5,13 @@ import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
 import { planReviewMarkdownForUi } from "../lib/planReviewMarkdown";
-import { recordTripInSavedIndex, resolveTripMetaForSession, saveTripMetaForSession } from "../lib/tripMetaStorage";
+import {
+  clearTripMetaForSession,
+  recordTripInSavedIndex,
+  removeTripFromSavedIndex,
+  resolveTripMetaForSession,
+  saveTripMetaForSession,
+} from "../lib/tripMetaStorage";
 
 export type Phase = "idle" | "thinking" | "streaming" | "refining" | "advising" | "complete";
 
@@ -250,7 +256,11 @@ interface TripStoreType {
   /** Active planner HTTP stream — call from CommandBar before smoke/refine SSE. */
   setPlannerAbortController: (ac: AbortController | null) => void;
   /** Abort in-flight planner work and clear server-side Cursor reuse for a fresh trip. */
-  startNewTrip: () => Promise<void>;
+  startNewTrip: (opts?: { archiveCurrent?: boolean }) => Promise<void>;
+  /** Load a previously saved trip (one session at a time). */
+  switchToSavedTrip: (targetSessionId: string) => Promise<void>;
+  /** Remove a trip from this browser's saved list (caller confirms). If it is the active session, starts a blank trip. */
+  deleteSavedTrip: (targetSessionId: string) => Promise<void>;
   abortPlannerOperation: () => void;
   /**
    * True after the first ``GET /api/wanderly/workspace`` for the current session completes
@@ -259,6 +269,8 @@ interface TripStoreType {
   wanderlyWorkspaceBootstrapped: boolean;
   /** True while ``startNewTrip`` is awaiting the server — blocks sends to avoid session / ``hasStarted`` races. */
   newTripTransitioning: boolean;
+  /** True while switching to another saved session — same guards as new trip. */
+  tripSwitchTransitioning: boolean;
 }
 
 const Ctx = createContext<TripStoreType | null>(null);
@@ -518,6 +530,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [hasStarted, setHasStarted] = useState(false);
   const [newTripTransitioning, setNewTripTransitioning] = useState(false);
   const newTripTransitioningRef = useRef(false);
+  const [tripSwitchTransitioning, setTripSwitchTransitioning] = useState(false);
+  const tripSwitchTransitioningRef = useRef(false);
   const [wanderlyWorkspaceBootstrapped, setWanderlyWorkspaceBootstrapped] = useState(false);
   const [sessionId, setSessionId] = useState<string>(readOrCreateSessionId);
   const [tripId, setTripId] = useState("");
@@ -623,6 +637,15 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     };
   }, [sessionId]);
 
+  /** End ``tripSwitchTransitioning`` once the new session's workspace bootstrap finishes. */
+  useEffect(() => {
+    if (!tripSwitchTransitioning) return;
+    if (wanderlyWorkspaceBootstrapped) {
+      tripSwitchTransitioningRef.current = false;
+      setTripSwitchTransitioning(false);
+    }
+  }, [tripSwitchTransitioning, wanderlyWorkspaceBootstrapped]);
+
   /** If destination cards exist but ``hasStarted`` stayed false (e.g. new-trip vs planner race), show the workspace. */
   useEffect(() => {
     if (destinations.length > 0 && !hasStarted) {
@@ -722,8 +745,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     ]);
   }, []);
 
-  const startNewTrip = useCallback(async () => {
-    if (newTripTransitioningRef.current) return;
+  const startNewTrip = useCallback(async (opts?: { archiveCurrent?: boolean }) => {
+    if (newTripTransitioningRef.current || tripSwitchTransitioningRef.current) return;
     newTripTransitioningRef.current = true;
     setNewTripTransitioning(true);
     plannerAbortControllerRef.current?.abort();
@@ -732,7 +755,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       const oldSid = sessionId.trim();
       const oldTid = tripId.trim();
       const oldTname = tripName.trim() || "Untitled trip";
-      if (oldSid && oldTid) {
+      const archive = opts?.archiveCurrent !== false;
+      if (archive && oldSid && oldTid) {
         recordTripInSavedIndex({ trip_id: oldTid, session_id: oldSid, trip_name: oldTname });
       }
       const out = await newTrip(sessionId);
@@ -771,6 +795,66 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setNewTripTransitioning(false);
     }
   }, [sessionId, tripId, tripName]);
+
+  const switchToSavedTrip = useCallback(
+    async (targetSessionId: string) => {
+      const tid = targetSessionId.trim();
+      if (!tid || tid === sessionId.trim()) return;
+      if (newTripTransitioningRef.current || tripSwitchTransitioningRef.current) return;
+      tripSwitchTransitioningRef.current = true;
+      setTripSwitchTransitioning(true);
+      plannerAbortControllerRef.current?.abort();
+      plannerAbortControllerRef.current = null;
+      try {
+        const oldSid = sessionId.trim();
+        const oldTid = tripId.trim();
+        const oldTname = tripName.trim() || "Untitled trip";
+        if (oldSid && oldTid) {
+          recordTripInSavedIndex({ trip_id: oldTid, session_id: oldSid, trip_name: oldTname });
+        }
+        setPendingAgentProfileProposal(null);
+        setDestinations([]);
+        setProfile([]);
+        setResponses([]);
+        setMessages([]);
+        setInsights([]);
+        setUndoStack([]);
+        setExpandedDest(null);
+        setSelectedDest(null);
+        setHasStarted(false);
+        setPhase("idle");
+        setAgentStatus("");
+        setAgentStreamCaption("");
+        setEnrichmentPending(false);
+        setPendingRefineText(null);
+        setComposerPrefill(null);
+        setRefineUnlockCardNavigation(false);
+        try {
+          localStorage.setItem("wanderly_session_id", tid);
+        } catch {
+          /* ignore */
+        }
+        setSessionId(tid);
+      } catch {
+        tripSwitchTransitioningRef.current = false;
+        setTripSwitchTransitioning(false);
+      }
+    },
+    [sessionId, tripId, tripName],
+  );
+
+  const deleteSavedTrip = useCallback(
+    async (targetSessionId: string) => {
+      const tid = targetSessionId.trim();
+      if (!tid) return;
+      removeTripFromSavedIndex(tid);
+      clearTripMetaForSession(tid);
+      if (tid === sessionId.trim()) {
+        await startNewTrip({ archiveCurrent: false });
+      }
+    },
+    [sessionId, startNewTrip],
+  );
 
   const dismissResponse = useCallback((id: string) => {
     setResponses((prev) => prev.map(i => i.id === id ? { ...i, dismissed: true } : i));
@@ -918,9 +1002,12 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         setRefineUnlockCardNavigation,
         setPlannerAbortController,
         startNewTrip,
+        switchToSavedTrip,
+        deleteSavedTrip,
         abortPlannerOperation,
         wanderlyWorkspaceBootstrapped,
         newTripTransitioning,
+        tripSwitchTransitioning,
       }}
     >
       {children}

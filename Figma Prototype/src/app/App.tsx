@@ -3,6 +3,7 @@ import { CommandBar } from "./components/CommandBar";
 import { ProfilePanel } from "./components/ProfilePanel";
 import { DestinationCanvas } from "./components/DestinationCanvas";
 import { AgentResponses } from "./components/AgentResponses";
+import { SavedTripsMenu } from "./components/SavedTripsMenu";
 import { motion, AnimatePresence } from "motion/react";
 import { Compass, Sparkles, Maximize2, Minimize2 } from "lucide-react";
 import { useEffect } from "react";
@@ -10,6 +11,7 @@ import type { DestCard } from "./components/TripStore";
 import { fetchWorkspace } from "../api/wanderly";
 
 function IdleState() {
+  const { wanderlyWorkspaceBootstrapped } = useTrip();
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -41,6 +43,16 @@ function IdleState() {
       >
         Describe your dream trip and I'll build complete plans — destinations, itineraries, flights, hotels, and activities — all at once.
       </motion.p>
+      {wanderlyWorkspaceBootstrapped && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.45 }}
+          className="relative mt-8 flex w-full max-w-md flex-col items-center"
+        >
+          <SavedTripsMenu variant="idle" />
+        </motion.div>
+      )}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -99,6 +111,7 @@ function Workspace() {
     setTripName,
     tripId,
     newTripTransitioning,
+    tripSwitchTransitioning,
   } = useTrip();
 
   useEffect(() => {
@@ -185,12 +198,21 @@ function Workspace() {
               ) : null}
             </motion.div>
           )}
-          <div className="flex shrink-0 items-center gap-3 sm:self-start">
+          <div className="flex shrink-0 items-center gap-2 sm:self-start sm:gap-3">
+            <div className="relative">
+              <SavedTripsMenu variant="header" />
+            </div>
             <button
               type="button"
               onClick={() => void startNewTrip()}
-              disabled={newTripTransitioning}
-              title={newTripTransitioning ? "Finishing new trip setup…" : undefined}
+              disabled={newTripTransitioning || tripSwitchTransitioning}
+              title={
+                newTripTransitioning
+                  ? "Finishing new trip setup…"
+                  : tripSwitchTransitioning
+                    ? "Loading saved trip…"
+                    : undefined
+              }
               className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/85 disabled:cursor-wait disabled:opacity-40"
             >
               New trip

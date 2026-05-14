@@ -141,7 +141,9 @@ export function CommandBar() {
     setRefineUnlockCardNavigation,
     stageAgentProfileProposal,
     newTripTransitioning,
+    tripSwitchTransitioning,
   } = useTrip();
+  const sessionTransitioning = newTripTransitioning || tripSwitchTransitioning;
   const [input, setInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -172,7 +174,7 @@ export function CommandBar() {
       confirmWorkspaceDrop = false,
       orchestrationHint: WanderlyOrchestrateResponse | null = null,
     ) => {
-      if (newTripTransitioning) return;
+      if (sessionTransitioning) return;
       setPhase("refining");
       setAgentStatus("Refining with AI…");
       streamDraftRef.current = { text: "" };
@@ -349,7 +351,7 @@ export function CommandBar() {
       setPlannerAbortController,
       setRefineUnlockCardNavigation,
       stageAgentProfileProposal,
-      newTripTransitioning,
+      sessionTransitioning,
     ],
   );
 
@@ -373,7 +375,7 @@ export function CommandBar() {
   ]);
 
   const runAgent = async (text: string) => {
-    if (newTripTransitioning) return;
+    if (sessionTransitioning) return;
     addResponse({ type: "message", role: "user", text });
     setHasStarted(true);
     setShowSuggestions(false);
@@ -597,7 +599,7 @@ export function CommandBar() {
   };
 
   const handleSubmit = () => {
-    if (newTripTransitioning) return;
+    if (sessionTransitioning) return;
     if (!input.trim() || phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising")
       return;
     void runAgent(input.trim());
@@ -608,6 +610,7 @@ export function CommandBar() {
 
   const inputPlaceholder = (() => {
     if (newTripTransitioning) return "Starting new trip…";
+    if (tripSwitchTransitioning) return "Loading saved trip…";
     if (isWorking) {
       const cap = agentStreamCaption.trim();
       if (phase === "refining") return cap || "Refining your trip…";
@@ -673,7 +676,7 @@ export function CommandBar() {
               aria-busy={isWorking}
               className="flex-1 bg-transparent text-white/90 placeholder:text-white/25 outline-none text-[15px]"
               disabled={
-                newTripTransitioning ||
+                sessionTransitioning ||
                 phase === "thinking" ||
                 phase === "streaming" ||
                 phase === "refining" ||
@@ -683,7 +686,7 @@ export function CommandBar() {
             <button
               onClick={handleSubmit}
               disabled={
-                newTripTransitioning ||
+                sessionTransitioning ||
                 !input.trim() ||
                 phase === "thinking" ||
                 phase === "streaming" ||
