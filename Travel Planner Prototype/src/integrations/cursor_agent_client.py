@@ -67,6 +67,67 @@ def _httpx_err_snip(e: httpx.HTTPStatusError) -> str:
         return ""
 
 
+# ``GET …/runs/{id}/stream`` sometimes returns 409 (conflict) or 503 while the run is still
+# materializing, or if a second stream open races Cursor's lifecycle. Retry with backoff.
+_RETRYABLE_SSE_STATUS = frozenset({404, 425, 409, 503})
+
+
+def _sse_retry_sleep_seconds(attempt: int) -> float:
+    """Bounded exponential backoff (same spirit as ``POST …/runs`` 409 retries)."""
+    return min(12.0, 1.25 * (2 ** max(0, attempt)))
+
+
+def assistant_text_from_run_json(blob: dict[str, Any]) -> str:
+    """
+    Best-effort extract assistant-visible text from ``GET /v1/agents/{id}/runs/{run_id}`` JSON
+    when SSE cannot be opened again (e.g. second stream returns 409 after run finished).
+    """
+    for key in ("assistant_message", "result", "output", "summary", "responseText", "text"):
+        v = blob.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    msgs = blob.get("messages")
+    if isinstance(msgs, list):
+        parts: list[str] = []
+        for m in msgs:
+            if not isinstance(m, dict):
+                continue
+            role = str(m.get("role") or "").lower()
+            if role in ("assistant", "agent", "model"):
+                c = m.get("content")
+                if isinstance(c, str) and c.strip():
+                    parts.append(c.strip())
+                elif isinstance(c, list):
+                    for bit in c:
+                        if isinstance(bit, dict) and isinstance(bit.get("text"), str) and bit["text"].strip():
+                            parts.append(bit["text"].strip())
+        if parts:
+            return "\n".join(parts)
+    out = blob.get("output")
+    if isinstance(out, dict):
+        inner = assistant_text_from_run_json(out)
+        if inner:
+            return inner
+    return ""
+
+
+def _assistant_text_from_run_resource(client: httpx.Client, agent_id: str, run_id: str) -> str:
+    try:
+        r = client.get(f"/v1/agents/{agent_id}/runs/{run_id}")
+        r.raise_for_status()
+        body = r.json()
+    except Exception:
+        return ""
+    blob: Any = body
+    if isinstance(body, dict):
+        run_o = body.get("run")
+        if isinstance(run_o, dict):
+            blob = run_o
+    if not isinstance(blob, dict):
+        return ""
+    return assistant_text_from_run_json(blob)
+
+
 def load_env_from_roots(extra_roots: list[str] | None = None) -> None:
     """Load .env from cwd, repo root candidates, and Travel Planner Prototype."""
     load_dotenv()
@@ -579,11 +640,25 @@ def _assistant_text_or_retry_sse(
     """
     First SSE read sometimes finishes before ``assistant`` events (race on new runs).
     Wait for a terminal run status, then open the stream again and collect (non-streaming consumer).
+    If Cursor returns 409 on the second stream (common once a run is terminal), fall back to
+    ``GET …/runs/{id}`` JSON when the API exposes assistant text there.
     """
     if (text or "").strip():
         return text
     wait_for_stream_ready(client, agent_id, run_id)
-    retry = consume_sse_assistant(client, agent_id, run_id)
+    try:
+        retry = consume_sse_assistant(client, agent_id, run_id)
+    except httpx.HTTPStatusError as e:
+        sc = e.response.status_code if e.response is not None else 0
+        if sc == 409:
+            _trace_cursor(
+                "sse_second_stream_409_try_run_json "
+                f"run_tail={str(run_id)[-8:]!r} body_snip={_httpx_err_snip(e)!r}",
+                path=None,
+            )
+            fb = _assistant_text_from_run_resource(client, agent_id, run_id)
+            return fb if (fb or "").strip() else text
+        raise
     return retry if (retry or "").strip() else text
 
 
@@ -626,8 +701,8 @@ def run_prompt_collect_assistant_text(
                     f"body_snip={_httpx_err_snip(e)!r}",
                     path=tp,
                 )
-                if e.response is not None and e.response.status_code in (404, 425):
-                    time.sleep(0.75 * (attempt + 1))
+                if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
+                    time.sleep(_sse_retry_sleep_seconds(attempt))
                     continue
                 raise
             except Exception as e:
@@ -693,14 +768,14 @@ def run_prompt_collect_assistant_text_streaming(
                     f"body_snip={_httpx_err_snip(e)!r}",
                     path=tp,
                 )
-                if e.response is not None and e.response.status_code in (404, 425):
+                if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
                     _emit(
                         {
                             "type": "phase",
                             "message": "Still connecting — trying again in a moment…",
                         }
                     )
-                    time.sleep(0.75 * (attempt + 1))
+                    time.sleep(_sse_retry_sleep_seconds(attempt))
                     continue
                 raise
             except Exception as e:
@@ -787,8 +862,8 @@ def run_llm_hello_impl(client: httpx.Client, prompt_text: str) -> None:
             return
         except httpx.HTTPStatusError as e:
             last_err = e
-            if e.response is not None and e.response.status_code in (404, 425):
-                time.sleep(0.75 * (attempt + 1))
+            if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
+                time.sleep(_sse_retry_sleep_seconds(attempt))
                 continue
             raise
     if last_err:
