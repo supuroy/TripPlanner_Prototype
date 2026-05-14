@@ -719,6 +719,8 @@ export function BookingTimelineFace({
   const [returnFlightPhase, setReturnFlightPhase] = useState<"na" | "pending" | "loading" | "done" | "error">("na");
   const [returnFlightError, setReturnFlightError] = useState<string | null>(null);
   const [criteriaExpanded, setCriteriaExpanded] = useState(false);
+  /** When prepare says ``include_flight_search: false`` (ground / road trip), hide flight UI and skip flight steps. */
+  const [liveSkipFlights, setLiveSkipFlights] = useState(false);
 
   /** Bumps on each live-pipeline mount so Strict Mode / prop churn does not merge stale step results. */
   const livePipelineGen = useRef(0);
@@ -833,6 +835,7 @@ export function BookingTimelineFace({
       setFlightPhase("idle");
       setReturnFlightPhase("na");
       setReturnFlightError(null);
+      setLiveSkipFlights(false);
       setBookingStatus("Summarizing trip criteria…");
       setCriteriaExpanded(false);
       setHotelPhases(hotels.map(() => "pending"));
@@ -857,8 +860,11 @@ export function BookingTimelineFace({
         const pax = typeof prep.adults === "number" && prep.adults >= 1 ? prep.adults : dateHintsPayload.adults ?? 2;
         setPrepPax(pax);
         setPreparePending(false);
-        const wantsReturnTrip = !!(prep.start_date && prep.end_date && prep.start_date < prep.end_date);
-        setReturnFlightPhase(wantsReturnTrip ? "pending" : "na");
+        const skipFlights = prep.include_flight_search === false;
+        setLiveSkipFlights(skipFlights);
+        const multiDayStay = !!(prep.start_date && prep.end_date && prep.start_date < prep.end_date);
+        const wantsReturnFlightSearch = !skipFlights && multiDayStay;
+        setReturnFlightPhase(wantsReturnFlightSearch ? "pending" : "na");
 
         const planHotels = prep.hotels_for_session;
         const nStays =
@@ -880,7 +886,7 @@ export function BookingTimelineFace({
           leg: "outbound",
           isPlaceholder: true,
         };
-        const returnPlaceholder: FlightOption | null = wantsReturnTrip
+        const returnPlaceholder: FlightOption | null = wantsReturnFlightSearch
           ? {
               airline: "Searching Expedia flights…",
               route: `${toLabel} → ${fromLabel}${returnDate ? ` · ${isoShort(returnDate)}` : ""}`,
@@ -901,15 +907,17 @@ export function BookingTimelineFace({
           setHotelPhases(Array.from({ length: nStays }, () => "pending"));
         }
         setDestinations((prev) => {
-          const next = prev.map((d) =>
-            d.id === dest.id
-              ? {
-                  ...d,
-                  hotels: placeholderHotels,
-                  flights: returnPlaceholder ? [outboundPlaceholder, returnPlaceholder] : [outboundPlaceholder],
-                }
-              : d,
-          );
+          const next = prev.map((d) => {
+            if (d.id !== dest.id) return d;
+            if (skipFlights) {
+              return { ...d, hotels: placeholderHotels, flights: [] };
+            }
+            return {
+              ...d,
+              hotels: placeholderHotels,
+              flights: returnPlaceholder ? [outboundPlaceholder, returnPlaceholder] : [outboundPlaceholder],
+            };
+          });
           void syncUi(sessionId, next as unknown[]);
           return next;
         });
@@ -922,44 +930,51 @@ export function BookingTimelineFace({
           adults: prep.adults,
           outline: prep.booking_outline_source,
           stays: nStays,
+          include_flight_search: prep.include_flight_search,
         });
 
-        setBookingStatus("Searching outbound flights…");
-        setFlightPhase("loading");
-        const fr = await bookingSearchStep({
-          session_id: sessionId,
-          destination_id: dest.id,
-          step: "flight",
-          flight_leg: "outbound",
-          date_hints: dateHintsPayload,
-          profile_pills: pillsPayload,
-        });
-        if (cancelled || gen !== livePipelineGen.current) return;
-        console.info("[wanderly:booking_search_step]", {
-          destination_id: dest.id,
-          step: "flight",
-          ok: fr.ok,
-          search_url: fr.search_url,
-          error: fr.error,
-          flight: fr.flight,
-          debug_parse: fr.debug_parse,
-        });
-        if (fr.ok && fr.flight) {
-          mergeOutboundFlight({
-            ...fr.flight,
-            leg: fr.flight_leg === "return" ? "return" : fr.flight.leg ?? "outbound",
+        let fr: Awaited<ReturnType<typeof bookingSearchStep>> | null = null;
+        if (!skipFlights) {
+          setBookingStatus("Searching outbound flights…");
+          setFlightPhase("loading");
+          fr = await bookingSearchStep({
+            session_id: sessionId,
+            destination_id: dest.id,
+            step: "flight",
+            flight_leg: "outbound",
+            date_hints: dateHintsPayload,
+            profile_pills: pillsPayload,
           });
-          if (gen !== livePipelineGen.current) return;
+          if (cancelled || gen !== livePipelineGen.current) return;
+          console.info("[wanderly:booking_search_step]", {
+            destination_id: dest.id,
+            step: "flight",
+            ok: fr.ok,
+            search_url: fr.search_url,
+            error: fr.error,
+            flight: fr.flight,
+            debug_parse: fr.debug_parse,
+          });
+          if (fr.ok && fr.flight) {
+            mergeOutboundFlight({
+              ...fr.flight,
+              leg: fr.flight_leg === "return" ? "return" : fr.flight.leg ?? "outbound",
+            });
+            if (gen !== livePipelineGen.current) return;
+            setFlightPhase("done");
+            setFlightStepError(null);
+          } else {
+            if (gen !== livePipelineGen.current) return;
+            setFlightPhase("error");
+            setFlightStepError(fr.error || "Flight search did not return a result.");
+          }
+
+          if (multiDayStay && !fr.ok) {
+            setReturnFlightPhase("na");
+          }
+        } else {
           setFlightPhase("done");
           setFlightStepError(null);
-        } else {
-          if (gen !== livePipelineGen.current) return;
-          setFlightPhase("error");
-          setFlightStepError(fr.error || "Flight search did not return a result.");
-        }
-
-        if (wantsReturnTrip && !fr.ok) {
-          setReturnFlightPhase("na");
         }
 
         setBookingStatus(nStays ? "Searching accommodations…" : null);
@@ -1015,7 +1030,7 @@ export function BookingTimelineFace({
           }
         }
 
-        if (wantsReturnTrip && fr.ok) {
+        if (!skipFlights && multiDayStay && fr && fr.ok && fr.flight) {
           setReturnFlightPhase("loading");
           setBookingStatus("Searching return flights…");
           const rr = await bookingSearchStep({
@@ -1166,7 +1181,8 @@ export function BookingTimelineFace({
     return hp === "pending" || hp === "loading" || hp === "done" || hp === "error";
   };
 
-  const showFlightSection = flights.length > 0 || runMode === "live" || runMode === "demo";
+  const showFlightSection =
+    (flights.length > 0 || runMode === "live" || runMode === "demo") && !(runMode === "live" && liveSkipFlights);
   const showCriteriaBlock = runMode === "live" && sessionId;
 
   const livePipelineIdle =

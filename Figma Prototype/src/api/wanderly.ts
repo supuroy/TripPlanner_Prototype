@@ -430,12 +430,17 @@ export type BookingSearchPrepareResponse = {
   /** Resolved multi-stay rows (outline / itinerary / advisor). Client should merge into the card + sync_ui. */
   hotels_for_session?: Array<Record<string, unknown>>;
   booking_outline_source?: string;
+  /** When false, the server skipped commercial flight search (e.g. road / ferry-only trip). */
+  include_flight_search?: boolean;
 };
 
 export type BookingSearchStepResponse = {
   ok: boolean;
   step?: string;
   error?: string;
+  /** True when flight step was intentionally skipped (ground-only trip). */
+  skipped?: boolean;
+  reason?: string;
   flight?: FlightOption;
   hotel?: HotelOption;
   hotel_index?: number;
