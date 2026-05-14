@@ -7,6 +7,7 @@ import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
 import { planReviewMarkdownForUi } from "../lib/planReviewMarkdown";
 import {
   clearTripMetaForSession,
+  loadTripMetaForSession,
   recordTripInSavedIndex,
   removeTripFromSavedIndex,
   resolveTripMetaForSession,
@@ -533,6 +534,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [tripSwitchTransitioning, setTripSwitchTransitioning] = useState(false);
   const tripSwitchTransitioningRef = useRef(false);
   const [wanderlyWorkspaceBootstrapped, setWanderlyWorkspaceBootstrapped] = useState(false);
+  const wanderlyWorkspaceBootstrappedRef = useRef(false);
   const [sessionId, setSessionId] = useState<string>(readOrCreateSessionId);
   const [tripId, setTripId] = useState("");
   const [tripName, setTripNameState] = useState("Untitled trip");
@@ -582,6 +584,10 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   }, [sessionId]);
+
+  useEffect(() => {
+    wanderlyWorkspaceBootstrappedRef.current = wanderlyWorkspaceBootstrapped;
+  }, [wanderlyWorkspaceBootstrapped]);
 
   useEffect(() => {
     const sid = sessionId;
@@ -654,15 +660,25 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   }, [destinations, hasStarted]);
 
   useEffect(() => {
-    if (!sessionId.trim() || !tripId.trim()) return;
+    if (!sessionId.trim()) return;
     const t = window.setTimeout(() => {
-      saveTripMetaForSession(sessionId, { trip_id: tripId, trip_name: tripName });
-      void syncUi(sessionId, destinationsRef.current as unknown[], {
-        tripMeta: { trip_id: tripId, trip_name: tripName },
-      }).catch(() => {});
+      const dests = destinationsRef.current as unknown[];
+      /* Avoid clobbering the server snapshot with [] while the workspace fetch for this session is still in flight
+       * (e.g. after switching saved trips — the debounce used to fire before fetchWorkspace returned). */
+      if (dests.length === 0 && !wanderlyWorkspaceBootstrappedRef.current) {
+        return;
+      }
+      const tid = tripId.trim();
+      const tname = tripName.trim() || "Untitled trip";
+      if (tid) {
+        saveTripMetaForSession(sessionId, { trip_id: tid, trip_name: tname });
+      }
+      void syncUi(sessionId, dests, tid ? { tripMeta: { trip_id: tid, trip_name: tname } } : undefined).catch(
+        () => {},
+      );
     }, 450);
     return () => clearTimeout(t);
-  }, [sessionId, tripId, tripName]);
+  }, [sessionId, tripId, tripName, wanderlyWorkspaceBootstrapped]);
 
   const addMessage = useCallback((role: "user" | "agent", text: string, undoId?: string) => {
     setMessages((prev) => [...prev, { id: crypto.randomUUID(), role, text, ts: Date.now(), undoId }]);
@@ -759,6 +775,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       if (archive && oldSid && oldTid) {
         recordTripInSavedIndex({ trip_id: oldTid, session_id: oldSid, trip_name: oldTname });
       }
+      await syncUi(oldSid, destinationsRef.current as unknown[], {
+        tripMeta: { trip_id: oldTid, trip_name: oldTname },
+      }).catch(() => {});
       const out = await newTrip(sessionId);
       const sid = out.session_id;
       const ntid = crypto.randomUUID();
@@ -812,6 +831,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         if (oldSid && oldTid) {
           recordTripInSavedIndex({ trip_id: oldTid, session_id: oldSid, trip_name: oldTname });
         }
+        if (oldSid) {
+          await syncUi(oldSid, destinationsRef.current as unknown[], {
+            tripMeta: { trip_id: oldTid, trip_name: oldTname },
+          }).catch(() => {});
+        }
         setPendingAgentProfileProposal(null);
         setDestinations([]);
         setProfile([]);
@@ -835,6 +859,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           /* ignore */
         }
         setSessionId(tid);
+        const nextMeta = loadTripMetaForSession(tid);
+        setTripId(nextMeta?.trip_id?.trim() || "");
+        setTripNameState(nextMeta?.trip_name?.trim() || "Untitled trip");
       } catch {
         tripSwitchTransitioningRef.current = false;
         setTripSwitchTransitioning(false);
