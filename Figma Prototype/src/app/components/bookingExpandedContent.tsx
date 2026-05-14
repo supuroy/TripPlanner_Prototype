@@ -563,7 +563,16 @@ export function computeBookingDateHints(profile: ProfilePill[], itineraryDayCoun
   return defaultSearchHints(itineraryDayCount);
 }
 
-export function BookingCostBreakdown({ dest, paxCount = 2 }: { dest: DestCard; paxCount?: number }) {
+export function BookingCostBreakdown({
+  dest,
+  paxCount = 2,
+  variant = "timeline",
+}: {
+  dest: DestCard;
+  paxCount?: number;
+  /** ``summary`` = itinerary face (no timeline); ``timeline`` = booking flip. */
+  variant?: "timeline" | "summary";
+}) {
   const flights = dest.flights || [];
   const hotels = dest.hotels || [];
   const acts = dest.activities || [];
@@ -606,7 +615,9 @@ export function BookingCostBreakdown({ dest, paxCount = 2 }: { dest: DestCard; p
         </div>
       </div>
       <p className="mt-2 text-[10px] leading-snug text-white/30">
-        Book flights and hotels individually from the timeline
+        {variant === "summary"
+          ? "Flip to booking details for step-by-step searches and Expedia links."
+          : "Book flights and hotels individually from the timeline"}
       </p>
     </div>
   );
@@ -653,6 +664,10 @@ function adultsFromProfileForBooking(profile: ProfilePill[]): number {
   const m2 = w.match(/^\s*(\d+)\b/);
   if (m2) return Math.min(9, Math.max(1, parseInt(m2[1], 10)));
   return 2;
+}
+
+export function bookingPaxFromProfile(profile: ProfilePill[]): number {
+  return adultsFromProfileForBooking(profile);
 }
 
 export function BookingTimelineFace({
@@ -1406,7 +1421,7 @@ export function BookingTimelineFace({
       </div>
       <div className="min-w-0">
         {showCostBreakdownPanel ? (
-          <BookingCostBreakdown dest={dest} paxCount={prepPax} />
+          <BookingCostBreakdown dest={dest} paxCount={prepPax} variant="timeline" />
         ) : (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 lg:sticky lg:top-4">
             <p className="text-[11px] font-medium uppercase tracking-wider text-white/35">Cost breakdown</p>

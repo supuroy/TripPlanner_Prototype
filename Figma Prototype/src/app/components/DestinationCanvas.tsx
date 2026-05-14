@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback, useReducer, type ReactNode, type MouseEvent } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, useReducer, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
@@ -25,6 +25,8 @@ import {
   SummaryFlightStrip,
   SummaryHotelStrip,
   BookingTimelineFace,
+  BookingCostBreakdown,
+  bookingPaxFromProfile,
   computeBookingDateHints,
   destHasPersistentBookingSummary,
   liveBookingExtractLooksActionable,
@@ -995,21 +997,6 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             )}
 
             <div className="mt-4 pt-4 border-t border-white/[0.06]">
-              {destHasPersistentBookingSummary(dest) ? (
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                  <p className="text-[11px] text-white/40 leading-snug max-w-[min(100%,22rem)]">
-                    Saved prices may be from an older search or criteria. Refresh clears them for this destination.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={refreshBookingSummary}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-500/35 bg-indigo-500/15 px-2.5 py-1.5 text-[11px] font-medium text-indigo-200/95 hover:bg-indigo-500/25 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                    Refresh booking
-                  </button>
-                </div>
-              ) : null}
               <div className="[perspective:1200px]">
                 <motion.div
                   className="relative grid grid-cols-1 [transform-style:preserve-3d]"
@@ -1071,50 +1058,69 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                         <ActivityStrip dest={dest} />
                       </div>
                       <div>
-                        {dest.liveBookingEstimates ? (
-                          <>
-                            <SummaryFlightStrip dest={dest} />
-                            <SummaryHotelStrip dest={dest} />
-                          </>
+                        {liveBookingExtractLooksActionable(dest) ? (
+                          <BookingCostBreakdown
+                            dest={dest}
+                            paxCount={bookingPaxFromProfile(profile)}
+                            variant="summary"
+                          />
                         ) : (
                           <>
-                            <PlannerFlightStrip dest={dest} />
-                            <PlannerHotelStrip dest={dest} />
+                            {dest.liveBookingEstimates ? (
+                              <>
+                                <SummaryFlightStrip dest={dest} />
+                                <SummaryHotelStrip dest={dest} />
+                              </>
+                            ) : (
+                              <>
+                                <PlannerFlightStrip dest={dest} />
+                                <PlannerHotelStrip dest={dest} />
+                              </>
+                            )}
+
+                            <motion.div
+                              className="mt-6 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20"
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: 0.5 }}
+                            >
+                              {(() => {
+                                let costLine = (dest.budget_guidance?.trip_ballpark_usd_pp ?? "").trim();
+                                if (!costLine) costLine = (dest.cost ?? "").trim();
+                                if (/^tbd\s*\(placeholder\)$/i.test(costLine) || /^tbd$/i.test(costLine)) costLine = "";
+                                const hasCost = hasMeaningfulEstimateText(costLine);
+                                return (
+                                  <>
+                                    <span className="block text-[12px] text-white/40">
+                                      {dest.pinned ? "Total Cost (2 pax)" : "Estimated Range (2 pax)"}
+                                    </span>
+                                    {hasCost ? (
+                                      <p className="mt-1.5 text-[12px] sm:text-[13px] leading-snug text-white/85 break-words">
+                                        {costLine}
+                                      </p>
+                                    ) : (
+                                      <div className="mt-1.5 min-h-[2.25rem]" aria-label="Trip total estimate pending" />
+                                    )}
+                                    {dest.pinned && (
+                                      <p className="text-[10px] text-indigo-300/50 mt-2">Includes all flights, hotels & activities</p>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </motion.div>
                           </>
                         )}
 
-                        <motion.div
-                          className="mt-6 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.5 }}
-                        >
-                          {(() => {
-                            let costLine = (dest.budget_guidance?.trip_ballpark_usd_pp ?? "").trim();
-                            if (!costLine) costLine = (dest.cost ?? "").trim();
-                            if (/^tbd\s*\(placeholder\)$/i.test(costLine) || /^tbd$/i.test(costLine)) costLine = "";
-                            const hasCost = hasMeaningfulEstimateText(costLine);
-                            return (
-                              <>
-                                <span className="block text-[12px] text-white/40">
-                                  {dest.pinned ? "Total Cost (2 pax)" : "Estimated Range (2 pax)"}
-                                </span>
-                                {hasCost ? (
-                                  <p className="mt-1.5 text-[12px] sm:text-[13px] leading-snug text-white/85 break-words">
-                                    {costLine}
-                                  </p>
-                                ) : (
-                                  <div className="mt-1.5 min-h-[2.25rem]" aria-label="Trip total estimate pending" />
-                                )}
-                                {dest.pinned && (
-                                  <p className="text-[10px] text-indigo-300/50 mt-2">Includes all flights, hotels & activities</p>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </motion.div>
-
-                        {showReadyToBookCta ? (
+                        {destHasPersistentBookingSummary(dest) ? (
+                          <button
+                            type="button"
+                            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 py-3 text-[13px] font-medium text-amber-100/95 transition-colors hover:bg-amber-500/20 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
+                            onClick={refreshBookingSummary}
+                          >
+                            <RotateCcw className="h-4 w-4 shrink-0" aria-hidden />
+                            Reset booking
+                          </button>
+                        ) : showReadyToBookCta ? (
                           <button
                             type="button"
                             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 py-3 text-[13px] font-medium text-white transition-colors hover:from-indigo-600 hover:to-purple-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
@@ -1218,29 +1224,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
 /* ── Grid card (collapsed view) ── */
 function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolean }) {
-  const { setDestinations, setExpandedDest, addResponse, sessionId } = useTrip();
+  const { setDestinations, setExpandedDest, addResponse } = useTrip();
   const { src: heroSrc, count: heroCount, index: heroIndex } = useRotatingHeroSrc(dest, HERO_SLIDE_MS);
-
-  const refreshBookingOnCard = useCallback(
-    (e: MouseEvent) => {
-      e.stopPropagation();
-      clearBookingPipelineCompletedFor(dest.id);
-      setDestinations((prev) => {
-        const next = prev.map((d) => (d.id === dest.id ? resetDestinationBookingState(d) : d));
-        if (sessionId) {
-          queueMicrotask(() => {
-            void syncUi(sessionId, next as unknown[]).catch(() => {});
-          });
-        }
-        return next;
-      });
-      addResponse({
-        type: "tip",
-        text: `Cleared saved prices for ${dest.name}. Open the card and tap “Ready to Book” for a fresh search.`,
-      });
-    },
-    [dest.id, dest.name, sessionId, setDestinations, addResponse],
-  );
 
   const dismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1364,17 +1349,6 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
         {dest.commerce?.disclaimer && (
           <p className="text-[9px] text-white/25 mt-1">{dest.commerce.disclaimer}</p>
         )}
-
-        {destHasPersistentBookingSummary(dest) && !expandLocked ? (
-          <button
-            type="button"
-            onClick={refreshBookingOnCard}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2 py-1.5 text-[10px] font-medium text-indigo-200/90 hover:bg-indigo-500/20 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-          >
-            <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
-            Clear saved booking prices
-          </button>
-        ) : null}
 
         {/* Vibes */}
         <div className="flex flex-wrap gap-1 mt-3">
