@@ -683,6 +683,24 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     setDestinations((prev: DestCard[]) => prev.map(d => d.id === dest.id ? { ...d, dismissed: true } : d));
   };
 
+  const confirmRemoveDestination = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (
+      !window.confirm(
+        `Remove “${dest.name}” from this trip?\n\nThis removes the destination from your shortlist (not the same as closing the card).`,
+      )
+    ) {
+      return;
+    }
+    dismiss(e);
+    setExpandedDest(null);
+  };
+
+  const closeExpandedCard = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedDest(null);
+  };
+
   const togglePin = (e: React.MouseEvent) => {
     e.stopPropagation();
     const willPin = !dest.pinned;
@@ -884,6 +902,15 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             </button>
             <button
               type="button"
+              onClick={confirmRemoveDestination}
+              className="w-7 h-7 rounded-lg bg-black/40 text-amber-300/80 hover:text-amber-200 flex items-center justify-center backdrop-blur-sm"
+              title="Remove destination from trip"
+              aria-label="Remove destination from trip"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
               onClick={closeExpanded}
               title={closeViewTooltip}
               className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
@@ -956,6 +983,15 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                   aria-label={pinTooltip}
                 >
                   {dest.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmRemoveDestination}
+                  className="w-8 h-8 rounded-lg bg-white/[0.06] text-amber-300/85 hover:text-amber-200 flex items-center justify-center border border-white/[0.08]"
+                  title="Remove destination from trip"
+                  aria-label="Remove destination from trip"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
                 <button
                   type="button"
@@ -1280,6 +1316,18 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
   const dismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
     setDestinations((prev: DestCard[]) => prev.map(d => d.id === dest.id ? { ...d, dismissed: true } : d));
+  };
+
+  const confirmRemoveDestination = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (
+      !window.confirm(
+        `Remove “${dest.name}” from this trip?\n\nThis removes the destination from your shortlist.`,
+      )
+    ) {
+      return;
+    }
+    dismiss(e);
   };
 
   const togglePin = (e: React.MouseEvent) => {

@@ -5,7 +5,7 @@ import { DestinationCanvas } from "./components/DestinationCanvas";
 import { AgentResponses } from "./components/AgentResponses";
 import { SavedTripsMenu } from "./components/SavedTripsMenu";
 import { motion, AnimatePresence } from "motion/react";
-import { Compass, Sparkles, Maximize2, Minimize2 } from "lucide-react";
+import { Compass, Sparkles, Maximize2, Minimize2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { DestCard } from "./components/TripStore";
 import { fetchWorkspace } from "../api/wanderly";
@@ -126,11 +126,59 @@ function TripDiskPersistBadge() {
 }
 
 function SavedTripsBar() {
-  const { savedTrips, wanderlyTripId, switchToSavedTrip, createEmptyTrip } = useTrip();
+  const {
+    savedTrips,
+    wanderlyTripId,
+    switchToSavedTrip,
+    createEmptyTrip,
+    renameTrip,
+    deleteTrip,
+  } = useTrip();
   const [busy, setBusy] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+
+  const current = savedTrips.find((t) => t.trip_id === wanderlyTripId);
+
+  useEffect(() => {
+    setNameDraft(current?.trip_name ?? "");
+  }, [wanderlyTripId, current?.trip_name]);
+
   if (savedTrips.length === 0) return null;
+
+  const dirtyName = nameDraft.trim() !== (current?.trip_name ?? "").trim();
+
   return (
-    <div className="flex items-center gap-2 text-[11px] text-white/40">
+    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5 text-[11px] text-white/40">
+      {wanderlyTripId ? (
+        <>
+          <label className="sr-only" htmlFor="wanderly-trip-name-input">
+            Trip name
+          </label>
+          <input
+            id="wanderly-trip-name-input"
+            type="text"
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            disabled={busy}
+            className="min-w-0 max-w-[min(200px,38vw)] rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/80 outline-none placeholder:text-white/25"
+            placeholder="Name this trip"
+            aria-label="Trip name"
+            maxLength={120}
+          />
+          <button
+            type="button"
+            disabled={busy || !dirtyName}
+            className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/55 hover:bg-white/[0.07] disabled:opacity-40"
+            onClick={() => {
+              if (!wanderlyTripId) return;
+              setBusy(true);
+              void renameTrip(wanderlyTripId, nameDraft.trim()).finally(() => setBusy(false));
+            }}
+          >
+            Save name
+          </button>
+        </>
+      ) : null}
       <span className="hidden text-white/25 sm:inline">Trips</span>
       <select
         className="max-w-[min(160px,42vw)] truncate rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/70 outline-none"
@@ -155,12 +203,36 @@ function SavedTripsBar() {
         disabled={busy}
         className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/55 hover:bg-white/[0.07] disabled:opacity-40"
         onClick={() => {
+          const label = window.prompt("Name the new trip (optional). Cancel to abort.", "");
+          if (label === null) return;
           setBusy(true);
-          void createEmptyTrip().finally(() => setBusy(false));
+          void createEmptyTrip(label.trim() || undefined).finally(() => setBusy(false));
         }}
       >
         New
       </button>
+      {wanderlyTripId ? (
+        <button
+          type="button"
+          disabled={busy}
+          title="Delete this trip"
+          aria-label="Delete this trip"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] text-amber-300/80 hover:bg-white/[0.07] hover:text-amber-200 disabled:opacity-40"
+          onClick={() => {
+            if (
+              !window.confirm(
+                `Delete “${current?.trip_name || wanderlyTripId}”?\n\nThis removes the trip from your list and deletes its saved file.`,
+              )
+            ) {
+              return;
+            }
+            setBusy(true);
+            void deleteTrip(wanderlyTripId).finally(() => setBusy(false));
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      ) : null}
     </div>
   );
 }

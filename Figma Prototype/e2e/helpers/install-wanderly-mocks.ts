@@ -172,6 +172,37 @@ export async function installWanderlyApiMocks(page: Page, opts: WanderlyMockOpti
     );
   });
 
+  await page.route("**/api/wanderly/trips/rename", async (route) => {
+    const post = route.request().postDataJSON() as { trip_id?: string; name?: string; session_id?: string } | null;
+    const tid = String(post?.trip_id || "trip-e2e-1");
+    const nm = String(post?.name ?? "Renamed");
+    const sid = String(post?.session_id || "e2e-session");
+    await route.fulfill(
+      json({
+        trip_id: tid,
+        trip_name: nm,
+        session_id: sid,
+        active_trip_id: tid,
+        trips: [{ trip_id: tid, trip_name: nm, session_id: sid, updated_at_ms: Date.now() }],
+        wanderly: initialFn(sid),
+      }),
+    );
+  });
+
+  await page.route("**/api/wanderly/trips/delete", async (route) => {
+    const sid = `e2e-after-del-${Date.now()}`;
+    const newTid = `trip-e2e-${Date.now()}`;
+    await route.fulfill(
+      json({
+        trip_id: newTid,
+        session_id: sid,
+        active_trip_id: newTid,
+        trips: [{ trip_id: newTid, trip_name: "Trip 1", session_id: sid, updated_at_ms: Date.now() }],
+        wanderly: initialFn(sid),
+      }),
+    );
+  });
+
   await page.route("**/api/wanderly/enrich_heroes", async (route) => {
     const post = route.request().postDataJSON() as { session_id?: string };
     await route.fulfill(

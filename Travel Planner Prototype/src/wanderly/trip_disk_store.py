@@ -375,6 +375,98 @@ def create_trip(name: str | None, get_session: Any) -> dict[str, Any]:
     return {"trip_id": tid, "session_id": sid, "active_trip_id": tid, "trips": trips_out}
 
 
+def _trips_summary_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+    return [
+        {
+            "trip_id": str(r.get("trip_id") or ""),
+            "trip_name": str(r.get("trip_name") or ""),
+            "session_id": str(r.get("session_id") or ""),
+            "updated_at_ms": int(r["updated_at_ms"]) if isinstance(r.get("updated_at_ms"), (int, float)) else 0,
+        }
+        for r in trips
+        if str(r.get("trip_id") or "")
+    ]
+
+
+def rename_trip(trip_id: str, new_name: str, get_session: Any) -> dict[str, Any] | None:
+    """Update ``trip_name`` in manifest and on-disk trip JSON. Returns summary for API layer."""
+    tid = (trip_id or "").strip()
+    if not tid:
+        return None
+    label = (new_name or "").strip()[:120] or _default_trip_name()
+    manifest = read_manifest()
+    trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+    found = False
+    for row in trips:
+        if str(row.get("trip_id") or "").strip() == tid:
+            row["trip_name"] = label
+            row["updated_at_ms"] = int(time.time() * 1000)
+            found = True
+            break
+    if not found:
+        return None
+    write_manifest({**manifest, "trips": trips})
+    blob = read_trip_file(tid)
+    if isinstance(blob, dict):
+        sid = str(blob.get("session_id") or "").strip() or str(uuid.uuid4())
+        inner = blob.get("session")
+        if not isinstance(inner, dict):
+            inner = _session_slice(get_session(sid))
+        write_trip_file(tid, label, sid, inner)
+    else:
+        row = _manifest_index_trips_by_id(manifest).get(tid) or {}
+        sid = str(row.get("session_id") or "").strip()
+        if sid:
+            get_session(sid)
+            write_trip_file(tid, label, sid, _session_slice(get_session(sid)))
+    manifest2 = read_manifest()
+    return {"trip_id": tid, "trip_name": label, "trips": _trips_summary_rows(manifest2)}
+
+
+def delete_trip(trip_id: str, get_session: Any) -> dict[str, Any] | None:
+    """Remove trip from manifest and delete its JSON file. Activates another trip (or creates one)."""
+    tid_del = (trip_id or "").strip()
+    if not tid_del:
+        return None
+    manifest = read_manifest()
+    trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+    new_trips = [t for t in trips if str(t.get("trip_id") or "").strip() != tid_del]
+    if len(new_trips) == len(trips):
+        return None
+
+    p = trip_file_path(tid_del)
+    with _lock:
+        if p.is_file():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+
+    active = str(manifest.get("active_trip_id") or "").strip()
+
+    if not new_trips:
+        tid = _new_trip_id()
+        sid = str(uuid.uuid4())
+        now = int(time.time() * 1000)
+        row = {"trip_id": tid, "trip_name": _default_trip_name(), "session_id": sid, "updated_at_ms": now}
+        fresh: dict[str, Any] = {"v": 1, "active_trip_id": tid, "trips": [row]}
+        write_manifest(fresh)
+        get_session(sid)
+        write_trip_file(tid, row["trip_name"], sid, _session_slice(get_session(sid)))
+        return {"trip_id": tid, "session_id": sid, "active_trip_id": tid, "trips": _trips_summary_rows(fresh)}
+
+    manifest["trips"] = new_trips
+    if active == tid_del:
+        manifest["active_trip_id"] = str(new_trips[0].get("trip_id") or "").strip()
+    write_manifest(manifest)
+    next_active = str(manifest.get("active_trip_id") or "").strip()
+    if not next_active:
+        return None
+    meta = activate_trip(next_active, get_session)
+    return meta
+
+
 def reset_for_tests() -> None:
     """Remove on-disk trips dir contents (tests only)."""
     root = trips_root()

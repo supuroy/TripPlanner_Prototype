@@ -1,7 +1,15 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyTransportPlan, WanderlyWorkspaceDTO } from "../../types/workspace";
 import type { WanderlyTripSummary } from "../../api/wanderly";
-import { planReview, bootstrapWanderlyTrips, activateWanderlyTrip, createWanderlyTrip, syncUi } from "../../api/wanderly";
+import {
+  planReview,
+  bootstrapWanderlyTrips,
+  activateWanderlyTrip,
+  createWanderlyTrip,
+  syncUi,
+  renameWanderlyTrip,
+  deleteWanderlyTrip,
+} from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
@@ -266,6 +274,8 @@ interface TripStoreType {
   savedTrips: WanderlyTripSummary[];
   switchToSavedTrip: (tripId: string) => Promise<void>;
   createEmptyTrip: (name?: string) => Promise<void>;
+  renameTrip: (tripId: string, name: string) => Promise<void>;
+  deleteTrip: (tripId: string) => Promise<void>;
   /** Per-trip JSON under ``wanderly_trips/``: dirty vs last successful ``sync_ui`` write. */
   tripDiskPersist: TripDiskPersistInfo;
   beginTripDiskSave: () => void;
@@ -773,6 +783,56 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations],
   );
 
+  const renameTrip = useCallback(
+    async (tripId: string, name: string) => {
+      const res = await renameWanderlyTrip(tripId, name, sessionId);
+      setSavedTrips(res.trips);
+      applyWanderlyToCanvas(res.wanderly);
+      if (res.session_id && res.session_id !== sessionId) setSessionId(res.session_id);
+      if (res.active_trip_id && res.active_trip_id !== wanderlyTripId) setWanderlyTripId(res.active_trip_id);
+      try {
+        if (res.session_id) sessionStorage.setItem("wanderly_session_id", res.session_id);
+        if (res.active_trip_id) sessionStorage.setItem("wanderly_trip_id", res.active_trip_id);
+      } catch {
+        /* */
+      }
+    },
+    [sessionId, wanderlyTripId, applyWanderlyToCanvas],
+  );
+
+  const deleteTrip = useCallback(
+    async (tripId: string) => {
+      const res = await deleteWanderlyTrip(tripId);
+      try {
+        sessionStorage.setItem("wanderly_session_id", res.session_id);
+        sessionStorage.setItem("wanderly_trip_id", res.trip_id);
+      } catch {
+        /* */
+      }
+      setSessionId(res.session_id);
+      setWanderlyTripId(res.trip_id);
+      setSavedTrips(res.trips);
+      applyWanderlyToCanvas(res.wanderly);
+      const hasDest = Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
+      setHasStarted(hasDest);
+      setExpandedDest(null);
+      if (!hasDest) {
+        setPhase("idle");
+        setResponses([]);
+        setMessages([]);
+        setInsights([]);
+      }
+      const srvDest = (res.wanderly.destinations || []) as DestCard[];
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const merged = destinationsRef.current;
+          markTripDiskBaselineFromDestinations(srvDest.length > 0 ? srvDest : merged);
+        });
+      });
+    },
+    [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations],
+  );
+
   // Use refs to avoid stale closures in pushUndo
   const destinationsRef = useRef(destinations);
   destinationsRef.current = destinations;
@@ -1112,6 +1172,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         savedTrips,
         switchToSavedTrip,
         createEmptyTrip,
+        renameTrip,
+        deleteTrip,
         tripDiskPersist,
         beginTripDiskSave,
         completeTripDiskSave,

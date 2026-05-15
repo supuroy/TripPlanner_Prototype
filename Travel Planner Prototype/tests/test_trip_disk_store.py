@@ -82,3 +82,45 @@ def test_activate_second_trip_isolated_sessions(trips_dir: Path) -> None:
 
     trip_disk_store.activate_trip(tid_b, gs)
     assert gs(sid_b).get("ui_destinations")[0]["id"] == "paris"
+
+
+def test_rename_trip_updates_manifest_and_trip_file(trips_dir: Path) -> None:
+    store: dict = {}
+    gs = _fake_get_session(store)
+    meta = trip_disk_store.bootstrap(None, None, gs)
+    tid = meta["trip_id"]
+    out = trip_disk_store.rename_trip(tid, "Summer in Japan", gs)
+    assert out is not None
+    assert out["trip_name"] == "Summer in Japan"
+    m = trip_disk_store.read_manifest()
+    assert m["trips"][0]["trip_name"] == "Summer in Japan"
+    raw = json.loads((trips_dir / f"{tid}.json").read_text(encoding="utf-8"))
+    assert raw["trip_name"] == "Summer in Japan"
+
+
+def test_delete_trip_switches_active(trips_dir: Path) -> None:
+    store: dict = {}
+    gs = _fake_get_session(store)
+    trip_disk_store.bootstrap(None, None, gs)
+    m0 = trip_disk_store.read_manifest()
+    tid_a = m0["active_trip_id"]
+    meta_b = trip_disk_store.create_trip("Second", gs)
+    tid_b = meta_b["trip_id"]
+    del_out = trip_disk_store.delete_trip(tid_a, gs)
+    assert del_out is not None
+    assert del_out["trip_id"] == tid_b
+    assert tid_a not in {str(t.get("trip_id")) for t in trip_disk_store.read_manifest().get("trips") or []}
+    assert not (trips_dir / f"{tid_a}.json").is_file()
+
+
+def test_delete_last_trip_creates_fresh_default(trips_dir: Path) -> None:
+    store: dict = {}
+    gs = _fake_get_session(store)
+    meta = trip_disk_store.bootstrap(None, None, gs)
+    tid = meta["trip_id"]
+    out = trip_disk_store.delete_trip(tid, gs)
+    assert out is not None
+    assert out["trip_id"] != tid
+    m = trip_disk_store.read_manifest()
+    assert len(m["trips"]) == 1
+    assert (trips_dir / f"{out['trip_id']}.json").is_file()

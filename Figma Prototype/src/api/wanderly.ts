@@ -228,6 +228,31 @@ export async function createWanderlyTrip(name?: string) {
   });
 }
 
+export type WanderlyTripRenameResponse = {
+  trip_id: string;
+  trip_name: string;
+  session_id: string;
+  active_trip_id: string;
+  trips: WanderlyTripSummary[];
+  wanderly: WanderlyWorkspaceDTO;
+};
+
+export async function renameWanderlyTrip(tripId: string, name: string, sessionIdHint?: string) {
+  const body: Record<string, unknown> = { trip_id: tripId, name };
+  if (sessionIdHint) body.session_id = sessionIdHint;
+  return apiFetch<WanderlyTripRenameResponse>("/api/wanderly/trips/rename", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteWanderlyTrip(tripId: string) {
+  return apiFetch<WanderlyTripsBootstrapResponse>("/api/wanderly/trips/delete", {
+    method: "POST",
+    body: JSON.stringify({ trip_id: tripId }),
+  });
+}
+
 export type SyncUiResponse = {
   ok: boolean;
   /** False when session is not linked to a manifest trip (nothing written under ``wanderly_trips/``). */

@@ -503,6 +503,50 @@ def run_web_server(
                     self._send_json({"session_id": new_sid, "wanderly": wly}, status=200)
                     return
 
+                if path == "/api/wanderly/trips/rename":
+                    tid_r = (payload.get("trip_id") or "").strip()
+                    raw_rn = payload.get("name")
+                    nm_r = str(raw_rn).strip()[:120] if raw_rn is not None else ""
+                    if not tid_r:
+                        self._send_json({"error": "Missing 'trip_id'."}, status=400)
+                        return
+                    meta_r = trip_disk_store.rename_trip(tid_r, nm_r, get_session)
+                    if not meta_r:
+                        self._send_json({"error": "Unknown trip_id."}, status=404)
+                        return
+                    m2 = trip_disk_store.read_manifest()
+                    act = str(m2.get("active_trip_id") or "").strip()
+                    sid_rw = ""
+                    for row in m2.get("trips") or []:
+                        if isinstance(row, dict) and str(row.get("trip_id") or "") == act:
+                            sid_rw = str(row.get("session_id") or "").strip()
+                            break
+                    wly_r = _wanderly_workspace_payload(orchestrator, sid_rw) if sid_rw else _wanderly_workspace_payload(
+                        orchestrator, (payload.get("session_id") or "").strip()
+                    )
+                    self._send_json(
+                        {**meta_r, "session_id": sid_rw, "active_trip_id": act, "wanderly": wly_r},
+                        status=200,
+                    )
+                    return
+
+                if path == "/api/wanderly/trips/delete":
+                    tid_d = (payload.get("trip_id") or "").strip()
+                    if not tid_d:
+                        self._send_json({"error": "Missing 'trip_id'."}, status=400)
+                        return
+                    meta_d = trip_disk_store.delete_trip(tid_d, get_session)
+                    if not meta_d:
+                        self._send_json({"error": "Unknown trip_id."}, status=404)
+                        return
+                    sid_del = meta_d["session_id"]
+                    tid_act = (meta_d.get("trip_id") or "").strip()
+                    if maybe_hydrate_empty_session_from_snapshots(get_session, sid_del) and tid_act:
+                        trip_disk_store.persist_trip(tid_act, sid_del, get_session)
+                    wly_d = _wanderly_workspace_payload(orchestrator, sid_del)
+                    self._send_json({**meta_d, "wanderly": wly_d}, status=200)
+                    return
+
                 if path == "/api/wanderly/sync_ui":
                     sid = (payload.get("session_id") or "").strip()
                     dests = payload.get("destinations")
