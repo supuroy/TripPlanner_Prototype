@@ -37,6 +37,7 @@ from src.wanderly.session_store import (
     snapshot_profile_pills,
 )
 from src.wanderly import trip_disk_store
+from src.wanderly.legacy_session_snapshots import maybe_hydrate_empty_session_from_snapshots
 from src.wanderly.smoke_service import (
     run_refine_turn,
     run_refine_turn_streaming,
@@ -84,8 +85,14 @@ def _wanderly_workspace_payload(orchestrator: TravelPlannerOrchestrator, session
     sid = (session_id or "").strip()
     if sid:
         s = get_session(sid)
-        if isinstance(s.get("ui_destinations"), list):
-            wanderly["destinations"] = s["ui_destinations"]
+        ui = s.get("ui_destinations")
+        last = s.get("last_destinations")
+        if isinstance(ui, list) and len(ui) > 0:
+            wanderly["destinations"] = ui
+        elif isinstance(last, list) and len(last) > 0:
+            wanderly["destinations"] = last
+        elif isinstance(ui, list):
+            wanderly["destinations"] = []
     return wanderly
 
 
@@ -431,7 +438,11 @@ def run_web_server(
                     hint_s = (payload.get("session_id") or "").strip() or None
                     hint_t = (payload.get("trip_id") or "").strip() or None
                     meta = trip_disk_store.bootstrap(hint_s, hint_t, get_session)
-                    wly = _wanderly_workspace_payload(orchestrator, meta["session_id"])
+                    sid_b = meta["session_id"]
+                    tid_b = (meta.get("trip_id") or "").strip()
+                    if maybe_hydrate_empty_session_from_snapshots(get_session, sid_b) and tid_b:
+                        trip_disk_store.persist_trip(tid_b, sid_b, get_session)
+                    wly = _wanderly_workspace_payload(orchestrator, sid_b)
                     self._send_json({**meta, "wanderly": wly}, status=200)
                     return
 
@@ -444,7 +455,11 @@ def run_web_server(
                     if not meta:
                         self._send_json({"error": "Unknown trip_id."}, status=404)
                         return
-                    wly = _wanderly_workspace_payload(orchestrator, meta["session_id"])
+                    sid_act = meta["session_id"]
+                    tid_act = (meta.get("trip_id") or "").strip()
+                    if maybe_hydrate_empty_session_from_snapshots(get_session, sid_act) and tid_act:
+                        trip_disk_store.persist_trip(tid_act, sid_act, get_session)
+                    wly = _wanderly_workspace_payload(orchestrator, sid_act)
                     self._send_json({**meta, "wanderly": wly}, status=200)
                     return
 
@@ -910,11 +925,11 @@ def run_web_server(
                             "primary_recommendation": {"action": "none", "why": "Cursor advisor (cheap model) reply."},
                             "model": "cursor_advisor",
                         }
-                        wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
-                        if sid:
-                            s = get_session(sid)
-                            if isinstance(s.get("ui_destinations"), list):
-                                wanderly["destinations"] = s["ui_destinations"]
+                        wanderly = (
+                            _wanderly_workspace_payload(orchestrator, sid)
+                            if sid
+                            else map_workspace_to_wanderly(orchestrator.get_workspace_state())
+                        )
                         self._send_json(
                             {
                                 "advisor_suggestion": sug,
