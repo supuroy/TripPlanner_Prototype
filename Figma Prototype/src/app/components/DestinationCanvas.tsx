@@ -624,7 +624,10 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             });
             queueMicrotask(() => {
               beginTripDiskSave();
-              void syncUi(sessionId, next as unknown[], { tripId: wanderlyTripId || undefined })
+              void syncUi(sessionId, next as unknown[], {
+                tripId: wanderlyTripId || undefined,
+                profilePills: profile,
+              })
                 .then((r) => completeTripDiskSave(next, { savedToDisk: Boolean(r.saved_to_disk) }))
                 .catch(() => failTripDiskSave());
               queuePlanReviewAfterItineraries(sessionId);
@@ -773,7 +776,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
       const next = prev.map((d) => (d.id === dest.id ? resetDestinationBookingState(d) : d));
       if (sessionId) {
         queueMicrotask(() => {
-          void syncUi(sessionId, next as unknown[]).catch(() => {});
+          void syncUi(sessionId, next as unknown[], { profilePills: profile }).catch(() => {});
         });
       }
       return next;
@@ -1586,14 +1589,17 @@ export function DestinationCanvas() {
     if (syncTimer.current) clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => {
       beginTripDiskSave();
-      void syncUi(sessionId, destinations, { tripId: wanderlyTripId || undefined })
+      void syncUi(sessionId, destinations, {
+        tripId: wanderlyTripId || undefined,
+        profilePills: profile,
+      })
         .then((r) => completeTripDiskSave(destinations, { savedToDisk: Boolean(r.saved_to_disk) }))
         .catch(() => failTripDiskSave());
     }, 450);
     return () => {
       if (syncTimer.current) clearTimeout(syncTimer.current);
     };
-  }, [destinations, sessionId, wanderlyTripId, beginTripDiskSave, completeTripDiskSave, failTripDiskSave]);
+  }, [destinations, profile, sessionId, wanderlyTripId, beginTripDiskSave, completeTripDiskSave, failTripDiskSave]);
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
 

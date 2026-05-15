@@ -149,7 +149,7 @@ def persist_trip(trip_id: str, session_id: str, get_session: Any) -> None:
     name = _default_trip_name()
     found = False
     for row in trips:
-        if str(row.get("trip_id") or "") == trip_id:
+        if str(row.get("trip_id") or "").strip() == (trip_id or "").strip():
             found = True
             name = str(row.get("trip_name") or name)[:120] or name
             row["session_id"] = session_id

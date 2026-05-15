@@ -614,24 +614,36 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     plannerAbortControllerRef.current = ac;
   }, []);
 
-  const applyWanderlyToCanvas = useCallback((w: WanderlyWorkspaceDTO) => {
-    if (Array.isArray(w.profile_pills) && w.profile_pills.length > 0) {
+  const applyWanderlyToCanvas = useCallback((w: WanderlyWorkspaceDTO, opts?: { replaceAll?: boolean }) => {
+    const replaceAll = Boolean(opts?.replaceAll);
+    if (replaceAll) {
+      setProfile(Array.isArray(w.profile_pills) ? (w.profile_pills as ProfilePill[]) : []);
+    } else if (Array.isArray(w.profile_pills) && w.profile_pills.length > 0) {
       setProfile(w.profile_pills as ProfilePill[]);
     }
-    const next = w.destinations;
-    if (!Array.isArray(next)) return;
+    const raw = w.destinations;
+    const next = Array.isArray(raw) ? raw : [];
     if (next.length === 0) {
       setDestinations([]);
+      return;
+    }
+    if (replaceAll) {
+      setDestinations(next as DestCard[]);
       return;
     }
     setDestinations((prev) => {
       if (prev.length === 0) return next as DestCard[];
       const byId = new Map((next as DestCard[]).map((d) => [d.id, d]));
-      return prev.map((p) => {
+      const prevIds = new Set(prev.map((p) => String(p.id)));
+      const updated = prev.map((p) => {
         const s = byId.get(p.id);
         if (!s) return p;
-        return { ...p, ...s, pinned: p.pinned, dismissed: p.dismissed };
+        const pinned = typeof s.pinned === "boolean" ? s.pinned : p.pinned;
+        const dismissed = typeof s.dismissed === "boolean" ? s.dismissed : p.dismissed;
+        return { ...p, ...s, pinned, dismissed };
       });
+      const appended = (next as DestCard[]).filter((s) => !prevIds.has(String(s.id)));
+      return appended.length ? [...updated, ...appended] : updated;
     });
   }, []);
 
@@ -691,7 +703,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         setSavedTrips(res.trips);
         const nm = res.trips.find((t) => t.trip_id === res.trip_id)?.trip_name?.trim();
         if (nm) setTripNameState(nm);
-        applyWanderlyToCanvas(res.wanderly);
+        applyWanderlyToCanvas(res.wanderly, { replaceAll: true });
         const hasDest =
           Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
         if (hasDest) setHasStarted(true);
@@ -738,7 +750,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         setSavedTrips(res.trips);
         const nm = res.trips.find((t) => t.trip_id === res.trip_id)?.trip_name?.trim();
         if (nm) setTripNameState(nm);
-        applyWanderlyToCanvas(res.wanderly);
+        applyWanderlyToCanvas(res.wanderly, { replaceAll: true });
         const hasDest = Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
         setHasStarted(hasDest);
         const srvDest = (res.wanderly.destinations || []) as DestCard[];
@@ -748,6 +760,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
             markTripDiskBaselineFromDestinations(srvDest.length > 0 ? srvDest : merged);
           });
         });
+      } catch {
+        /* keep prior UI; dropdown selection will snap back on next render */
       } finally {
         tripSwitchTransitioningRef.current = false;
         setTripSwitchTransitioning(false);
@@ -771,7 +785,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       const nm = res.trips.find((t) => t.trip_id === res.trip_id)?.trip_name?.trim();
       if (nm) setTripNameState(nm);
       setPendingAgentProfileProposal(null);
-      applyWanderlyToCanvas(res.wanderly);
+      applyWanderlyToCanvas(res.wanderly, { replaceAll: true });
       markTripDiskBaselineFromDestinations([]);
       setHasStarted(false);
       setPhase("idle");
@@ -786,8 +800,10 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const renameTrip = useCallback(
     async (tripId: string, name: string) => {
       const res = await renameWanderlyTrip(tripId, name, sessionId);
-      setSavedTrips(res.trips);
-      applyWanderlyToCanvas(res.wanderly);
+      setSavedTrips(Array.isArray(res.trips) ? res.trips : []);
+      const trimmed = (res.trip_name ?? "").trim().slice(0, 200);
+      setTripNameState(trimmed.length > 0 ? trimmed : "Untitled trip");
+      applyWanderlyToCanvas(res.wanderly as WanderlyWorkspaceDTO, { replaceAll: true });
       if (res.session_id && res.session_id !== sessionId) setSessionId(res.session_id);
       if (res.active_trip_id && res.active_trip_id !== wanderlyTripId) setWanderlyTripId(res.active_trip_id);
       try {
@@ -812,7 +828,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setSessionId(res.session_id);
       setWanderlyTripId(res.trip_id);
       setSavedTrips(res.trips);
-      applyWanderlyToCanvas(res.wanderly);
+      applyWanderlyToCanvas(res.wanderly, { replaceAll: true });
       const hasDest = Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
       setHasStarted(hasDest);
       setExpandedDest(null);
@@ -872,14 +888,18 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     wanderlyWorkspaceBootstrappedRef.current = wanderlyWorkspaceBootstrapped;
   }, [wanderlyWorkspaceBootstrapped]);
 
-  /** When the manifest ``trip_id`` changes, refresh the header label from the server trip list. */
+  /** When the active manifest ``trip_id`` changes, load the editable trip label from the server trip list. */
   const prevTripIdForNameRef = useRef("");
   useEffect(() => {
     const tid = wanderlyTripId.trim();
-    if (!tid || tid === prevTripIdForNameRef.current) return;
+    if (!tid) {
+      prevTripIdForNameRef.current = "";
+      return;
+    }
+    if (tid === prevTripIdForNameRef.current) return;
     prevTripIdForNameRef.current = tid;
     const row = savedTrips.find((t) => t.trip_id === tid);
-    setTripNameState(row?.trip_name?.trim() || "Untitled trip");
+    setTripNameState((row?.trip_name ?? "").trim() || "Untitled trip");
   }, [wanderlyTripId, savedTrips]);
 
   useEffect(() => {
@@ -897,10 +917,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       void syncUi(sessionId, dests, {
         tripId: tid || undefined,
         tripMeta: tid ? { trip_id: tid, trip_name: tname } : undefined,
+        profilePills: profileRef.current,
       }).catch(() => {});
     }, 450);
     return () => clearTimeout(t);
-  }, [sessionId, wanderlyTripId, tripName, destinations, wanderlyWorkspaceBootstrapped]);
+  }, [sessionId, wanderlyTripId, tripName, destinations, profile, wanderlyWorkspaceBootstrapped]);
 
   /** If destination cards exist but ``hasStarted`` stayed false (e.g. new-trip vs planner race), show the workspace. */
   useEffect(() => {
@@ -1007,6 +1028,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           await syncUi(oldSid, destinationsRef.current as unknown[], {
             tripId: oldTid,
             tripMeta: { trip_id: oldTid, trip_name: oldTname },
+            profilePills: profileRef.current,
           }).catch(() => {});
         }
         await createEmptyTrip();

@@ -9,7 +9,7 @@ import traceback
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from src.orchestrator import TravelPlannerOrchestrator
 from src.stages.criteria_stage import CriteriaStage
@@ -86,19 +86,28 @@ def _timeline(msg: str) -> None:
     log_itinerary_build(msg)
 
 
+def normalize_request_path(raw_path: str) -> str:
+    """Strip query/fragment-free path, decode %xx, trim, drop trailing slashes (except root)."""
+    s = unquote(raw_path or "").strip().rstrip("/")
+    return s if s else "/"
+
+
 def _wanderly_workspace_payload(orchestrator: TravelPlannerOrchestrator, session_id: str) -> dict[str, Any]:
     wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
     sid = (session_id or "").strip()
     if sid:
         s = get_session(sid)
-        ui = s.get("ui_destinations")
-        last = s.get("last_destinations")
-        if isinstance(ui, list) and len(ui) > 0:
-            wanderly["destinations"] = ui
-        elif isinstance(last, list) and len(last) > 0:
-            wanderly["destinations"] = last
-        elif isinstance(ui, list):
-            wanderly["destinations"] = []
+        # Session-scoped cards + traveler pills (same rules as GET /api/wanderly/workspace). Without this,
+        # bootstrap/activate would keep ``profile_pills`` from the process-global orchestrator workspace
+        # while destinations came from the switched trip — sidebar showed the wrong traveler profile.
+        wanderly["profile_pills"] = snapshot_profile_pills(sid)
+        wanderly["destinations"] = wanderly_destinations_for_session(s)
+        tm = s.get("trip_meta")
+        if isinstance(tm, dict):
+            tid = str(tm.get("trip_id") or "").strip()
+            tname = str(tm.get("trip_name") or "").strip()[:200]
+            if tid or tname:
+                wanderly["trip_meta"] = {"trip_id": tid, "trip_name": tname}
     return wanderly
 
 
@@ -202,16 +211,17 @@ def run_web_server(
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
-            if parsed.path == "/":
+            path = normalize_request_path(parsed.path)
+            if path == "/":
                 self._send_html(HTML_SCAFFOLD)
                 return
-            if parsed.path == "/state":
+            if path == "/state":
                 self._send_json(orchestrator.get_workspace_state(), status=200)
                 return
-            if parsed.path == "/health":
+            if path == "/health":
                 self._send_json({"status": "ok"}, status=200)
                 return
-            if parsed.path == "/api/wanderly/workspace":
+            if path == "/api/wanderly/workspace":
                 qs = parse_qs(parsed.query or "")
                 sid_list = qs.get("session_id") or []
                 sid = sid_list[0] if sid_list else ""
@@ -232,7 +242,7 @@ def run_web_server(
                             wanderly["trip_meta"] = {"trip_id": tid, "trip_name": tname}
                 self._send_json({"wanderly": wanderly, "wanderly_snapshot_restored": snap}, status=200)
                 return
-            self._send_json({"error": "Not found"}, status=404)
+            self._send_json({"error": f"Not found ({path})"}, status=404)
 
         def do_POST(self) -> None:
             try:
@@ -241,7 +251,7 @@ def run_web_server(
                 payload = json.loads(raw) if raw else {}
 
                 parsed = urlparse(self.path)
-                path = parsed.path
+                path = normalize_request_path(parsed.path)
                 print(f"[web] POST {path} payload_keys={list(payload.keys()) if isinstance(payload, dict) else 'n/a'}")
 
                 if path == "/api/wanderly/smoke_turn":
@@ -518,7 +528,7 @@ def run_web_server(
                     act = str(m2.get("active_trip_id") or "").strip()
                     sid_rw = ""
                     for row in m2.get("trips") or []:
-                        if isinstance(row, dict) and str(row.get("trip_id") or "") == act:
+                        if isinstance(row, dict) and str(row.get("trip_id") or "").strip() == act:
                             sid_rw = str(row.get("session_id") or "").strip()
                             break
                     wly_r = _wanderly_workspace_payload(orchestrator, sid_rw) if sid_rw else _wanderly_workspace_payload(
@@ -557,6 +567,15 @@ def run_web_server(
                         self._send_json({"error": "Expected list 'destinations'."}, status=400)
                         return
                     s = get_session(sid)
+                    tm = payload.get("trip_meta")
+                    if isinstance(tm, dict):
+                        tid = str(tm.get("trip_id") or "").strip()
+                        tname = str(tm.get("trip_name") or "").strip()[:200]
+                        if tid or tname:
+                            s["trip_meta"] = {"trip_id": tid, "trip_name": tname}
+                    pills_in = payload.get("profile_pills")
+                    if isinstance(pills_in, list):
+                        set_last_profile_pills(sid, [x for x in pills_in if isinstance(x, dict)])
                     s["ui_destinations"] = dests
                     trip_disk = (payload.get("trip_id") or "").strip()
                     if not trip_disk:
@@ -565,12 +584,6 @@ def run_web_server(
                     if trip_disk:
                         trip_disk_store.persist_trip(trip_disk, sid, get_session)
                         saved_disk = True
-                    tm = payload.get("trip_meta")
-                    if isinstance(tm, dict):
-                        tid = str(tm.get("trip_id") or "").strip()
-                        tname = str(tm.get("trip_name") or "").strip()[:200]
-                        if tid or tname:
-                            s["trip_meta"] = {"trip_id": tid, "trip_name": tname}
                     persist_wanderly_session_snapshot(sid)
                     self._send_json(
                         {"ok": True, "saved_to_disk": saved_disk, "trip_id": trip_disk or None},
@@ -967,6 +980,11 @@ def run_web_server(
                                 patch["pace_preference"] = vv[:120]
                     updated = orchestrator.update_traveler_profile(patch, source="wanderly_profile_patch")
                     wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
+                    if sid_pp:
+                        tid_pp = (trip_disk_store.lookup_trip_id_for_session(sid_pp) or "").strip()
+                        if tid_pp:
+                            trip_disk_store.persist_trip(tid_pp, sid_pp, get_session)
+                        persist_wanderly_session_snapshot(sid_pp)
                     self._send_json({"traveler_profile": updated, "wanderly": wanderly}, status=200)
                     return
 
@@ -1432,7 +1450,7 @@ def run_web_server(
                     self._send_json({"itinerary_fit_report": result}, status=200)
                     return
 
-                self._send_json({"error": "Not found"}, status=404)
+                self._send_json({"error": f"Not found ({path})"}, status=404)
             except Exception as exc:
                 print(f"[web] POST error path={getattr(self, 'path', 'unknown')}: {exc!r}")
                 traceback.print_exc()

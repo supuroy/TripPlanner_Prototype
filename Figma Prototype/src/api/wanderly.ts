@@ -270,7 +270,7 @@ export async function fetchWorkspace(sessionId: string) {
 export async function syncUi(
   sessionId: string,
   destinations: unknown[],
-  opts?: { tripId?: string; tripMeta?: WanderlyTripMeta },
+  opts?: { tripId?: string; tripMeta?: WanderlyTripMeta; profilePills?: ProfilePill[] },
 ) {
   const body: Record<string, unknown> = { session_id: sessionId, destinations };
   if (opts?.tripId) body.trip_id = opts.tripId;
@@ -279,6 +279,9 @@ export async function syncUi(
       trip_id: String(opts.tripMeta.trip_id || "").trim(),
       trip_name: String(opts.tripMeta.trip_name || "").trim().slice(0, 200),
     };
+  }
+  if (opts?.profilePills != null && Array.isArray(opts.profilePills)) {
+    body.profile_pills = opts.profilePills;
   }
   return apiFetch<SyncUiResponse>("/api/wanderly/sync_ui", {
     method: "POST",

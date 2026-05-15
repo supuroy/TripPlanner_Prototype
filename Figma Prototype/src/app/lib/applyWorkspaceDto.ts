@@ -100,8 +100,18 @@ export function mergeDestinationUiState(
         row = { ...row, commerce: p.commerce };
       }
     }
-    const pinned = p?.pinned ?? row.pinned;
-    const dismissed = p?.dismissed ?? row.dismissed;
+    const pinned =
+      Object.prototype.hasOwnProperty.call(row, "pinned") && typeof row.pinned === "boolean"
+        ? row.pinned
+        : typeof p?.pinned === "boolean"
+          ? p.pinned
+          : Boolean(row.pinned);
+    const dismissed =
+      Object.prototype.hasOwnProperty.call(row, "dismissed") && typeof row.dismissed === "boolean"
+        ? row.dismissed
+        : typeof p?.dismissed === "boolean"
+          ? p.dismissed
+          : Boolean(row.dismissed);
     const fromServer = inferItineraryDirtyFromPayload(row);
     let itinerary_dirty = preservedItinerary
       ? false

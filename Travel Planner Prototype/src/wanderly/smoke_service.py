@@ -386,8 +386,16 @@ def _merge_dest_ui_flags(prior: list[dict[str, Any]], dests: list[dict[str, Any]
         did = str(d.get("id") or "").strip()
         merged = dict(d)
         if did in flags:
-            merged["pinned"] = flags[did]["pinned"]
-            merged["dismissed"] = flags[did]["dismissed"]
+            # Keep browser pin/dismiss unless the model JSON explicitly sets the flag, so a "bring back
+            # Iceland" response with dismissed:false is not overwritten by the prior dismissed:true.
+            if "pinned" in merged:
+                merged["pinned"] = bool(merged.get("pinned"))
+            else:
+                merged["pinned"] = flags[did]["pinned"]
+            if "dismissed" in merged:
+                merged["dismissed"] = bool(merged.get("dismissed"))
+            else:
+                merged["dismissed"] = flags[did]["dismissed"]
         pr = prior_by_id.get(did)
         if pr:
             cur_img = merged.get("image")

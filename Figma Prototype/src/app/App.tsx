@@ -4,9 +4,16 @@ import { ProfilePanel } from "./components/ProfilePanel";
 import { DestinationCanvas } from "./components/DestinationCanvas";
 import { AgentResponses } from "./components/AgentResponses";
 import { SavedTripsMenu } from "./components/SavedTripsMenu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./components/ui/select";
 import { motion, AnimatePresence } from "motion/react";
 import { Compass, Sparkles, Maximize2, Minimize2, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DestCard } from "./components/TripStore";
 import { fetchWorkspace } from "../api/wanderly";
 
@@ -129,26 +136,29 @@ function SavedTripsBar() {
   const {
     savedTrips,
     wanderlyTripId,
+    wanderlyWorkspaceBootstrapped,
+    tripName,
+    setTripName,
     switchToSavedTrip,
     createEmptyTrip,
     renameTrip,
     deleteTrip,
   } = useTrip();
   const [busy, setBusy] = useState(false);
-  const [nameDraft, setNameDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
 
-  const current = savedTrips.find((t) => t.trip_id === wanderlyTripId);
-
-  useEffect(() => {
-    setNameDraft(current?.trip_name ?? "");
-  }, [wanderlyTripId, current?.trip_name]);
+  const current = savedTrips.find((t) => t.trip_id.trim() === wanderlyTripId.trim());
+  /** Manifest row id (authoritative); avoids rename 404 when UI state id drifts from disk. */
+  const tripIdForRename = (current?.trip_id ?? wanderlyTripId).trim();
 
   if (savedTrips.length === 0) return null;
 
-  const dirtyName = nameDraft.trim() !== (current?.trip_name ?? "").trim();
+  const chip =
+    "rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+  const chipBtn = `${chip} text-white/55 hover:bg-white/[0.07] hover:text-white/85`;
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5 text-[11px] text-white/40">
+    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5 text-[12px] text-white/40">
       {wanderlyTripId ? (
         <>
           <label className="sr-only" htmlFor="wanderly-trip-name-input">
@@ -157,51 +167,78 @@ function SavedTripsBar() {
           <input
             id="wanderly-trip-name-input"
             type="text"
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            disabled={busy}
-            className="min-w-0 max-w-[min(200px,38vw)] rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/80 outline-none placeholder:text-white/25"
+            value={tripName}
+            onChange={(e) => {
+              setRenameError(null);
+              setTripName(e.target.value);
+            }}
+            disabled={busy || !wanderlyWorkspaceBootstrapped}
+            className={`min-w-0 max-w-[min(220px,40vw)] ${chip} text-white/80 outline-none placeholder:text-white/25 hover:bg-white/[0.05]`}
             placeholder="Name this trip"
             aria-label="Trip name"
             maxLength={120}
           />
           <button
             type="button"
-            disabled={busy || !dirtyName}
-            className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/55 hover:bg-white/[0.07] disabled:opacity-40"
+            disabled={busy || !wanderlyWorkspaceBootstrapped}
+            className={chipBtn}
             onClick={() => {
-              if (!wanderlyTripId) return;
+              if (!tripIdForRename) {
+                setRenameError("Pick a trip in the list before saving the name.");
+                return;
+              }
+              setRenameError(null);
               setBusy(true);
-              void renameTrip(wanderlyTripId, nameDraft.trim()).finally(() => setBusy(false));
+              void renameTrip(tripIdForRename, tripName.trim() || "Untitled trip")
+                .then(() => setRenameError(null))
+                .catch((e: unknown) => {
+                  const msg = e instanceof Error ? e.message : "Could not save trip name.";
+                  setRenameError(msg);
+                })
+                .finally(() => setBusy(false));
             }}
           >
-            Save name
+            Save trip name
           </button>
         </>
       ) : null}
-      <span className="hidden text-white/25 sm:inline">Trips</span>
-      <select
-        className="max-w-[min(160px,42vw)] truncate rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/70 outline-none"
+      <span className="hidden text-white/40 sm:inline">Trips</span>
+      <Select
         value={wanderlyTripId}
-        disabled={busy}
-        aria-label="Active saved trip"
-        onChange={(e) => {
-          const id = e.target.value;
+        onValueChange={(id) => {
           if (!id || id === wanderlyTripId) return;
           setBusy(true);
           void switchToSavedTrip(id).finally(() => setBusy(false));
         }}
+        disabled={busy}
       >
-        {savedTrips.map((t) => (
-          <option key={t.trip_id} value={t.trip_id}>
-            {t.trip_name || t.trip_id}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger
+          size="sm"
+          aria-label="Active saved trip"
+          className="h-8 max-w-[min(200px,44vw)] min-w-[8rem] gap-1.5 rounded-lg border-white/[0.08] bg-white/[0.04] px-3 py-0 text-[12px] font-normal text-white/75 shadow-none hover:bg-white/[0.07] focus-visible:border-indigo-500/35 focus-visible:ring-1 focus-visible:ring-indigo-500/25 data-[size=sm]:h-8 dark:border-white/[0.08] dark:bg-white/[0.04] dark:hover:bg-white/[0.07] [&_svg]:size-3.5 [&_svg]:opacity-60"
+        >
+          <SelectValue placeholder="Choose trip" />
+        </SelectTrigger>
+        <SelectContent
+          position="popper"
+          sideOffset={4}
+          className="z-[100] max-h-[min(50vh,16rem)] min-w-[var(--radix-select-trigger-width)] border border-white/[0.1] bg-[#12121a] text-white/85 shadow-xl"
+        >
+          {savedTrips.map((t) => (
+            <SelectItem
+              key={t.trip_id}
+              value={t.trip_id}
+              className="cursor-pointer rounded-md py-1.5 pr-8 pl-2 text-[12px] text-white/80 focus:bg-white/[0.1] focus:text-white data-[highlighted]:bg-white/[0.08] data-[highlighted]:text-white data-[state=checked]:bg-indigo-500/15 data-[state=checked]:text-white [&_svg]:text-indigo-300/90"
+            >
+              {t.trip_name || t.trip_id}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <button
         type="button"
         disabled={busy}
-        className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/55 hover:bg-white/[0.07] disabled:opacity-40"
+        className={chipBtn}
         onClick={() => {
           const label = window.prompt("Name the new trip (optional). Cancel to abort.", "");
           if (label === null) return;
@@ -217,7 +254,7 @@ function SavedTripsBar() {
           disabled={busy}
           title="Delete this trip"
           aria-label="Delete this trip"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] text-amber-300/80 hover:bg-white/[0.07] hover:text-amber-200 disabled:opacity-40"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-amber-300/80 transition-colors hover:bg-white/[0.07] hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
           onClick={() => {
             if (
               !window.confirm(
@@ -232,6 +269,11 @@ function SavedTripsBar() {
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
         </button>
+      ) : null}
+      {renameError ? (
+        <span className="basis-full text-center text-[10px] text-amber-200/90" role="alert">
+          {renameError}
+        </span>
       ) : null}
     </div>
   );
@@ -249,11 +291,6 @@ function Workspace() {
     setDestinations,
     setEnrichmentPending,
     itineraryLaneQueueDepth,
-    startNewTrip,
-    tripName,
-    setTripName,
-    wanderlyTripId,
-    newTripTransitioning,
     tripSwitchTransitioning,
   } = useTrip();
 
@@ -276,7 +313,9 @@ function Workspace() {
               return prev.map((p) => {
                 const s = byId.get(p.id);
                 if (!s) return p;
-                return { ...p, ...s, pinned: p.pinned, dismissed: p.dismissed };
+                const pinned = typeof s.pinned === "boolean" ? s.pinned : p.pinned;
+                const dismissed = typeof s.dismissed === "boolean" ? s.dismissed : p.dismissed;
+                return { ...p, ...s, pinned, dismissed };
               });
             });
           }
@@ -301,23 +340,6 @@ function Workspace() {
                 <Compass className="w-3.5 h-3.5 text-white" />
               </div>
               <span className="text-[15px] text-white/70">Wanderly</span>
-            </div>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <label htmlFor="wanderly-trip-name" className="text-[10px] uppercase tracking-wide text-white/35">
-                Trip name
-              </label>
-              <input
-                id="wanderly-trip-name"
-                type="text"
-                value={tripName}
-                onChange={(e) => setTripName(e.target.value)}
-                disabled={!wanderlyWorkspaceBootstrapped}
-                placeholder="Name this trip"
-                maxLength={200}
-                title={wanderlyTripId ? `Trip id: ${wanderlyTripId}` : undefined}
-                autoComplete="off"
-                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[13px] text-white/85 placeholder:text-white/25 outline-none transition-colors focus:border-indigo-500/40 disabled:cursor-wait disabled:opacity-50"
-              />
             </div>
           </div>
           <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-2">
@@ -346,24 +368,6 @@ function Workspace() {
             </motion.div>
           )}
           <div className="flex shrink-0 items-center gap-2 sm:self-start sm:gap-3">
-            <div className="relative">
-              <SavedTripsMenu variant="header" />
-            </div>
-            <button
-              type="button"
-              onClick={() => void startNewTrip()}
-              disabled={newTripTransitioning || tripSwitchTransitioning}
-              title={
-                newTripTransitioning
-                  ? "Finishing new trip setup…"
-                  : tripSwitchTransitioning
-                    ? "Loading saved trip…"
-                    : undefined
-              }
-              className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/85 disabled:cursor-wait disabled:opacity-40"
-            >
-              New trip
-            </button>
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-[11px] text-white">
               J
             </div>

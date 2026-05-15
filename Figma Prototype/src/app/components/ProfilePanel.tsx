@@ -617,6 +617,12 @@ function EditablePill({
                 {opt === pill.value && <Check className="w-3 h-3 inline ml-2 text-indigo-400" />}
               </button>
             ))}
+            {pill.key !== "vibe" && (
+              <p className="px-3 py-2 text-[10px] text-white/25 border-t border-white/[0.06] leading-snug">
+                For wording that is not listed here, describe it in the main trip chat or this card&apos;s chat — then
+                use <span className="text-white/35">Update trip</span> if the sidebar should stay structured.
+              </p>
+            )}
 
             {/* Custom input field for vibe */}
             {pill.key === "vibe" && (

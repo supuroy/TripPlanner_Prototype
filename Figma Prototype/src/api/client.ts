@@ -1,8 +1,22 @@
 import { wanderlyActiveTraceHeaders } from "./traceContext";
 
-function baseUrl(): string {
-  const raw = import.meta.env.VITE_API_BASE as string | undefined;
-  return (raw || "").replace(/\/$/, "");
+/**
+ * Absolute URL for a Wanderly/API path. When `VITE_API_BASE` already ends with `/api`
+ * (e.g. `http://127.0.0.1:8000/api`), callers must not also pass `/api/...` or the server
+ * receives `/api/api/...` and returns 404 `{"error":"Not found"}` — no route matches.
+ */
+export function apiUrl(path: string): string {
+  const raw = (import.meta.env.VITE_API_BASE as string | undefined)?.trim() || "";
+  const base = raw.replace(/\/+$/, "");
+  const p = path.startsWith("/") ? path : `/${path}`;
+  if (!base) return p;
+  if (p.startsWith("/api/")) {
+    const lb = base.toLowerCase();
+    if (lb.endsWith("/api")) {
+      return `${base}${p.slice("/api".length)}`;
+    }
+  }
+  return `${base}${p}`;
 }
 
 /**
@@ -15,7 +29,7 @@ export async function apiPostSseJson(
   onMessage: (msg: Record<string, unknown>) => void,
   options?: { signal?: AbortSignal; headers?: Record<string, string> },
 ): Promise<void> {
-  const url = `${baseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
+  const url = apiUrl(path);
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -77,7 +91,7 @@ export async function apiPostSseJson(
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = `${baseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
+  const url = apiUrl(path);
   const headers: HeadersInit = {
     Accept: "application/json",
     ...wanderlyActiveTraceHeaders(),

@@ -934,7 +934,10 @@ export function BookingTimelineFace({
             };
           });
           beginTripDiskSave();
-          void syncUi(sessionId, next as unknown[], { tripId: wanderlyTripId || undefined })
+          void syncUi(sessionId, next as unknown[], {
+            tripId: wanderlyTripId || undefined,
+            profilePills: profile,
+          })
             .then((r) => completeTripDiskSave(next as DestCard[], { savedToDisk: Boolean(r.saved_to_disk) }))
             .catch(() => failTripDiskSave());
           return next;

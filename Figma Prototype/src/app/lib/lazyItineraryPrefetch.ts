@@ -120,7 +120,7 @@ export function enqueueBackgroundItineraryBuild(args: {
           );
         });
         queueMicrotask(() => {
-          void syncUi(args.sessionId, next as unknown[]).catch(() => {});
+          void syncUi(args.sessionId, next as unknown[], { profilePills: args.profile }).catch(() => {});
         });
         return next;
       });
