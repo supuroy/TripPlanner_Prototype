@@ -110,6 +110,53 @@ export async function installWanderlyApiMocks(page: Page, opts: WanderlyMockOpti
     await route.fulfill(json({ ok: true }));
   });
 
+  await page.route("**/api/wanderly/trips/bootstrap", async (route) => {
+    const post = route.request().postDataJSON() as { session_id?: string; trip_id?: string } | null;
+    const sessionId = String(post?.session_id || "e2e-session");
+    const tripId = String(post?.trip_id || "trip-e2e-1");
+    await route.fulfill(
+      json({
+        trip_id: tripId,
+        session_id: sessionId,
+        active_trip_id: tripId,
+        trips: [{ trip_id: tripId, trip_name: "E2E Trip", session_id: sessionId, updated_at_ms: Date.now() }],
+        wanderly: initialFn(sessionId),
+      }),
+    );
+  });
+
+  await page.route("**/api/wanderly/trips/activate", async (route) => {
+    const post = route.request().postDataJSON() as { trip_id?: string } | null;
+    const tid = String(post?.trip_id || "trip-e2e-1");
+    const sid = `e2e-${tid}`;
+    await route.fulfill(
+      json({
+        trip_id: tid,
+        session_id: sid,
+        active_trip_id: tid,
+        trips: [
+          { trip_id: "trip-e2e-1", trip_name: "Trip A", session_id: "e2e-a", updated_at_ms: 0 },
+          { trip_id: tid, trip_name: "Trip B", session_id: sid, updated_at_ms: 0 },
+        ],
+        wanderly: initialFn(sid),
+      }),
+    );
+  });
+
+  await page.route("**/api/wanderly/trips/create", async (route) => {
+    const sid = `e2e-new-${Date.now()}`;
+    const tid = `trip-e2e-${Date.now()}`;
+    await route.fulfill(
+      json({
+        trip_id: tid,
+        session_id: sid,
+        active_trip_id: tid,
+        trips: [{ trip_id: tid, trip_name: "New trip", session_id: sid, updated_at_ms: Date.now() }],
+        wanderly: initialFn(sid),
+      }),
+    );
+  });
+
   await page.route("**/api/wanderly/enrich_heroes", async (route) => {
     const post = route.request().postDataJSON() as { session_id?: string };
     await route.fulfill(

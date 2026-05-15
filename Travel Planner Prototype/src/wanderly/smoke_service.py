@@ -27,6 +27,7 @@ from src.wanderly.session_store import (
     append_chat,
     chat_context_snippet,
     cursor_run_persist_kwargs,
+    get_session,
     set_last_destinations,
     set_last_profile_pills,
     snapshot_destinations_for_model,
@@ -558,6 +559,13 @@ def _normalize_parsed(raw: dict[str, Any]) -> WanderlyWorkspaceDTO:
     )
 
 
+def _mirror_ui_destinations_from_dto(session_id: str, dto: WanderlyWorkspaceDTO) -> None:
+    """Keep session ``ui_destinations`` aligned so GET workspace reflects planner cards per session."""
+    s = get_session(session_id)
+    raw = dto.model_dump().get("destinations")
+    s["ui_destinations"] = [x for x in raw if isinstance(x, dict)] if isinstance(raw, list) else []
+
+
 def _complete_smoke_turn(session_id: str, user_message: str, raw_text: str) -> dict[str, Any]:
     parsed = _extract_json_object(raw_text)
     if not parsed:
@@ -574,6 +582,7 @@ def _complete_smoke_turn(session_id: str, user_message: str, raw_text: str) -> d
     append_chat(session_id, "assistant", dto.assistant_markdown)
     set_last_destinations(session_id, dto.destinations)
     set_last_profile_pills(session_id, [p.model_dump() for p in dto.profile_pills])
+    _mirror_ui_destinations_from_dto(session_id, dto)
     return {
         "wanderly": dto.model_dump(),
         "parse_ok": bool(_extract_json_object(raw_text)),
@@ -668,6 +677,7 @@ def _complete_refine_turn(
     append_chat(session_id, "assistant", dto.assistant_markdown)
     set_last_destinations(session_id, dto.destinations)
     set_last_profile_pills(session_id, [p.model_dump() for p in dto.profile_pills])
+    _mirror_ui_destinations_from_dto(session_id, dto)
     out: dict[str, Any] = {"wanderly": dto.model_dump(), "parse_ok": parsed is not None}
     if parsed and restored_omitted:
         out["shortlist_drop_blocked"] = True

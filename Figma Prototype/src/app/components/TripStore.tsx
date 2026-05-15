@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
-import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO } from "../../types/workspace";
-import { planReview } from "../../api/wanderly";
+import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../../types/workspace";
+import type { WanderlyTripSummary } from "../../api/wanderly";
+import { planReview, bootstrapWanderlyTrips, activateWanderlyTrip, createWanderlyTrip } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
@@ -217,6 +218,12 @@ interface TripStoreType {
   setHasStarted: (v: boolean) => void;
   sessionId: string;
   setSessionId: (id: string) => void;
+  /** Server trip key (manifest + per-trip JSON on disk); pass to ``syncUi`` for durable saves. */
+  wanderlyTripId: string;
+  /** Saved trips from manifest (for switcher UI). */
+  savedTrips: WanderlyTripSummary[];
+  switchToSavedTrip: (tripId: string) => Promise<void>;
+  createEmptyTrip: (name?: string) => Promise<void>;
   enrichmentPending: boolean;
   setEnrichmentPending: (v: boolean) => void;
   /** When set (and workspace has destinations), CommandBar runs a refine with this text. */
@@ -472,6 +479,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [itineraryLaneQueueDepth, setItineraryLaneQueueDepth] = useState(0);
   const [hasStarted, setHasStarted] = useState(false);
   const [sessionId, setSessionId] = useState<string>(readOrCreateSessionId);
+  const [wanderlyTripId, setWanderlyTripId] = useState("");
+  const [savedTrips, setSavedTrips] = useState<WanderlyTripSummary[]>([]);
   const [enrichmentPending, setEnrichmentPending] = useState(false);
   const [pendingRefineText, setPendingRefineText] = useState<string | null>(null);
   const [composerPrefill, setComposerPrefill] = useState<string | null>(null);
@@ -482,6 +491,108 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const setPlannerAbortController = useCallback((ac: AbortController | null) => {
     plannerAbortControllerRef.current = ac;
   }, []);
+
+  const applyWanderlyToCanvas = useCallback((w: WanderlyWorkspaceDTO) => {
+    if (Array.isArray(w.profile_pills) && w.profile_pills.length > 0) {
+      setProfile(w.profile_pills as ProfilePill[]);
+    }
+    const next = w.destinations;
+    if (!Array.isArray(next)) return;
+    if (next.length === 0) {
+      setDestinations([]);
+      return;
+    }
+    setDestinations((prev) => {
+      if (prev.length === 0) return next as DestCard[];
+      const byId = new Map((next as DestCard[]).map((d) => [d.id, d]));
+      return prev.map((p) => {
+        const s = byId.get(p.id);
+        if (!s) return p;
+        return { ...p, ...s, pinned: p.pinned, dismissed: p.dismissed };
+      });
+    });
+  }, []);
+
+  const bootstrapOnceRef = useRef(false);
+  useEffect(() => {
+    if (bootstrapOnceRef.current) return;
+    bootstrapOnceRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        let hintS = "";
+        let hintT = "";
+        try {
+          hintS = sessionStorage.getItem("wanderly_session_id") || "";
+          hintT = sessionStorage.getItem("wanderly_trip_id") || "";
+        } catch {
+          /* sessionStorage unavailable */
+        }
+        const res = await bootstrapWanderlyTrips({
+          session_id: hintS || undefined,
+          trip_id: hintT || undefined,
+        });
+        if (cancelled) return;
+        try {
+          sessionStorage.setItem("wanderly_session_id", res.session_id);
+          sessionStorage.setItem("wanderly_trip_id", res.trip_id);
+        } catch {
+          /* */
+        }
+        if (res.session_id !== hintS) setSessionId(res.session_id);
+        setWanderlyTripId(res.trip_id);
+        setSavedTrips(res.trips);
+        applyWanderlyToCanvas(res.wanderly);
+      } catch {
+        bootstrapOnceRef.current = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyWanderlyToCanvas]);
+
+  const switchToSavedTrip = useCallback(
+    async (tripId: string) => {
+      const res = await activateWanderlyTrip(tripId);
+      try {
+        sessionStorage.setItem("wanderly_session_id", res.session_id);
+        sessionStorage.setItem("wanderly_trip_id", res.trip_id);
+      } catch {
+        /* */
+      }
+      setSessionId(res.session_id);
+      setWanderlyTripId(res.trip_id);
+      setSavedTrips(res.trips);
+      applyWanderlyToCanvas(res.wanderly);
+      const hasDest = Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
+      setHasStarted(hasDest);
+    },
+    [applyWanderlyToCanvas],
+  );
+
+  const createEmptyTrip = useCallback(
+    async (name?: string) => {
+      const res = await createWanderlyTrip(name);
+      try {
+        sessionStorage.setItem("wanderly_session_id", res.session_id);
+        sessionStorage.setItem("wanderly_trip_id", res.trip_id);
+      } catch {
+        /* */
+      }
+      setSessionId(res.session_id);
+      setWanderlyTripId(res.trip_id);
+      setSavedTrips(res.trips);
+      applyWanderlyToCanvas(res.wanderly);
+      setHasStarted(false);
+      setPhase("idle");
+      setExpandedDest(null);
+      setResponses([]);
+      setMessages([]);
+      setInsights([]);
+    },
+    [applyWanderlyToCanvas],
+  );
 
   // Use refs to avoid stale closures in pushUndo
   const destinationsRef = useRef(destinations);
@@ -691,7 +802,12 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         setIsCanvasCollapsed,
         itineraryLaneQueueDepth,
         hasStarted, setHasStarted,
-        sessionId, setSessionId,
+        sessionId,
+        setSessionId,
+        wanderlyTripId,
+        savedTrips,
+        switchToSavedTrip,
+        createEmptyTrip,
         enrichmentPending, setEnrichmentPending,
         pendingRefineText, setPendingRefineText,
         composerPrefill, setComposerPrefill,

@@ -487,6 +487,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     setExpandedDest,
     addResponse,
     sessionId,
+    wanderlyTripId,
     profile,
     itineraryLaneQueueDepth,
     queuePlanReviewAfterItineraries,
@@ -595,7 +596,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
               return mergeItineraryBuildIntoDest(d, rows, budget, res.booking_search_hints ?? null);
             });
             queueMicrotask(() => {
-              void syncUi(sessionId, next as unknown[]).catch(() => {});
+              void syncUi(sessionId, next as unknown[], { tripId: wanderlyTripId || undefined }).catch(() => {});
               queuePlanReviewAfterItineraries(sessionId);
             });
             return next;
@@ -1378,6 +1379,7 @@ export function DestinationCanvas() {
     isCanvasCollapsed,
     setIsCanvasCollapsed,
     sessionId,
+    wanderlyTripId,
     profile,
     setDestinations,
     phase,
@@ -1401,12 +1403,12 @@ export function DestinationCanvas() {
     if (!sessionId || destinations.length === 0) return;
     if (syncTimer.current) clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => {
-      void syncUi(sessionId, destinations).catch(() => {});
+      void syncUi(sessionId, destinations, { tripId: wanderlyTripId || undefined }).catch(() => {});
     }, 450);
     return () => {
       if (syncTimer.current) clearTimeout(syncTimer.current);
     };
-  }, [destinations, sessionId]);
+  }, [destinations, sessionId, wanderlyTripId]);
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
 

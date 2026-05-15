@@ -36,6 +36,7 @@ from src.wanderly.session_store import (
     snapshot_destinations_for_model,
     snapshot_profile_pills,
 )
+from src.wanderly import trip_disk_store
 from src.wanderly.smoke_service import (
     run_refine_turn,
     run_refine_turn_streaming,
@@ -76,6 +77,16 @@ def _wanderly_trace_id(handler: BaseHTTPRequestHandler) -> str:
 
 def _timeline(msg: str) -> None:
     log_itinerary_build(msg)
+
+
+def _wanderly_workspace_payload(orchestrator: TravelPlannerOrchestrator, session_id: str) -> dict[str, Any]:
+    wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
+    sid = (session_id or "").strip()
+    if sid:
+        s = get_session(sid)
+        if isinstance(s.get("ui_destinations"), list):
+            wanderly["destinations"] = s["ui_destinations"]
+    return wanderly
 
 
 def _truthy_flag(val: Any) -> bool:
@@ -191,11 +202,7 @@ def run_web_server(
                 qs = parse_qs(parsed.query or "")
                 sid_list = qs.get("session_id") or []
                 sid = sid_list[0] if sid_list else ""
-                wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
-                if sid:
-                    s = get_session(sid)
-                    if s.get("ui_destinations"):
-                        wanderly["destinations"] = s["ui_destinations"]
+                wanderly = _wanderly_workspace_payload(orchestrator, sid)
                 self._send_json({"wanderly": wanderly}, status=200)
                 return
             self._send_json({"error": "Not found"}, status=404)
@@ -420,6 +427,35 @@ def run_web_server(
                         self._send_json({"error": str(exc)}, status=500)
                     return
 
+                if path == "/api/wanderly/trips/bootstrap":
+                    hint_s = (payload.get("session_id") or "").strip() or None
+                    hint_t = (payload.get("trip_id") or "").strip() or None
+                    meta = trip_disk_store.bootstrap(hint_s, hint_t, get_session)
+                    wly = _wanderly_workspace_payload(orchestrator, meta["session_id"])
+                    self._send_json({**meta, "wanderly": wly}, status=200)
+                    return
+
+                if path == "/api/wanderly/trips/activate":
+                    tid_a = (payload.get("trip_id") or "").strip()
+                    if not tid_a:
+                        self._send_json({"error": "Missing 'trip_id'."}, status=400)
+                        return
+                    meta = trip_disk_store.activate_trip(tid_a, get_session)
+                    if not meta:
+                        self._send_json({"error": "Unknown trip_id."}, status=404)
+                        return
+                    wly = _wanderly_workspace_payload(orchestrator, meta["session_id"])
+                    self._send_json({**meta, "wanderly": wly}, status=200)
+                    return
+
+                if path == "/api/wanderly/trips/create":
+                    raw_name = payload.get("name")
+                    nm = str(raw_name).strip()[:120] if raw_name is not None else ""
+                    meta = trip_disk_store.create_trip(nm or None, get_session)
+                    wly = _wanderly_workspace_payload(orchestrator, meta["session_id"])
+                    self._send_json({**meta, "wanderly": wly}, status=200)
+                    return
+
                 if path == "/api/wanderly/sync_ui":
                     sid = (payload.get("session_id") or "").strip()
                     dests = payload.get("destinations")
@@ -431,6 +467,9 @@ def run_web_server(
                         return
                     s = get_session(sid)
                     s["ui_destinations"] = dests
+                    trip_disk = (payload.get("trip_id") or "").strip()
+                    if trip_disk:
+                        trip_disk_store.persist_trip(trip_disk, sid, get_session)
                     self._send_json({"ok": True}, status=200)
                     return
 
@@ -735,7 +774,9 @@ def run_web_server(
                     wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
                     s = get_session(sid)
                     s["mode"] = "gemini_plan"
-                    s["last_destinations"] = wanderly.get("destinations") or []
+                    dests = wanderly.get("destinations") or []
+                    s["last_destinations"] = dests
+                    s["ui_destinations"] = dests
                     self._send_json({"session_id": sid, "run": result, "wanderly": wanderly}, status=200)
                     return
 
@@ -872,7 +913,7 @@ def run_web_server(
                         wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
                         if sid:
                             s = get_session(sid)
-                            if isinstance(s.get("ui_destinations"), list) and s["ui_destinations"]:
+                            if isinstance(s.get("ui_destinations"), list):
                                 wanderly["destinations"] = s["ui_destinations"]
                         self._send_json(
                             {

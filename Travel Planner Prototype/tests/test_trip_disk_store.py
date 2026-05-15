@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import json
+import uuid
+from pathlib import Path
+
+import pytest
+
+from src.wanderly import trip_disk_store
+
+
+@pytest.fixture
+def trips_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    d = tmp_path / "wanderly_trips"
+    monkeypatch.setenv("WANDERLY_TRIPS_DIR", str(d))
+    trip_disk_store.reset_for_tests()
+    yield d
+    trip_disk_store.reset_for_tests()
+
+
+def _fake_get_session(store: dict):
+    def get_session(sid: str):
+        if sid not in store:
+            store[sid] = {"chat": [], "last_destinations": [], "mode": "idle"}
+        return store[sid]
+
+    return get_session
+
+
+def test_bootstrap_creates_manifest_and_trip_file(trips_dir: Path) -> None:
+    store: dict = {}
+    gs = _fake_get_session(store)
+    sid = str(uuid.uuid4())
+    out = trip_disk_store.bootstrap(sid, None, gs)
+    assert out["session_id"] == sid
+    assert out["trip_id"]
+    assert (trips_dir / "manifest.json").is_file()
+    tid = out["trip_id"]
+    assert (trips_dir / f"{tid}.json").is_file()
+
+
+def test_persist_round_trip(trips_dir: Path) -> None:
+    store: dict = {}
+    gs = _fake_get_session(store)
+    sid = str(uuid.uuid4())
+    meta = trip_disk_store.bootstrap(sid, None, gs)
+    tid = meta["trip_id"]
+    s = gs(sid)
+    s["ui_destinations"] = [{"id": "x", "name": "Test"}]
+    s["profile_pills"] = [{"key": "when", "label": "When", "value": "June", "icon": "📅"}]
+    trip_disk_store.persist_trip(tid, sid, gs)
+    raw = json.loads((trips_dir / f"{tid}.json").read_text(encoding="utf-8"))
+    assert raw["session"]["ui_destinations"][0]["id"] == "x"
+
+
+def test_activate_second_trip_isolated_sessions(trips_dir: Path) -> None:
+    store: dict = {}
+    gs = _fake_get_session(store)
+    sid_a = str(uuid.uuid4())
+    trip_disk_store.bootstrap(sid_a, None, gs)
+    m1 = trip_disk_store.read_manifest()
+    tid_a = m1["active_trip_id"]
+    meta_b = trip_disk_store.create_trip("Paris weekend", gs)
+    tid_b = meta_b["trip_id"]
+    sid_b = meta_b["session_id"]
+    gs(sid_b)["ui_destinations"] = [{"id": "paris", "name": "Paris"}]
+    trip_disk_store.persist_trip(tid_b, sid_b, gs)
+
+    trip_disk_store.activate_trip(tid_a, gs)
+    assert trip_disk_store.read_manifest()["active_trip_id"] == tid_a
+    assert gs(sid_a).get("ui_destinations") == []
+
+    trip_disk_store.activate_trip(tid_b, gs)
+    assert gs(sid_b).get("ui_destinations")[0]["id"] == "paris"

@@ -661,7 +661,7 @@ export function BookingTimelineFace({
   dateHints: BookingDateHints;
   onSearchFinished: () => void;
 }) {
-  const { setDestinations } = useTrip();
+  const { setDestinations, wanderlyTripId } = useTrip();
   const flights = dest.flights || [];
   const hotels = dest.hotels || [];
 
@@ -886,7 +886,7 @@ export function BookingTimelineFace({
                 }
               : d,
           );
-          void syncUi(sessionId, next as unknown[]);
+          void syncUi(sessionId, next as unknown[], { tripId: wanderlyTripId || undefined });
           return next;
         });
 

@@ -180,10 +180,52 @@ export async function fetchWorkspace(sessionId: string) {
   return apiFetch<{ wanderly: WanderlyWorkspaceDTO }>(`/api/wanderly/workspace?${q.toString()}`);
 }
 
-export async function syncUi(sessionId: string, destinations: unknown[]) {
+export type WanderlyTripSummary = {
+  trip_id: string;
+  trip_name: string;
+  session_id: string;
+  updated_at_ms: number;
+};
+
+export type WanderlyTripsBootstrapResponse = {
+  trip_id: string;
+  session_id: string;
+  active_trip_id: string;
+  trips: WanderlyTripSummary[];
+  wanderly: WanderlyWorkspaceDTO;
+};
+
+/** One JSON file per trip + manifest; reconciles browser hints with disk (durable trip switch). */
+export async function bootstrapWanderlyTrips(opts?: { session_id?: string; trip_id?: string }) {
+  return apiFetch<WanderlyTripsBootstrapResponse>("/api/wanderly/trips/bootstrap", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: opts?.session_id,
+      trip_id: opts?.trip_id,
+    }),
+  });
+}
+
+export async function activateWanderlyTrip(tripId: string) {
+  return apiFetch<WanderlyTripsBootstrapResponse>("/api/wanderly/trips/activate", {
+    method: "POST",
+    body: JSON.stringify({ trip_id: tripId }),
+  });
+}
+
+export async function createWanderlyTrip(name?: string) {
+  return apiFetch<WanderlyTripsBootstrapResponse>("/api/wanderly/trips/create", {
+    method: "POST",
+    body: JSON.stringify(name ? { name } : {}),
+  });
+}
+
+export async function syncUi(sessionId: string, destinations: unknown[], opts?: { tripId?: string }) {
+  const body: Record<string, unknown> = { session_id: sessionId, destinations };
+  if (opts?.tripId) body.trip_id = opts.tripId;
   return apiFetch<{ ok: boolean }>("/api/wanderly/sync_ui", {
     method: "POST",
-    body: JSON.stringify({ session_id: sessionId, destinations }),
+    body: JSON.stringify(body),
   });
 }
 

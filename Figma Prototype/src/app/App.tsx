@@ -5,7 +5,7 @@ import { DestinationCanvas } from "./components/DestinationCanvas";
 import { AgentResponses } from "./components/AgentResponses";
 import { motion, AnimatePresence } from "motion/react";
 import { Compass, Sparkles, Maximize2, Minimize2 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { DestCard } from "./components/TripStore";
 import { fetchWorkspace } from "../api/wanderly";
 
@@ -82,6 +82,46 @@ function AgentResponsesHeader() {
   );
 }
 
+function SavedTripsBar() {
+  const { savedTrips, wanderlyTripId, switchToSavedTrip, createEmptyTrip } = useTrip();
+  const [busy, setBusy] = useState(false);
+  if (savedTrips.length === 0) return null;
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-white/40">
+      <span className="hidden text-white/25 sm:inline">Trips</span>
+      <select
+        className="max-w-[min(160px,42vw)] truncate rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/70 outline-none"
+        value={wanderlyTripId}
+        disabled={busy}
+        aria-label="Active saved trip"
+        onChange={(e) => {
+          const id = e.target.value;
+          if (!id || id === wanderlyTripId) return;
+          setBusy(true);
+          void switchToSavedTrip(id).finally(() => setBusy(false));
+        }}
+      >
+        {savedTrips.map((t) => (
+          <option key={t.trip_id} value={t.trip_id}>
+            {t.trip_name || t.trip_id}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        disabled={busy}
+        className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-white/55 hover:bg-white/[0.07] disabled:opacity-40"
+        onClick={() => {
+          setBusy(true);
+          void createEmptyTrip().finally(() => setBusy(false));
+        }}
+      >
+        New
+      </button>
+    </div>
+  );
+}
+
 function Workspace() {
   const {
     hasStarted,
@@ -138,6 +178,9 @@ function Workspace() {
               <Compass className="w-3.5 h-3.5 text-white" />
             </div>
             <span className="text-[15px] text-white/70">Wanderly</span>
+          </div>
+          <div className="flex min-w-0 flex-1 items-center justify-center px-2">
+            <SavedTripsBar />
           </div>
           {(agentStatus || itineraryLaneQueueDepth > 0) && (
             <motion.div
