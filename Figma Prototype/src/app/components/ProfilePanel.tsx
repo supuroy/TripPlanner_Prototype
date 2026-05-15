@@ -1,14 +1,24 @@
 import type { Dispatch, SetStateAction } from "react";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { profileChangeAdvisor, profilePatch } from "../../api/wanderly";
 import type { WanderlyProfilePillDTO } from "../../types/workspace";
-import { mapDtoPillsToProfile } from "../lib/applyWorkspaceDto";
+import { mapDtoPillsToProfile, mergeSubmittedProfileWithServerPills } from "../lib/applyWorkspaceDto";
 import { useTrip, ProfilePill, SuggestedAction, RESERVE_DESTINATIONS, type DestCard } from "./TripStore";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Pencil, Check, X, AlertTriangle, Lightbulb, CheckCircle, Info,
   Play, Loader2, Zap,
 } from "lucide-react";
+
+function profilesDiffer(a: ProfilePill[], b: ProfilePill[]): boolean {
+  const sig = (rows: ProfilePill[]) =>
+    [...rows]
+      .filter((p) => p.key !== "tags")
+      .map((p) => `${p.key}=${p.value.trim()}`)
+      .sort()
+      .join("\u0001");
+  return sig(a) !== sig(b);
+}
 
 // ── Action execution engine ──
 // SuggestedAction.refinePrompt runs a real Cursor refine via TripStore.pendingRefineText + CommandBar.
@@ -505,18 +515,29 @@ function applyLocalGenerateReaction(
     });
   } else {
     setTimeout(() => {
-      addInsight("info", `Updated ${label.toLowerCase()} to "${value}". All plans re-evaluated.`);
+      addInsight(
+        "info",
+        `Updated ${label.toLowerCase()} to "${value}". Your saved itineraries were not changed; use the trip bar if you want the planner to rebuild them.`,
+      );
       setDestinations((prev) => prev.map((d) => ({ ...d, warnings: undefined })));
     }, 300);
   }
 }
 
-function EditablePill({ pill }: { pill: ProfilePill }) {
-  const { updateProfilePill, addInsight, setDestinations, profile, setProfile, sessionId, destinations } = useTrip();
+function EditablePill({
+  pill,
+  committedValue,
+  onPillChange,
+}: {
+  pill: ProfilePill;
+  committedValue: string;
+  onPillChange: (key: string, value: string) => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [customValue, setCustomValue] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const modified = pill.value !== committedValue;
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -531,78 +552,15 @@ function EditablePill({ pill }: { pill: ProfilePill }) {
   }, [editing]);
 
   const handleSelect = (value: string) => {
-    const oldValue = pill.value;
-    if (value === oldValue) {
+    if (value === pill.value) {
       setEditing(false);
       setShowOptions(false);
       return;
     }
-
-    updateProfilePill(pill.key, value);
-    const nextProfile = profile.map((p) => (p.key === pill.key ? { ...p, value } : p));
-    void profilePatch(sessionId || "", nextProfile).then(({ wanderly }) => {
-      if (wanderly.profile_pills?.length) {
-        setProfile(mapDtoPillsToProfile(wanderly.profile_pills));
-      }
-    }).catch(() => {});
+    onPillChange(pill.key, value);
     setEditing(false);
     setShowOptions(false);
     setCustomValue("");
-
-    void (async () => {
-      if (!sessionId || destinations.length === 0) {
-        applyLocalGenerateReaction(pill.key, value, pill.label, addInsight, setDestinations);
-        return;
-      }
-      try {
-        const { result } = await profileChangeAdvisor({
-          session_id: sessionId,
-          pill_key: pill.key,
-          old_value: oldValue,
-          new_value: value,
-          profile_pills: nextProfile as unknown as WanderlyProfilePillDTO[],
-          destinations: destinations as unknown as Record<string, unknown>[],
-        });
-        if (result.skipped || (!result.headline && !(result.suggestions?.length))) {
-          applyLocalGenerateReaction(pill.key, value, pill.label, addInsight, setDestinations);
-          return;
-        }
-        if (result.warnings && result.warnings.length > 0) {
-          setTimeout(() => {
-            setDestinations((prev) =>
-              prev.map((d) => {
-                const hit = result.warnings!.find((w) => w.destination_id === d.id);
-                if (hit) return { ...d, warnings: [hit.text] };
-                return { ...d, warnings: undefined };
-              }),
-            );
-          }, 200);
-        } else {
-          setTimeout(() => {
-            setDestinations((prev) => prev.map((d) => ({ ...d, warnings: undefined })));
-          }, 200);
-        }
-        const actions: SuggestedAction[] = (result.suggestions || []).map((s, i) => ({
-          id: `advisor-refine:${i}`,
-          label: s.label,
-          description: s.description,
-          icon: s.icon || "✨",
-          refinePrompt: s.refine_prompt,
-        }));
-        const headline = (result.headline || "").trim();
-        if (actions.length > 0 && headline) {
-          setTimeout(() => {
-            addInsight(result.warnings?.length ? "warning" : "tip", headline, undefined, actions);
-          }, 450);
-        } else if (headline) {
-          setTimeout(() => addInsight("info", headline), 450);
-        } else if (actions.length > 0) {
-          setTimeout(() => addInsight("tip", "Here are some next steps for your planner:", undefined, actions), 450);
-        }
-      } catch {
-        applyLocalGenerateReaction(pill.key, value, pill.label, addInsight, setDestinations);
-      }
-    })();
   };
 
   const handleCustomSubmit = (e: React.FormEvent) => {
@@ -615,13 +573,18 @@ function EditablePill({ pill }: { pill: ProfilePill }) {
   return (
     <div ref={ref} className="relative">
       <motion.button
-        onClick={() => { setEditing(!editing); setShowOptions(!showOptions); }}
+        onClick={() => {
+          setEditing(!editing);
+          setShowOptions(!showOptions);
+        }}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         className={`flex items-center gap-2 w-full px-3 py-2 rounded-xl text-left transition-all ${
           editing
             ? "bg-indigo-500/15 border border-indigo-500/30"
-            : "bg-white/[0.04] border border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.06]"
+            : modified
+              ? "bg-amber-500/10 border border-amber-400/25 hover:border-amber-400/40"
+              : "bg-white/[0.04] border border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.06]"
         }`}
       >
         <span className="text-[14px]">{pill.icon}</span>
@@ -654,7 +617,7 @@ function EditablePill({ pill }: { pill: ProfilePill }) {
                 {opt === pill.value && <Check className="w-3 h-3 inline ml-2 text-indigo-400" />}
               </button>
             ))}
-            
+
             {/* Custom input field for vibe */}
             {pill.key === "vibe" && (
               <form onSubmit={handleCustomSubmit} className="border-t border-white/[0.08] p-2">
@@ -829,8 +792,163 @@ function InsightCard({
 }
 
 export function ProfilePanel() {
-  const { profile, insights, dismissInsight } = useTrip();
+  const {
+    profile,
+    insights,
+    dismissInsight,
+    applyProfilePillBatch,
+    sessionId,
+    destinations,
+    addInsight,
+    setDestinations,
+  } = useTrip();
   const { executeAction } = useActionExecutor();
+  const [draftProfile, setDraftProfile] = useState<ProfilePill[] | null>(null);
+  const [applyBusy, setApplyBusy] = useState(false);
+
+  const profileSig = useMemo(
+    () =>
+      [...profile]
+        .filter((p) => p.key !== "tags")
+        .map((p) => `${p.key}=${p.value.trim()}`)
+        .sort()
+        .join("\u0001"),
+    [profile],
+  );
+
+  useEffect(() => {
+    setDraftProfile(null);
+  }, [profileSig]);
+
+  const displayProfile = draftProfile ?? profile;
+  const hasPending = draftProfile !== null && profilesDiffer(draftProfile, profile);
+
+  const onPillChange = useCallback(
+    (key: string, value: string) => {
+      setDraftProfile((prev) => {
+        const base = prev ?? profile;
+        return base.map((p) => (p.key === key ? { ...p, value } : p));
+      });
+    },
+    [profile],
+  );
+
+  const handleDiscard = useCallback(() => {
+    setDraftProfile(null);
+  }, []);
+
+  const handleApplyProfile = useCallback(async () => {
+    const nextDraft = draftProfile;
+    if (!nextDraft || !profilesDiffer(nextDraft, profile)) return;
+    const priorProfile = profile.map((p) => ({ ...p }));
+    const destForAdvisor = destinations as unknown as Record<string, unknown>[];
+
+    if (!sessionId || destinations.length === 0) {
+      applyProfilePillBatch(nextDraft);
+      setDraftProfile(null);
+      const changed = nextDraft.find(
+        (p) => (priorProfile.find((o) => o.key === p.key)?.value ?? "") !== p.value,
+      );
+      if (changed) {
+        applyLocalGenerateReaction(changed.key, changed.value, changed.label, addInsight, setDestinations);
+      }
+      return;
+    }
+
+    setApplyBusy(true);
+    try {
+      const { wanderly } = await profilePatch(sessionId, nextDraft as WanderlyProfilePillDTO[]);
+      const serverPills = wanderly.profile_pills?.length
+        ? mapDtoPillsToProfile(wanderly.profile_pills)
+        : null;
+      const finalPills = mergeSubmittedProfileWithServerPills(nextDraft, priorProfile, serverPills);
+      applyProfilePillBatch(finalPills);
+      setDraftProfile(null);
+
+      const deltas = finalPills.flatMap((p) => {
+        const o = priorProfile.find((x) => x.key === p.key);
+        if (!o || o.value === p.value) return [];
+        return [{ key: p.key, old: o.value, new: p.value, label: p.label }];
+      });
+      if (deltas.length === 0) return;
+
+      const runAdvisor = async () => {
+        const pill_key = deltas.length === 1 ? deltas[0].key : "multiple";
+        const old_value =
+          deltas.length === 1 ? deltas[0].old : deltas.map((d) => `${d.key}: ${d.old}`).join(" | ");
+        const new_value =
+          deltas.length === 1 ? deltas[0].new : deltas.map((d) => `${d.key}: ${d.new}`).join(" | ");
+        const { result } = await profileChangeAdvisor({
+          session_id: sessionId,
+          pill_key,
+          old_value,
+          new_value,
+          profile_pills: finalPills as unknown as WanderlyProfilePillDTO[],
+          destinations: destForAdvisor,
+        });
+        if (result.skipped || (!result.headline && !(result.suggestions?.length))) {
+          const d0 = deltas[0];
+          applyLocalGenerateReaction(d0.key, d0.new, d0.label, addInsight, setDestinations);
+          return;
+        }
+        if (result.warnings && result.warnings.length > 0) {
+          setTimeout(() => {
+            setDestinations((prev) =>
+              prev.map((d) => {
+                const hit = result.warnings!.find((w) => w.destination_id === d.id);
+                if (hit) return { ...d, warnings: [hit.text] };
+                return { ...d, warnings: undefined };
+              }),
+            );
+          }, 200);
+        } else {
+          setTimeout(() => {
+            setDestinations((prev) => prev.map((d) => ({ ...d, warnings: undefined })));
+          }, 200);
+        }
+        const actions: SuggestedAction[] = (result.suggestions || []).map((s, i) => ({
+          id: `advisor-refine:${i}`,
+          label: s.label,
+          description: s.description,
+          icon: s.icon || "✨",
+          refinePrompt: s.refine_prompt,
+        }));
+        const headline = (result.headline || "").trim();
+        if (actions.length > 0 && headline) {
+          setTimeout(() => {
+            addInsight(result.warnings?.length ? "warning" : "tip", headline, undefined, actions);
+          }, 450);
+        } else if (headline) {
+          setTimeout(() => addInsight("info", headline), 450);
+        } else if (actions.length > 0) {
+          setTimeout(
+            () => addInsight("tip", "Here are some next steps for your planner:", undefined, actions),
+            450,
+          );
+        }
+      };
+
+      try {
+        await runAdvisor();
+      } catch {
+        const d0 = deltas[0];
+        applyLocalGenerateReaction(d0.key, d0.new, d0.label, addInsight, setDestinations);
+      }
+    } catch {
+      addInsight("warning", "Could not save traveler profile to the server. Check your connection and try again.");
+    } finally {
+      setApplyBusy(false);
+    }
+  }, [
+    draftProfile,
+    profile,
+    sessionId,
+    destinations,
+    applyProfilePillBatch,
+    addInsight,
+    setDestinations,
+  ]);
+
   const activeInsights = insights
     .filter((i) => !i.dismissed)
     .sort((a, b) => b.ts - a.ts)
@@ -846,11 +964,44 @@ export function ProfilePanel() {
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
           <span className="text-[11px] text-white/30 uppercase tracking-widest">Traveler Profile</span>
         </div>
+        {hasPending && (
+          <div className="mb-2 rounded-lg border border-amber-400/25 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-100/90 leading-snug">
+            You have unsaved traveler settings. Press <span className="font-medium text-white">Update trip</span> to save
+            them—existing itineraries and booking results stay until you ask the planner to refresh or follow an advisor
+            suggestion.
+          </div>
+        )}
+        {hasPending && (
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              type="button"
+              disabled={applyBusy}
+              onClick={() => void handleApplyProfile()}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-2 text-[12px] font-medium text-white shadow-sm shadow-indigo-900/30 transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {applyBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+              Update trip
+            </button>
+            <button
+              type="button"
+              disabled={applyBusy}
+              onClick={handleDiscard}
+              className="shrink-0 rounded-lg border border-white/[0.12] px-2.5 py-2 text-[11px] text-white/55 transition hover:border-white/[0.2] hover:text-white/80 disabled:opacity-40"
+            >
+              Discard
+            </button>
+          </div>
+        )}
         <div className="flex flex-col gap-1.5">
-          {profile
+          {displayProfile
             .filter((p) => p.key !== "tags")
             .map((p) => (
-              <EditablePill key={p.key} pill={p} />
+              <EditablePill
+                key={p.key}
+                pill={p}
+                committedValue={profile.find((x) => x.key === p.key)?.value ?? p.value}
+                onPillChange={onPillChange}
+              />
             ))}
         </div>
       </div>

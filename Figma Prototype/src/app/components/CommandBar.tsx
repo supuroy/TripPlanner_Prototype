@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useTrip, type DestCard, type ProfilePill } from "./TripStore";
+import { useTrip, type AgentResponse, type DestCard, type ProfilePill } from "./TripStore";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowUp, Loader2 } from "lucide-react";
 import {
@@ -15,10 +15,17 @@ import {
   applyWanderlyWorkspace,
   buildItineraryStalePlan,
   destinationsFromWorkspace,
+  explainItineraryInvalidate,
+  formatProfileProposalDiffLines,
+  isBlankTravelerProfile,
+  isItineraryPrimaryRefineMessage,
   isPlanCompareOnlyQuestion,
   mergeHeroImagesFromEnriched,
+  mergeProfilePillsConservative,
   mergeProfilePillsFromDto,
+  profilePillsMeaningfullyDiffer,
   needsHeroImageEnrichment,
+  workspaceUserExplicitTravelerProfileEditMessage,
 } from "../lib/applyWorkspaceDto";
 import { logItin } from "../lib/itineraryDebug";
 import { scheduleWorkspaceItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
@@ -39,6 +46,43 @@ const SUGGESTIONS = [
 ];
 
 const useGeminiFirst = import.meta.env.VITE_USE_GEMINI_FIRST === "true";
+
+/** When false, workspace ``profile_pills`` are not merged into the sidebar until the user confirms in chat. */
+function workspaceProfilePillMergeModeForTurn(
+  priorProfile: ProfilePill[],
+  message: string,
+): "full" | "skip" {
+  const autoApply =
+    isBlankTravelerProfile(priorProfile) || workspaceUserExplicitTravelerProfileEditMessage(message);
+  if (!autoApply || isItineraryPrimaryRefineMessage(message)) return "skip";
+  return "full";
+}
+
+function maybeStageAgentProfileAfterWorkspace(args: {
+  priorProfile: ProfilePill[];
+  message: string;
+  wanderly: WanderlyWorkspaceDTO;
+  stageAgentProfileProposal: (p: ProfilePill[]) => void;
+  addResponse: (r: Omit<AgentResponse, "id" | "ts">) => void;
+}): void {
+  const { priorProfile, message, wanderly, stageAgentProfileProposal, addResponse } = args;
+  const autoApply =
+    isBlankTravelerProfile(priorProfile) || workspaceUserExplicitTravelerProfileEditMessage(message);
+  if (autoApply) return;
+  const incoming = wanderly.profile_pills;
+  if (!incoming?.length) return;
+  const proposed = mergeProfilePillsFromDto(priorProfile, incoming);
+  if (!profilePillsMeaningfullyDiffer(priorProfile, proposed)) return;
+  stageAgentProfileProposal(proposed);
+  addResponse({
+    type: "info",
+    relatedTo: "wanderly_profile_proposal",
+    text:
+      "The planner suggested **different traveler profile** values than your sidebar. Destination cards used your current profile.\n\n" +
+      formatProfileProposalDiffLines(priorProfile, proposed) +
+      "\n\nUse the buttons below only if you want to adopt the planner's version.",
+  });
+}
 
 function scheduleHeroEnrichment(args: {
   sessionId: string;
@@ -76,6 +120,7 @@ export function CommandBar() {
     setDestinations,
     setAgentStatus,
     setAgentStreamCaption,
+    agentStreamCaption,
     hasStarted,
     setHasStarted,
     destinations,
@@ -94,7 +139,11 @@ export function CommandBar() {
     setPlannerAbortController,
     abortPlannerOperation,
     setRefineUnlockCardNavigation,
+    stageAgentProfileProposal,
+    newTripTransitioning,
+    tripSwitchTransitioning,
   } = useTrip();
+  const sessionTransitioning = newTripTransitioning || tripSwitchTransitioning;
   const [input, setInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -125,6 +174,7 @@ export function CommandBar() {
       confirmWorkspaceDrop = false,
       orchestrationHint: WanderlyOrchestrateResponse | null = null,
     ) => {
+      if (sessionTransitioning) return;
       setPhase("refining");
       setAgentStatus("Refining with AI…");
       streamDraftRef.current = { text: "" };
@@ -162,15 +212,20 @@ export function CommandBar() {
                 if (ev.type === "advisor_profile") {
                   const pills = (ev as { profile_pills?: unknown }).profile_pills;
                   if (Array.isArray(pills)) {
-                    const sans = pills.filter(
-                      (p) =>
-                        p &&
-                        typeof p === "object" &&
-                        String((p as { key?: unknown }).key ?? "").trim() !== "tags",
-                    );
-                    setProfile((cur) =>
-                      mergeProfilePillsFromDto(cur, sans as WanderlyWorkspaceDTO["profile_pills"]),
-                    );
+                    const allowStreamProfile =
+                      workspaceUserExplicitTravelerProfileEditMessage(text) ||
+                      isBlankTravelerProfile(priorProfile);
+                    if (allowStreamProfile) {
+                      const sans = pills.filter(
+                        (p) =>
+                          p &&
+                          typeof p === "object" &&
+                          String((p as { key?: unknown }).key ?? "").trim() !== "tags",
+                      );
+                      setProfile((cur) =>
+                        mergeProfilePillsConservative(cur, sans as WanderlyWorkspaceDTO["profile_pills"]),
+                      );
+                    }
                   }
                   const note = (ev as { advisor_note?: unknown }).advisor_note;
                   if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
@@ -181,7 +236,16 @@ export function CommandBar() {
               { confirmWorkspaceDrop: confirmWorkspaceDrop, signal: ac.signal },
             );
         if (out.session_id) setSessionId(out.session_id);
-        const validIds = new Set(priorDestinations.map((d) => d.id));
+        const incomingCardIds = (out.wanderly.destinations ?? [])
+          .map((row) => {
+            const id = (row as { id?: unknown })?.id;
+            return id != null ? String(id).trim() : "";
+          })
+          .filter((id) => id.length > 0);
+        const validIds = new Set<string>([
+          ...priorDestinations.map((d) => String(d.id)),
+          ...incomingCardIds,
+        ]);
         const stalePlan = buildItineraryStalePlan(
           text,
           priorProfile,
@@ -190,11 +254,14 @@ export function CommandBar() {
           validIds,
           expandedDest ?? null,
         );
+        const invExplain = explainItineraryInvalidate(text, priorProfile, out.wanderly.profile_pills);
         logItin("refine_apply_workspace", {
           itineraryStalePlan: stalePlan,
           compareOnlyBypass: isPlanCompareOnlyQuestion(text),
+          invalidateReasons: invExplain.reasons,
           messagePreview: text.slice(0, 160),
         });
+        const profilePillMergeMode = workspaceProfilePillMergeModeForTurn(priorProfile, text);
         applyWanderlyWorkspace(out.wanderly, {
           setProfile,
           setDestinations,
@@ -203,6 +270,14 @@ export function CommandBar() {
           priorDestinations: prior,
           priorProfile: priorProfile,
           itineraryStalePlan: stalePlan,
+          profilePillMergeMode,
+        });
+        maybeStageAgentProfileAfterWorkspace({
+          priorProfile,
+          message: text,
+          wanderly: out.wanderly,
+          stageAgentProfileProposal,
+          addResponse,
         });
         /* Hero fetch + prefetch: run even when we may prompt for shortlist shrink confirmation. */
         scheduleHeroEnrichment({
@@ -275,6 +350,8 @@ export function CommandBar() {
       queuePlanReviewAfterItineraries,
       setPlannerAbortController,
       setRefineUnlockCardNavigation,
+      stageAgentProfileProposal,
+      sessionTransitioning,
     ],
   );
 
@@ -298,6 +375,7 @@ export function CommandBar() {
   ]);
 
   const runAgent = async (text: string) => {
+    if (sessionTransitioning) return;
     addResponse({ type: "message", role: "user", text });
     setHasStarted(true);
     setShowSuggestions(false);
@@ -389,6 +467,8 @@ export function CommandBar() {
       return;
     }
 
+    const priorProfileForPlanner = profile.map((p) => ({ ...p }));
+
     setPhase("thinking");
     setAgentStatus(useGeminiFirst ? "Running travel planner…" : "Calling Cursor agent…");
     streamDraftRef.current = { text: "" };
@@ -408,12 +488,21 @@ export function CommandBar() {
           stopPlanSpin();
         }
         if (out.session_id) setSessionId(out.session_id);
+        const plannerMerge = workspaceProfilePillMergeModeForTurn(priorProfileForPlanner, text);
         applyWanderlyWorkspace(out.wanderly, {
           setProfile,
           setDestinations,
           addResponse,
           setEnrichmentPending,
-          priorProfile: profile,
+          priorProfile: priorProfileForPlanner,
+          profilePillMergeMode: plannerMerge,
+        });
+        maybeStageAgentProfileAfterWorkspace({
+          priorProfile: priorProfileForPlanner,
+          message: text,
+          wanderly: out.wanderly,
+          stageAgentProfileProposal,
+          addResponse,
         });
         /* Hero enrichment is fire-and-forget; does not gate planner completion. */
         scheduleHeroEnrichment({
@@ -425,7 +514,7 @@ export function CommandBar() {
           sessionId: out.session_id || sessionId,
           wanderly: out.wanderly,
           priorDestinations: [],
-          priorProfile: profile,
+          priorProfile: priorProfileForPlanner,
           setDestinations,
           excludeDestinationId: expandedDest ?? null,
           delayMs: 400,
@@ -436,13 +525,18 @@ export function CommandBar() {
           if (ev.type === "advisor_profile") {
             const pills = (ev as { profile_pills?: unknown }).profile_pills;
             if (Array.isArray(pills)) {
-              const sans = pills.filter(
-                (p) =>
-                  p &&
-                  typeof p === "object" &&
-                  String((p as { key?: unknown }).key ?? "").trim() !== "tags",
-              );
-              setProfile((cur) => mergeProfilePillsFromDto(cur, sans as WanderlyWorkspaceDTO["profile_pills"]));
+              const allowStreamProfile =
+                workspaceUserExplicitTravelerProfileEditMessage(text) ||
+                isBlankTravelerProfile(priorProfileForPlanner);
+              if (allowStreamProfile) {
+                const sans = pills.filter(
+                  (p) =>
+                    p &&
+                    typeof p === "object" &&
+                    String((p as { key?: unknown }).key ?? "").trim() !== "tags",
+                );
+                setProfile((cur) => mergeProfilePillsConservative(cur, sans as WanderlyWorkspaceDTO["profile_pills"]));
+              }
             }
             const note = (ev as { advisor_note?: unknown }).advisor_note;
             if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
@@ -451,12 +545,21 @@ export function CommandBar() {
           if (cap) setAgentStreamCaption(cap);
         }, { signal: plannerAbort.signal });
         if (out.session_id) setSessionId(out.session_id);
+        const smokeMerge = workspaceProfilePillMergeModeForTurn(priorProfileForPlanner, text);
         applyWanderlyWorkspace(out.wanderly, {
           setProfile,
           setDestinations,
           addResponse,
           setEnrichmentPending,
-          priorProfile: profile,
+          priorProfile: priorProfileForPlanner,
+          profilePillMergeMode: smokeMerge,
+        });
+        maybeStageAgentProfileAfterWorkspace({
+          priorProfile: priorProfileForPlanner,
+          message: text,
+          wanderly: out.wanderly,
+          stageAgentProfileProposal,
+          addResponse,
         });
         /* Hero fetch is async and does not block smoke response or itinerary prefetch. */
         scheduleHeroEnrichment({
@@ -468,7 +571,7 @@ export function CommandBar() {
           sessionId: out.session_id || sessionId,
           wanderly: out.wanderly,
           priorDestinations: destinations,
-          priorProfile: profile,
+          priorProfile: priorProfileForPlanner,
           setDestinations,
           excludeDestinationId: expandedDest ?? null,
           delayMs: 400,
@@ -496,6 +599,7 @@ export function CommandBar() {
   };
 
   const handleSubmit = () => {
+    if (sessionTransitioning) return;
     if (!input.trim() || phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising")
       return;
     void runAgent(input.trim());
@@ -505,10 +609,13 @@ export function CommandBar() {
     phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising";
 
   const inputPlaceholder = (() => {
+    if (newTripTransitioning) return "Starting new trip…";
+    if (tripSwitchTransitioning) return "Loading saved trip…";
     if (isWorking) {
-      if (phase === "refining") return "Refining your trip…";
-      if (phase === "advising") return "Advisor reply…";
-      return "Working…";
+      const cap = agentStreamCaption.trim();
+      if (phase === "refining") return cap || "Refining your trip…";
+      if (phase === "advising") return cap || "Advisor reply…";
+      return cap || "Working…";
     }
     return hasStarted ? "Tell me what to change or refine..." : "Describe your dream trip...";
   })();
@@ -545,21 +652,10 @@ export function CommandBar() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {isWorking && (
-          <motion.div
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="mx-auto mb-2 max-w-2xl px-4 sm:px-6 flex flex-wrap items-center gap-2"
-          >
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.05] backdrop-blur-md border border-white/[0.08] w-fit">
-              <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
-              <span className="text-[12px] text-white/50">
-                {phase === "refining" ? "Adjusting…" : phase === "advising" ? "Advisor…" : "Working…"}
-              </span>
-            </div>
-            {(phase === "thinking" || phase === "streaming" || phase === "refining") && (
+      <div className="bg-gradient-to-t from-[#0a0a0f] via-[#0a0a0f]/95 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5 sm:pt-4">
+        <div className="mx-auto w-full max-w-2xl">
+          {(phase === "thinking" || phase === "streaming" || phase === "refining") && (
+            <div className="mb-2 flex justify-end">
               <button
                 type="button"
                 onClick={() => abortPlannerOperation()}
@@ -567,13 +663,8 @@ export function CommandBar() {
               >
                 Stop planner
               </button>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="bg-gradient-to-t from-[#0a0a0f] via-[#0a0a0f]/95 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5 sm:pt-4">
-        <div className="mx-auto w-full max-w-2xl">
+            </div>
+          )}
           <div className="flex items-center gap-3 bg-white/[0.07] border border-white/[0.1] rounded-2xl px-5 py-3 backdrop-blur-xl focus-within:border-white/[0.2] transition-all">
             <input
               ref={inputRef}
@@ -585,12 +676,17 @@ export function CommandBar() {
               aria-busy={isWorking}
               className="flex-1 bg-transparent text-white/90 placeholder:text-white/25 outline-none text-[15px]"
               disabled={
-                phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising"
+                sessionTransitioning ||
+                phase === "thinking" ||
+                phase === "streaming" ||
+                phase === "refining" ||
+                phase === "advising"
               }
             />
             <button
               onClick={handleSubmit}
               disabled={
+                sessionTransitioning ||
                 !input.trim() ||
                 phase === "thinking" ||
                 phase === "streaming" ||

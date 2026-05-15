@@ -37,21 +37,45 @@ export function parsePriceDigits(s: string | undefined): number {
 export function liveBookingExtractLooksActionable(dest: DestCard): boolean {
   const flights = dest.flights || [];
   const hotels = dest.hotels || [];
-  if (!flights.length) return false;
-  for (const f of flights) {
-    const route = (f.route || "").trim();
-    if (!route || /^tbd$/i.test(route)) return false;
-    if (parsePriceDigits(f.price) <= 0) return false;
-  }
 
-  for (const h of hotels) {
-    const nm = (h.name || "").trim().toLowerCase();
-    if (nm === "lodging results" || nm === "hotel listing" || nm === "") return false;
-    const pr = (h.price || "").trim();
-    if (/^see expedia$/i.test(pr)) return false;
-    if (parsePriceDigits(pr) <= 0) return false;
+  const flightsPass = (): boolean => {
+    if (!flights.length) return false;
+    for (const f of flights) {
+      const route = (f.route || "").trim();
+      if (!route || /^tbd$/i.test(route)) return false;
+      if (parsePriceDigits(f.price) <= 0) return false;
+    }
+    return true;
+  };
+
+  const hotelsPass = (): boolean => {
+    if (!hotels.length) return false;
+    for (const h of hotels) {
+      const nm = (h.name || "").trim().toLowerCase();
+      if (nm === "lodging results" || nm === "hotel listing" || nm === "") return false;
+      const pr = (h.price || "").trim();
+      if (/^see expedia$/i.test(pr)) return false;
+      if (parsePriceDigits(pr) <= 0) return false;
+    }
+    return true;
+  };
+
+  const fp = flightsPass();
+  const hp = hotelsPass();
+  /* Ground / hotel-only: previously required ≥1 flight row, so live hotels never counted as “actionable”. */
+  if (!flights.length && hp) return true;
+  if (fp && !hotels.length) return true;
+  if (fp && hp) return true;
+  return false;
+}
+
+/** True when this card still has merged live / restored OTA rows worth clearing manually. */
+export function destHasPersistentBookingSummary(dest: DestCard): boolean {
+  if (liveBookingExtractLooksActionable(dest)) return true;
+  if (dest.liveBookingEstimates && ((dest.flights?.length ?? 0) > 0 || (dest.hotels?.length ?? 0) > 0)) {
+    return true;
   }
-  return true;
+  return false;
 }
 
 export function flightPriceRangeLabel(flights: FlightOption[]): string | null {
@@ -554,7 +578,16 @@ export function computeBookingDateHints(profile: ProfilePill[], itineraryDayCoun
   return defaultSearchHints(itineraryDayCount);
 }
 
-export function BookingCostBreakdown({ dest, paxCount = 2 }: { dest: DestCard; paxCount?: number }) {
+export function BookingCostBreakdown({
+  dest,
+  paxCount = 2,
+  variant = "timeline",
+}: {
+  dest: DestCard;
+  paxCount?: number;
+  /** ``summary`` = itinerary face (no timeline); ``timeline`` = booking flip. */
+  variant?: "timeline" | "summary";
+}) {
   const flights = dest.flights || [];
   const hotels = dest.hotels || [];
   const acts = dest.activities || [];
@@ -597,7 +630,9 @@ export function BookingCostBreakdown({ dest, paxCount = 2 }: { dest: DestCard; p
         </div>
       </div>
       <p className="mt-2 text-[10px] leading-snug text-white/30">
-        Book flights and hotels individually from the timeline
+        {variant === "summary"
+          ? "Flip to booking details for step-by-step searches and Expedia links."
+          : "Book flights and hotels individually from the timeline"}
       </p>
     </div>
   );
@@ -644,6 +679,10 @@ function adultsFromProfileForBooking(profile: ProfilePill[]): number {
   const m2 = w.match(/^\s*(\d+)\b/);
   if (m2) return Math.min(9, Math.max(1, parseInt(m2[1], 10)));
   return 2;
+}
+
+export function bookingPaxFromProfile(profile: ProfilePill[]): number {
+  return adultsFromProfileForBooking(profile);
 }
 
 export function BookingTimelineFace({
@@ -695,6 +734,8 @@ export function BookingTimelineFace({
   const [returnFlightPhase, setReturnFlightPhase] = useState<"na" | "pending" | "loading" | "done" | "error">("na");
   const [returnFlightError, setReturnFlightError] = useState<string | null>(null);
   const [criteriaExpanded, setCriteriaExpanded] = useState(false);
+  /** When prepare says ``include_flight_search: false`` (ground / road trip), hide flight UI and skip flight steps. */
+  const [liveSkipFlights, setLiveSkipFlights] = useState(false);
 
   /** Bumps on each live-pipeline mount so Strict Mode / prop churn does not merge stale step results. */
   const livePipelineGen = useRef(0);
@@ -809,6 +850,7 @@ export function BookingTimelineFace({
       setFlightPhase("idle");
       setReturnFlightPhase("na");
       setReturnFlightError(null);
+      setLiveSkipFlights(false);
       setBookingStatus("Summarizing trip criteria…");
       setCriteriaExpanded(false);
       setHotelPhases(hotels.map(() => "pending"));
@@ -833,8 +875,11 @@ export function BookingTimelineFace({
         const pax = typeof prep.adults === "number" && prep.adults >= 1 ? prep.adults : dateHintsPayload.adults ?? 2;
         setPrepPax(pax);
         setPreparePending(false);
-        const wantsReturnTrip = !!(prep.start_date && prep.end_date && prep.start_date < prep.end_date);
-        setReturnFlightPhase(wantsReturnTrip ? "pending" : "na");
+        const skipFlights = prep.include_flight_search === false;
+        setLiveSkipFlights(skipFlights);
+        const multiDayStay = !!(prep.start_date && prep.end_date && prep.start_date < prep.end_date);
+        const wantsReturnFlightSearch = !skipFlights && multiDayStay;
+        setReturnFlightPhase(wantsReturnFlightSearch ? "pending" : "na");
 
         const planHotels = prep.hotels_for_session;
         const nStays =
@@ -856,7 +901,7 @@ export function BookingTimelineFace({
           leg: "outbound",
           isPlaceholder: true,
         };
-        const returnPlaceholder: FlightOption | null = wantsReturnTrip
+        const returnPlaceholder: FlightOption | null = wantsReturnFlightSearch
           ? {
               airline: "Searching Expedia flights…",
               route: `${toLabel} → ${fromLabel}${returnDate ? ` · ${isoShort(returnDate)}` : ""}`,
@@ -877,15 +922,17 @@ export function BookingTimelineFace({
           setHotelPhases(Array.from({ length: nStays }, () => "pending"));
         }
         setDestinations((prev) => {
-          const next = prev.map((d) =>
-            d.id === dest.id
-              ? {
-                  ...d,
-                  hotels: placeholderHotels,
-                  flights: returnPlaceholder ? [outboundPlaceholder, returnPlaceholder] : [outboundPlaceholder],
-                }
-              : d,
-          );
+          const next = prev.map((d) => {
+            if (d.id !== dest.id) return d;
+            if (skipFlights) {
+              return { ...d, hotels: placeholderHotels, flights: [] };
+            }
+            return {
+              ...d,
+              hotels: placeholderHotels,
+              flights: returnPlaceholder ? [outboundPlaceholder, returnPlaceholder] : [outboundPlaceholder],
+            };
+          });
           beginTripDiskSave();
           void syncUi(sessionId, next as unknown[], { tripId: wanderlyTripId || undefined })
             .then((r) => completeTripDiskSave(next as DestCard[], { savedToDisk: Boolean(r.saved_to_disk) }))
@@ -901,44 +948,51 @@ export function BookingTimelineFace({
           adults: prep.adults,
           outline: prep.booking_outline_source,
           stays: nStays,
+          include_flight_search: prep.include_flight_search,
         });
 
-        setBookingStatus("Searching outbound flights…");
-        setFlightPhase("loading");
-        const fr = await bookingSearchStep({
-          session_id: sessionId,
-          destination_id: dest.id,
-          step: "flight",
-          flight_leg: "outbound",
-          date_hints: dateHintsPayload,
-          profile_pills: pillsPayload,
-        });
-        if (cancelled || gen !== livePipelineGen.current) return;
-        console.info("[wanderly:booking_search_step]", {
-          destination_id: dest.id,
-          step: "flight",
-          ok: fr.ok,
-          search_url: fr.search_url,
-          error: fr.error,
-          flight: fr.flight,
-          debug_parse: fr.debug_parse,
-        });
-        if (fr.ok && fr.flight) {
-          mergeOutboundFlight({
-            ...fr.flight,
-            leg: fr.flight_leg === "return" ? "return" : fr.flight.leg ?? "outbound",
+        let fr: Awaited<ReturnType<typeof bookingSearchStep>> | null = null;
+        if (!skipFlights) {
+          setBookingStatus("Searching outbound flights…");
+          setFlightPhase("loading");
+          fr = await bookingSearchStep({
+            session_id: sessionId,
+            destination_id: dest.id,
+            step: "flight",
+            flight_leg: "outbound",
+            date_hints: dateHintsPayload,
+            profile_pills: pillsPayload,
           });
-          if (gen !== livePipelineGen.current) return;
+          if (cancelled || gen !== livePipelineGen.current) return;
+          console.info("[wanderly:booking_search_step]", {
+            destination_id: dest.id,
+            step: "flight",
+            ok: fr.ok,
+            search_url: fr.search_url,
+            error: fr.error,
+            flight: fr.flight,
+            debug_parse: fr.debug_parse,
+          });
+          if (fr.ok && fr.flight) {
+            mergeOutboundFlight({
+              ...fr.flight,
+              leg: fr.flight_leg === "return" ? "return" : fr.flight.leg ?? "outbound",
+            });
+            if (gen !== livePipelineGen.current) return;
+            setFlightPhase("done");
+            setFlightStepError(null);
+          } else {
+            if (gen !== livePipelineGen.current) return;
+            setFlightPhase("error");
+            setFlightStepError(fr.error || "Flight search did not return a result.");
+          }
+
+          if (multiDayStay && !fr.ok) {
+            setReturnFlightPhase("na");
+          }
+        } else {
           setFlightPhase("done");
           setFlightStepError(null);
-        } else {
-          if (gen !== livePipelineGen.current) return;
-          setFlightPhase("error");
-          setFlightStepError(fr.error || "Flight search did not return a result.");
-        }
-
-        if (wantsReturnTrip && !fr.ok) {
-          setReturnFlightPhase("na");
         }
 
         setBookingStatus(nStays ? "Searching accommodations…" : null);
@@ -994,7 +1048,7 @@ export function BookingTimelineFace({
           }
         }
 
-        if (wantsReturnTrip && fr.ok) {
+        if (!skipFlights && multiDayStay && fr && fr.ok && fr.flight) {
           setReturnFlightPhase("loading");
           setBookingStatus("Searching return flights…");
           const rr = await bookingSearchStep({
@@ -1120,6 +1174,7 @@ export function BookingTimelineFace({
     if (runMode === "demo") return true;
     if (runMode === "cached") return true;
     if (prepareError) return true;
+    if (runMode === "live" && preparePending && !prepareError) return false;
     // In live mode, render the full planned lodging path immediately.
     // Placeholder rows are prebuilt from itinerary and later replaced in-place by real results.
     if (hotels[idx]?.isPlaceholder) return true;
@@ -1145,7 +1200,14 @@ export function BookingTimelineFace({
     return hp === "pending" || hp === "loading" || hp === "done" || hp === "error";
   };
 
-  const showFlightSection = flights.length > 0 || runMode === "live" || runMode === "demo";
+  const showFlightSection =
+    (flights.length > 0 || runMode === "live" || runMode === "demo") &&
+    !(runMode === "live" && liveSkipFlights) &&
+    /* No flight / hotel timeline chrome until prepare returns — avoids empty plane icons during criteria summary. */
+    !(runMode === "live" && preparePending && !prepareError);
+
+  /** Hide the vertical spine and timeline nodes while live criteria prepare is in flight (cleaner first paint). */
+  const hideLivePrepareTimelineChrome = runMode === "live" && preparePending && !prepareError;
   const showCriteriaBlock = runMode === "live" && sessionId;
 
   const livePipelineIdle =
@@ -1186,10 +1248,12 @@ export function BookingTimelineFace({
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
       <div className="relative lg:col-span-2">
-        <div
-          className="pointer-events-none absolute bottom-0 left-9 top-8 w-px bg-gradient-to-b from-indigo-500/40 via-purple-500/40 to-indigo-500/40"
-          aria-hidden
-        />
+        {!hideLivePrepareTimelineChrome ? (
+          <div
+            className="pointer-events-none absolute bottom-0 left-9 top-8 w-px bg-gradient-to-b from-indigo-500/40 via-purple-500/40 to-indigo-500/40"
+            aria-hidden
+          />
+        ) : null}
         <div className="relative space-y-6 pl-12">
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
@@ -1400,7 +1464,7 @@ export function BookingTimelineFace({
       </div>
       <div className="min-w-0">
         {showCostBreakdownPanel ? (
-          <BookingCostBreakdown dest={dest} paxCount={prepPax} />
+          <BookingCostBreakdown dest={dest} paxCount={prepPax} variant="timeline" />
         ) : (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 lg:sticky lg:top-4">
             <p className="text-[11px] font-medium uppercase tracking-wider text-white/35">Cost breakdown</p>

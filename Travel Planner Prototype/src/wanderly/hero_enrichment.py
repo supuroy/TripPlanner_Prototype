@@ -64,6 +64,7 @@ def _llm_search_hints(destinations: list[dict[str, Any]], session_id: str | None
             client,
             prompt,
             model_id_override=light,
+            persistent_instruction_prefix=_HINT_PROMPT + "\n",
             **cursor_run_persist_kwargs(session_id or "", light, trace_path="hero_enrichment.llm_hints"),
         )
     elapsed_ms = (time.perf_counter() - t0) * 1000.0

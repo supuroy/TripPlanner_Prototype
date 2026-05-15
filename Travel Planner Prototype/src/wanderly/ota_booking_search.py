@@ -923,6 +923,223 @@ def _normalize_booking_search_intent(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+_GROUND_TRIP_TRANSPORT_HINT_RE = re.compile(
+    r"\b(road\s*trip|driv(e|ing)|rental\s*car|self[-\s]?drive|by\s+car|"
+    r"no\s+flying|without\s+flying|no\s+flights?|ground\s*only|drive-only|"
+    r"overland|wheel\s+travel|\bferry\b|bc\s+ferries|car\s+ferry|"
+    r"pick(?:-|\s)?up\s+(?:your\s+)?(?:rental|car)|rent(?:al)?\s+car|"
+    r"drive\s+from\s+home|\(drive\s+from\s+home\))\b",
+    re.I,
+)
+_COMMERCIAL_AIR_HINT_RE = re.compile(
+    r"\b(flights?|fly\s+to|fly\s+from|flying\s+to|flying\s+from|airplane|departure\s+gate|"
+    r"boarding|layover|baggage\s+claim|airport\s+pick-?up|airport\s+drop-?off|"
+    r"domestic\s+air|international\s+air|in-?flight)\b",
+    re.I,
+)
+# Strip negated no-flight wording before applying ``_COMMERCIAL_AIR_HINT_RE`` — otherwise ``\bflight\b``
+# matches the tail of "no flight" / "without flights" and falsely enables commercial flight search.
+_NEGATED_FLIGHT_PHRASE_RE = re.compile(
+    r"\b(?:no|not|without)\s+(?:a\s+)?(?:commercial\s+)?(?:flights?|flying)\b|"
+    r"\bno\s+flying\b|"
+    r"\bwithout\s+flying\b",
+    re.I,
+)
+
+
+def _blob_for_commercial_air_hints(blob: str) -> str:
+    return _NEGATED_FLIGHT_PHRASE_RE.sub(" ", blob or "")
+
+
+def _flight_row_implies_commercial_air(row: dict[str, Any]) -> bool:
+    """
+    Treat planner/UI "flight" skeleton rows that describe driving or ferries as **not** commercial air.
+    Otherwise a route like ``Seattle (drive from home) → Tofino`` forces flight search on a road trip.
+    """
+    rte = str(row.get("route") or "").strip().lower()
+    air = str(row.get("airline") or "").strip().lower()
+    combined = f"{air} {rte}".strip()
+    if not combined:
+        return False
+    low = combined.lower()
+    ground_markers = (
+        "drive",
+        "driving",
+        "ferry",
+        "overland",
+        "highway",
+        "rental car",
+        "from home",
+        "car ferry",
+        "bc ferries",
+        "self-drive",
+        "wheel travel",
+        "road trip",
+        "road-trip",
+    )
+    if any(m in low for m in ground_markers):
+        return False
+    return True
+
+
+def _transport_hints_text_blob(
+    dest: dict[str, Any], profile_pills: list[dict[str, Any]] | None,
+) -> str:
+    parts: list[str] = []
+
+    def _add(s: str) -> None:
+        t = str(s or "").strip()
+        if t:
+            parts.append(t)
+
+    for k in ("name", "country", "hook"):
+        _add(str(dest.get(k) or ""))
+    it = dest.get("itinerary")
+    if isinstance(it, list):
+        for row in it[:40]:
+            if not isinstance(row, dict):
+                continue
+            _add(str(row.get("label") or ""))
+            _add(str(row.get("base") or ""))
+            items = row.get("items")
+            if isinstance(items, list):
+                for x in items[:36]:
+                    if isinstance(x, str):
+                        _add(x)
+                    elif isinstance(x, dict):
+                        _add(str(x.get("text") or x.get("item") or x.get("title") or ""))
+    for p in profile_pills or []:
+        if isinstance(p, dict):
+            _add(str(p.get("value") or ""))
+    return " ".join(parts)
+
+
+def _booking_include_flights_from_transport_plan(tp: Any) -> bool | None:
+    """
+    Primary gate for commercial flight search: structured ``transport_plan`` from the itinerary agent.
+
+    Returns ``None`` when the plan is absent or ambiguous so callers can fall back to legacy flags / heuristics.
+    """
+    if not isinstance(tp, dict):
+        return None
+    mode = str(tp.get("primary_mode") or "").strip().lower()
+    segs = tp.get("commercial_flight_segments")
+    n_segs = len([x for x in segs if isinstance(x, dict)]) if isinstance(segs, list) else 0
+
+    if mode == "ground_only":
+        if n_segs > 0:
+            return True
+        return False
+    if mode == "commercial_air":
+        return True
+    if mode == "mixed":
+        if n_segs > 0:
+            return True
+        return None
+    return None
+
+
+def _booking_flight_gate_fingerprint(dest: dict[str, Any]) -> str:
+    """
+    Digest flight vs ground *inputs* so booking prepare / criteria caches invalidate when the
+    itinerary agent adds ``transport_plan`` or ``needs_commercial_flight`` changes without altering
+    day/label/base rows (which used to leave stale ``include_flight_search`` behind).
+    """
+    ncf = dest.get("needs_commercial_flight")
+    tp = dest.get("transport_plan")
+    tp_blob: Any = None
+    if isinstance(tp, dict):
+        segs = tp.get("commercial_flight_segments")
+        n_segs = len([x for x in segs if isinstance(x, dict)]) if isinstance(segs, list) else 0
+        tp_blob = {
+            "primary_mode": str(tp.get("primary_mode") or "").strip().lower(),
+            "n_segs": n_segs,
+            "summary": str(tp.get("summary") or "").strip()[:200],
+        }
+    flights = dest.get("flights")
+    fr0 = ""
+    ph0: Any = None
+    if isinstance(flights, list) and flights and isinstance(flights[0], dict):
+        f0 = flights[0]
+        fr0 = str(f0.get("route") or "").strip()[:160]
+        ph0 = f0.get("isPlaceholder")
+    payload = {"ncf": ncf, "tp": tp_blob, "flight0_route": fr0, "flight0_placeholder": ph0}
+    try:
+        raw = json.dumps(payload, sort_keys=True, default=str)
+    except TypeError:
+        raw = repr(payload)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def booking_should_include_flight_search(
+    dest: dict[str, Any],
+    profile_pills: list[dict[str, Any]] | None = None,
+) -> bool:
+    """
+    Decide whether Expedia **commercial flight** search should run.
+
+    **Preference order**
+
+    1. ``dest["transport_plan"]`` from the itinerary builder (structured ``primary_mode`` + segments).
+    2. ``dest["needs_commercial_flight"]`` when set (compact legacy flag from the same pass).
+    3. Non-placeholder ``flights[]`` rows that look like airline inventory (not drive/ferry skeletons).
+    4. Regex / keyword heuristics on itinerary + profile text (last resort).
+    """
+    planned = _booking_include_flights_from_transport_plan(dest.get("transport_plan"))
+    if planned is not None:
+        return planned
+
+    raw_flag = dest.get("needs_commercial_flight")
+    if isinstance(raw_flag, bool):
+        return raw_flag
+    if isinstance(raw_flag, str):
+        s = raw_flag.strip().lower()
+        if s in ("true", "1", "yes", "y"):
+            return True
+        if s in ("false", "0", "no", "n"):
+            return False
+
+    pills = [p for p in (profile_pills or []) if isinstance(p, dict)]
+    blob = _transport_hints_text_blob(dest, pills)
+    blob_air = _blob_for_commercial_air_hints(blob)
+    blob_u = " ".join(blob_air.split()).upper()
+
+    flights = dest.get("flights")
+    if isinstance(flights, list):
+        for row in flights:
+            if not isinstance(row, dict):
+                continue
+            if row.get("isPlaceholder") is True:
+                continue
+            if not _flight_row_implies_commercial_air(row):
+                continue
+            air = str(row.get("airline") or "").strip().lower()
+            rte = str(row.get("route") or "").strip().lower()
+            price = str(row.get("price") or "").strip().upper()
+            if not air or air in ("placeholder", "tbd") or "placeholder" in air or air.startswith("searching expedia"):
+                continue
+            if rte in ("tbd", "tbdtbd", "") and price in ("TBD", "TBD/N", "", "TBD"):
+                continue
+            if air or (rte and rte not in ("tbd", "tbdtbd")):
+                return True
+            rte_norm = rte.replace("—", "-").replace("–", "-").upper()
+            if re.search(r"\b[A-Z]{3}\s*[-–→]\s*[A-Z]{3}\b", rte_norm):
+                return True
+
+    air_explicit = bool(_COMMERCIAL_AIR_HINT_RE.search(blob_air)) or bool(
+        re.search(r"\b[A-Z]{3}\s*[-–→]\s*[A-Z]{3}\b", blob_u),
+    )
+    ground_explicit = bool(_GROUND_TRIP_TRANSPORT_HINT_RE.search(blob))
+
+    if air_explicit and not ground_explicit:
+        return True
+    if ground_explicit and not air_explicit:
+        return False
+    if ground_explicit and air_explicit:
+        return True
+    return True
+
+
 def _profile_budget_pill_raw(profile_pills: list[dict[str, Any]]) -> str:
     for p in profile_pills:
         if isinstance(p, dict) and str(p.get("key") or "").strip().lower() == "budget":
@@ -1184,6 +1401,8 @@ Itinerary compact:
 
 Guidance:
 - Keep filters broad enough to return results, but aligned to profile constraints.
+- When the trip is clearly **ground-only** (road trip, driving, rental car, ferry, "no flying"), omit the ``flight``
+  property entirely — hotel search still runs; do not invent flight filters for trips without air segments.
 - Use nonstop only when strongly implied; otherwise prefer max 1 stop.
 - For hotels, set ``price_min_usd`` / ``price_max_usd`` as **per-night USD** on Expedia when the profile
   ``budget`` pill implies a trip total: reserve ~30–40% of that total for flights/misc, spread the rest across
@@ -1639,6 +1858,12 @@ def build_booking_criteria(
     dh = date_hints if isinstance(date_hints, dict) else {}
     sid = (session_id or "").strip()
     did = str(dest.get("id") or "").strip()
+    include_flight_search = booking_should_include_flight_search(dest, profile_pills)
+    booking_search_trace(
+        "flight_search_gate",
+        destination_id=did,
+        include_flight_search=include_flight_search,
+    )
     t_build = time.perf_counter()
     booking_search_trace(
         "build_booking_criteria_begin",
@@ -1818,18 +2043,23 @@ def build_booking_criteria(
     if isinstance(flights, list) and flights:
         f0 = flights[0] if isinstance(flights[0], dict) else {}
         route_hint = _strip_route_date_noise(str(f0.get("route") or "").strip())
-    if route_hint:
-        lines.append(f"Flight search follows itinerary route: {route_hint}")
+    if include_flight_search:
+        if route_hint:
+            lines.append(f"Flight search follows itinerary route: {route_hint}")
+        else:
+            rt = start_d and end_d and end_d > start_d
+            lines.append(
+                f"Flight search: {'round trip (outbound + return on last trip day)' if rt else 'one-way'} "
+                f"toward {dest_label} (Expedia catalog template)."
+            )
+        if start_d:
+            lines.append(f"Outbound search date: {start_d.isoformat()}")
+        if start_d and end_d and end_d > start_d:
+            lines.append(f"Return search date: {end_d.isoformat()}")
     else:
-        rt = start_d and end_d and end_d > start_d
         lines.append(
-            f"Flight search: {'round trip (outbound + return on last trip day)' if rt else 'one-way'} "
-            f"toward {dest_label} (Expedia catalog template)."
+            "Air travel: skipped — itinerary and profile read as ground / road-based (no commercial flight search)."
         )
-    if start_d:
-        lines.append(f"Outbound search date: {start_d.isoformat()}")
-    if start_d and end_d and end_d > start_d:
-        lines.append(f"Return search date: {end_d.isoformat()}")
 
     if hotels_resolved:
         lines.append("Lodging: one Expedia Hotel-Search per planned stay (area + stay dates).")
@@ -1857,8 +2087,6 @@ def build_booking_criteria(
         lines.append(budget_line)
 
     search_intent: dict[str, Any] = {}
-    did = str(dest.get("id") or "").strip()
-    sid = (session_id or "").strip()
     if sid and did:
         cached_intent = get_booking_search_intent(sid, did)
         if isinstance(cached_intent, dict):
@@ -1913,12 +2141,14 @@ def build_booking_criteria(
         "hotels_for_session": hotels_resolved,
         "booking_outline_source": outline_src,
         "search_intent": search_intent if search_intent else None,
+        "include_flight_search": include_flight_search,
     }
     jobs: list[tuple[str, str]] = []
     if sid and did and start_d and end_d:
         fp = date_hints_fingerprint(date_hints if isinstance(date_hints, dict) else None)
         snap = dict(ret)
         snap["_date_hints_fp"] = fp
+        snap["_flight_gate_fp"] = _booking_flight_gate_fingerprint(dest)
         set_booking_criteria_snapshot(sid, did, snap)
         booking_search_trace(
             "criteria_snapshot_stored",
@@ -2111,6 +2341,25 @@ def _strip_route_date_noise(text: str) -> str:
     return s.strip(" ,·-|")
 
 
+def _strip_expedia_place_suffix_junk(text: str) -> str:
+    """
+    Remove LLM prose tails that are not Expedia place tokens (e.g. ``Seattle-based`` → ``Seattle``).
+
+    These often land in ``booking_search_hints.flight_to_label`` and produce ``to:`` segments that
+    never resolve, so Playwright keeps polling the same Flights-Search URL until timeout.
+    """
+    t = " ".join(str(text or "").split())
+    if not t:
+        return ""
+    # "-based" / trailing " based" before comma or end (not mid-word like "Lambased")
+    t = re.sub(r"(?i)-based(?=,|\s|$)", "", t)
+    t = re.sub(r"(?i)\s+based(?=,|\s|$)", "", t)
+    t = re.sub(r"(?i)-centric(?=,|\s|$)", "", t)
+    t = re.sub(r"(?i)-style(?=,|\s|$)", "", t)
+    t = re.sub(r"\s{2,}", " ", t)
+    return t.strip(" ,-|·")
+
+
 def _normalize_flight_location_label(text: str) -> str:
     """
     Normalize free-form destination labels into Expedia-friendly typeahead text.
@@ -2127,7 +2376,7 @@ def _normalize_flight_location_label(text: str) -> str:
     s = re.sub(r"\s*,\s*", ", ", s)
     s = re.sub(r"(,\s*){2,}", ", ", s)
     s = re.sub(r"\s{2,}", " ", s)
-    return s.strip(" ,")
+    return _strip_expedia_place_suffix_junk(s.strip(" ,"))
 
 
 def _is_broad_area_phrase(text: str) -> bool:
@@ -2477,7 +2726,9 @@ def _normalize_dest_booking_search_hints(dest: dict[str, Any]) -> dict[str, str]
     for k in _BOOKING_HINT_KEYS:
         v = str(raw.get(k) or "").strip()
         if v:
-            out[k] = " ".join(v.split())[:120]
+            v2 = " ".join(_strip_expedia_place_suffix_junk(v).split())[:120]
+            if v2:
+                out[k] = v2
     return out or None
 
 
@@ -2547,6 +2798,7 @@ def booking_prepare_request_fingerprint(
         "dh": date_hints if isinstance(date_hints, dict) else {},
         "itin": rows_digest,
         "hints": hints,
+        "flight_gate_fp": _booking_flight_gate_fingerprint(dest),
     }
     return hashlib.sha256(json.dumps(blob, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
@@ -2721,36 +2973,47 @@ def _collect_booking_prefetch_jobs(
     search_intent = _merge_profile_budget_into_hotel_search_intent(
         search_intent, profile_pills, calendar_nights=cal_nights, adults=adults
     )
-    from_l = _profile_pill_value(profile_pills, "from")
-    to_l = _flight_to_label_for_booking(dest, route_hint)
-    if not (to_l or "").strip():
-        to_l = None
-    return_origin = _flight_return_origin_label(dest, to_l or "").strip() or None
-    return_home = end_d if end_d > start_d else None
-    url_ob, _ = _build_flight_search_url(
-        depart=start_d,
-        return_d=return_home,
-        adults=adults,
-        from_label=from_l,
-        to_label=to_l,
-        flight_leg="outbound",
-        search_intent=search_intent,
-    )
-    if url_ob:
-        out.append(("flight:outbound", url_ob))
-    if return_home and return_home > start_d:
-        url_re, _ = _build_flight_search_url(
+    include_flights = meta.get("include_flight_search", True) is not False
+    if include_flights:
+        from_raw = _profile_pill_value(profile_pills, "from")
+        from_l = _normalize_flight_location_label(from_raw) if from_raw else None
+        if not (from_l or "").strip():
+            from_l = None
+        to_l = _flight_to_label_for_booking(dest, route_hint)
+        if not (to_l or "").strip():
+            to_l = None
+        return_origin = _flight_return_origin_label(dest, to_l or "").strip() or None
+        return_home = end_d if end_d > start_d else None
+        url_ob, _ = _build_flight_search_url(
             depart=start_d,
             return_d=return_home,
             adults=adults,
             from_label=from_l,
             to_label=to_l,
-            flight_leg="return",
+            flight_leg="outbound",
             search_intent=search_intent,
-            return_origin_label=return_origin,
         )
-        if url_re:
-            out.append(("flight:return", url_re))
+        if url_ob:
+            out.append(("flight:outbound", url_ob))
+        if return_home and return_home > start_d:
+            url_re, _ = _build_flight_search_url(
+                depart=start_d,
+                return_d=return_home,
+                adults=adults,
+                from_label=from_l,
+                to_label=to_l,
+                flight_leg="return",
+                search_intent=search_intent,
+                return_origin_label=return_origin,
+            )
+            if url_re:
+                out.append(("flight:return", url_re))
+    else:
+        booking_search_trace(
+            "prefetch_skip_flights",
+            destination_id=did,
+            reason="ground_only_trip",
+        )
     hotels_plan = meta.get("hotels_for_session")
     if not isinstance(hotels_plan, list):
         hotels_plan = []
@@ -3081,14 +3344,14 @@ def _hotel_option_from_snapshot(
             chunk = raw_html[lo:hi]
             # Prefer travel-assets hosted imagery near this listing.
             m = re.search(
-                r"https?://[^\"'\s>]*travel-assets[^\"'\s>]*\.(?:jpe?g|png|webp)",
+                r"https?://[^\"'\s>]*travel-assets[^\"'\s>]*\.(?:jpe?g|png|webp|avif)",
                 chunk,
                 flags=re.I,
             )
             if m:
                 return m.group(0)
             # Fallback to any image-like URL in this local chunk.
-            m2 = re.search(r"https?://[^\"'\s>]+\.(?:jpe?g|png|webp)", chunk, flags=re.I)
+            m2 = re.search(r"https?://[^\"'\s>]+\.(?:jpe?g|png|webp|avif)", chunk, flags=re.I)
             if m2:
                 return m2.group(0)
         return ""
@@ -3155,15 +3418,18 @@ def _hotel_option_from_snapshot(
     og = (extract_og_image_url(html) or "").strip()
     srp_img = (extract_hotel_srp_image_url(html) or "").strip()
     near_href_img = _image_near_listing_href(html, href)
-    if og:
-        image_used = og
-        image_src = "og_image"
+    # Prefer listing-adjacent thumbnails when we resolved a property link — ``og:image`` is often a generic
+    # destination/marketing still and does not track the chosen row; it also used to mask a missing
+    # ``near_listing`` extraction when the first anchor was a generic ``Hotel-Search?`` link.
+    if near_href_img:
+        image_used = near_href_img
+        image_src = "near_listing_href"
     elif srp_img:
         image_used = srp_img
         image_src = "srp_html_thumb"
-    elif near_href_img:
-        image_used = near_href_img
-        image_src = "near_listing_href"
+    elif og:
+        image_used = og
+        image_src = "og_image"
     elif (image_fallback or "").strip():
         image_used = image_fallback.strip()
         image_src = "itinerary_card"
@@ -3347,8 +3613,15 @@ def run_booking_search_step(
     sid = (session_id or "").strip()
     fp = date_hints_fingerprint(date_hints if isinstance(date_hints, dict) else None)
     t_crit = time.perf_counter()
+    cur_fg = _booking_flight_gate_fingerprint(dest) if sid else ""
     snap = get_booking_criteria_snapshot(sid, dest_id) if sid else None
-    if snap and isinstance(snap, dict) and snap.get("_date_hints_fp") == fp:
+    snap_fg = str(snap.get("_flight_gate_fp") or "") if isinstance(snap, dict) else ""
+    if (
+        snap
+        and isinstance(snap, dict)
+        and snap.get("_date_hints_fp") == fp
+        and snap_fg == cur_fg
+    ):
         meta = {k: v for k, v in snap.items() if not (isinstance(k, str) and k.startswith("_"))}
         crit_src = "snapshot"
     else:
@@ -3394,6 +3667,20 @@ def run_booking_search_step(
 
     try:
         if step == "flight":
+            if meta.get("include_flight_search", True) is False:
+                booking_search_trace(
+                    "flight_step_skipped",
+                    destination_id=dest_id,
+                    flight_leg=fl_leg,
+                    reason="ground_only_trip",
+                )
+                return {
+                    "ok": True,
+                    "skipped": True,
+                    "step": step,
+                    "flight_leg": fl_leg,
+                    "reason": "no_commercial_flight_for_ground_trip",
+                }
             from_l = _profile_pill_value(profile_pills, "from")
             to_l = _flight_to_label_for_booking(dest, route_hint)
             if not (to_l or "").strip():

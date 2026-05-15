@@ -3,6 +3,7 @@ import { CommandBar } from "./components/CommandBar";
 import { ProfilePanel } from "./components/ProfilePanel";
 import { DestinationCanvas } from "./components/DestinationCanvas";
 import { AgentResponses } from "./components/AgentResponses";
+import { SavedTripsMenu } from "./components/SavedTripsMenu";
 import { motion, AnimatePresence } from "motion/react";
 import { Compass, Sparkles, Maximize2, Minimize2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -10,6 +11,7 @@ import type { DestCard } from "./components/TripStore";
 import { fetchWorkspace } from "../api/wanderly";
 
 function IdleState() {
+  const { wanderlyWorkspaceBootstrapped } = useTrip();
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -41,6 +43,16 @@ function IdleState() {
       >
         Describe your dream trip and I'll build complete plans — destinations, itineraries, flights, hotels, and activities — all at once.
       </motion.p>
+      {wanderlyWorkspaceBootstrapped && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.45 }}
+          className="relative mt-8 flex w-full max-w-md flex-col items-center"
+        >
+          <SavedTripsMenu variant="idle" />
+        </motion.div>
+      )}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -156,6 +168,7 @@ function SavedTripsBar() {
 function Workspace() {
   const {
     hasStarted,
+    wanderlyWorkspaceBootstrapped,
     agentStatus,
     profile,
     expandedDest,
@@ -164,6 +177,12 @@ function Workspace() {
     setDestinations,
     setEnrichmentPending,
     itineraryLaneQueueDepth,
+    startNewTrip,
+    tripName,
+    setTripName,
+    wanderlyTripId,
+    newTripTransitioning,
+    tripSwitchTransitioning,
   } = useTrip();
 
   useEffect(() => {
@@ -203,12 +222,31 @@ function Workspace() {
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0a0a0f] text-white">
       {/* Header */}
       <header className="shrink-0 z-30 border-b border-white/[0.04] bg-[#0a0a0f]/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-              <Compass className="w-3.5 h-3.5 text-white" />
+        <div className="mx-auto flex max-w-[1400px] flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:max-w-[min(420px,42vw)]">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                <Compass className="w-3.5 h-3.5 text-white" />
+              </div>
+              <span className="text-[15px] text-white/70">Wanderly</span>
             </div>
-            <span className="text-[15px] text-white/70">Wanderly</span>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <label htmlFor="wanderly-trip-name" className="text-[10px] uppercase tracking-wide text-white/35">
+                Trip name
+              </label>
+              <input
+                id="wanderly-trip-name"
+                type="text"
+                value={tripName}
+                onChange={(e) => setTripName(e.target.value)}
+                disabled={!wanderlyWorkspaceBootstrapped}
+                placeholder="Name this trip"
+                maxLength={200}
+                title={wanderlyTripId ? `Trip id: ${wanderlyTripId}` : undefined}
+                autoComplete="off"
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[13px] text-white/85 placeholder:text-white/25 outline-none transition-colors focus:border-indigo-500/40 disabled:cursor-wait disabled:opacity-50"
+              />
+            </div>
           </div>
           <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-2">
             <SavedTripsBar />
@@ -218,7 +256,7 @@ function Workspace() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex max-w-[min(440px,58vw)] flex-col items-end gap-0.5 text-right"
+              className="flex min-w-0 max-w-[min(440px,58vw)] flex-1 flex-col items-end gap-0.5 text-right sm:mx-4"
             >
               <div className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 shrink-0 rounded-full bg-indigo-400 animate-pulse" />
@@ -235,7 +273,25 @@ function Workspace() {
               ) : null}
             </motion.div>
           )}
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:self-start sm:gap-3">
+            <div className="relative">
+              <SavedTripsMenu variant="header" />
+            </div>
+            <button
+              type="button"
+              onClick={() => void startNewTrip()}
+              disabled={newTripTransitioning || tripSwitchTransitioning}
+              title={
+                newTripTransitioning
+                  ? "Finishing new trip setup…"
+                  : tripSwitchTransitioning
+                    ? "Loading saved trip…"
+                    : undefined
+              }
+              className="shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/85 disabled:cursor-wait disabled:opacity-40"
+            >
+              New trip
+            </button>
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-[11px] text-white">
               J
             </div>
@@ -248,12 +304,28 @@ function Workspace() {
         <div className="min-h-0 flex-1 overflow-hidden">
           <AnimatePresence mode="wait">
             {!hasStarted ? (
-              <div
-                key="idle"
-                className="mx-auto flex h-full max-w-[1400px] flex-col justify-center overflow-y-auto px-4 py-6 sm:px-6"
-              >
-                <IdleState />
-              </div>
+              !wanderlyWorkspaceBootstrapped ? (
+                <div
+                  key="workspace-boot"
+                  className="mx-auto flex h-full max-w-[1400px] flex-col items-center justify-center px-4 py-6 sm:px-6"
+                >
+                  <div className="text-[13px] text-white/35">Loading your workspace…</div>
+                </div>
+              ) : tripSwitchTransitioning ? (
+                <div
+                  key="trip-switch"
+                  className="mx-auto flex h-full max-w-[1400px] flex-col items-center justify-center px-4 py-6 sm:px-6"
+                >
+                  <div className="text-[13px] text-white/35">Loading saved trip…</div>
+                </div>
+              ) : (
+                <div
+                  key="idle"
+                  className="mx-auto flex h-full max-w-[1400px] flex-col justify-center overflow-y-auto px-4 py-6 sm:px-6"
+                >
+                  <IdleState />
+                </div>
+              )
             ) : (
               <motion.div
                 key="workspace"

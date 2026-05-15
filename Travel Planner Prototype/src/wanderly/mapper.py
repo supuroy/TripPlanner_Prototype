@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from src.wanderly.commerce_stub import attach_commerce_placeholders
-from src.wanderly.schemas import SmokeProfilePillDTO, WanderlyWorkspaceDTO
+from src.wanderly.schemas import SmokeProfilePillDTO, WanderlyWorkspaceDTO, sanitize_traveler_place_pill_value
 
 
 def _slug(name: str) -> str:
@@ -51,7 +51,7 @@ def _profile_to_pills(tp: dict[str, Any]) -> list[SmokeProfilePillDTO]:
         )
     )
     pills.append(SmokeProfilePillDTO(key="who", label="Who", value=who, icon="👥"))
-    origin = (tp.get("traveler_origin") or "").strip()
+    origin = sanitize_traveler_place_pill_value("from", (tp.get("traveler_origin") or "").strip())
     pills.append(
         SmokeProfilePillDTO(
             key="from",
@@ -78,9 +78,27 @@ def _profile_to_pills(tp: dict[str, Any]) -> list[SmokeProfilePillDTO]:
         )
     else:
         pills.append(SmokeProfilePillDTO(key="budget", label="Budget", value="Flexible", icon="💰"))
-    pace = tp.get("pace_preference") or "balanced"
-    pills.append(SmokeProfilePillDTO(key="duration", label="Duration", value=str(pace), icon="⏱"))
+    pills.append(
+        SmokeProfilePillDTO(
+            key="duration",
+            label="Duration",
+            value=_duration_pill_value(tp),
+            icon="⏱",
+        )
+    )
     return pills
+
+
+def _duration_pill_value(tp: dict[str, Any]) -> str:
+    """Duration UI matches ``PROFILE_OPTIONS`` strings; profile_patch may store them under ``Trip length:`` in notes."""
+    notes = str(tp.get("editable_notes") or "")
+    matches = list(re.finditer(r"Trip length:\s*([^\n;]+)", notes, flags=re.I))
+    if matches:
+        return matches[-1].group(1).strip()[:120]
+    pace = tp.get("pace_preference")
+    if pace is not None and str(pace).strip():
+        return str(pace).strip()[:120]
+    return "balanced"
 
 
 def _option_to_dest_card(opt: dict[str, Any]) -> dict[str, Any]:

@@ -62,6 +62,7 @@ Rules:
 - profile_pills: exactly those six keys in that order (placeholders ok). Companion pass may refine pills — prioritize assistant_markdown + destinations.
 - No ``tags`` pill; extra nuance → pills or assistant_markdown.
 - Home airport / "from Seattle" / "SEA" → set key "from".
+- **from** values must be plain city / metro / airport text Expedia-style search would accept (e.g. ``Seattle, WA``, ``SEA``). Do **not** emit prose like ``Seattle-based``, ``…-based``, or ``… based`` — those break live flight URL building.
 - Infer from the user message; placeholders if unknown.
 - No live fares or availability claims.
 """.strip()
@@ -83,6 +84,7 @@ Rules:
 - Always return the full profile_pills array for the six keys when, who, from, vibe, budget, duration (not a partial list; placeholders ok; a fast companion pass may refine).
 - Do **not** emit a ``tags`` pill; fold constraints into the appropriate one of the six fields or assistant_markdown.
 - Update profile_pills whenever the user states new trip facts (dates, budget, party, vibe, home airport / "flying from …").
+- When you set **from**, use only concrete place or airport codes (never ``*-based`` or narrative "based in …" phrasing — flight search uses this string verbatim).
 - If the user only **compares**, **contrasts**, or **chooses between** places (no request to change days, hotels, flights, or itineraries), return **every non-dismissed** row from workspace_destinations (same ids). You may refresh hook/score text. Do **not** drop unpinned destinations from the shortlist.
 - If the user asks to **redo / rebuild / regenerate** one destination's plan, still return **the full non-dismissed shortlist** (same ids): update only the rows they mentioned; omit ``itinerary`` on other rows so the UI keeps existing day-by-day content.
 - You may omit per-destination "itinerary" in JSON; the UI keeps existing day-by-day plans unless the user asks to change them.
@@ -598,6 +600,7 @@ def run_smoke_turn(user_message: str, session_id: str) -> dict[str, Any]:
         raw_text = run_prompt_collect_assistant_text(
             client,
             prompt,
+            persistent_instruction_prefix=_JSON_INSTRUCTIONS + "\n\nUser request:\n",
             **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.json"),
         )
     out = _complete_smoke_turn(session_id, user_message, raw_text)
@@ -628,6 +631,7 @@ def run_smoke_turn_streaming(
             client,
             prompt,
             emit=safe_emit,
+            persistent_instruction_prefix=_JSON_INSTRUCTIONS + "\n\nUser request:\n",
             **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.sse"),
         )
     if emit:
@@ -702,7 +706,11 @@ def run_refine_turn(
     mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.json")
     with basic_client(key) as client:
         raw_text = run_prompt_collect_assistant_text(
-            client, prompt, model_id_override=mod, **persist
+            client,
+            prompt,
+            model_id_override=mod,
+            persistent_instruction_prefix=_REFINE_INSTRUCTIONS + "\n",
+            **persist,
         )
     out = _complete_refine_turn(
         session_id, um, raw_text, prior_dests, allow_shortlist_shrink=confirm_workspace_drop
@@ -743,6 +751,7 @@ def run_refine_turn_streaming(
             prompt,
             emit=safe_emit,
             model_id_override=mod,
+            persistent_instruction_prefix=_REFINE_INSTRUCTIONS + "\n",
             **persist,
         )
     if emit:

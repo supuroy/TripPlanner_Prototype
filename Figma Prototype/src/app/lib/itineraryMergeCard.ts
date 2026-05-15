@@ -1,5 +1,5 @@
 import type { DestCard, ItinDay } from "../components/TripStore";
-import type { ItineraryBudgetGuidance } from "../../types/workspace";
+import type { ItineraryBudgetGuidance, WanderlyTransportPlan } from "../../types/workspace";
 
 /** Merge lazy itinerary rows + optional LLM budget bands (+ optional booking URL hints) onto a destination card. */
 export function mergeItineraryBuildIntoDest(
@@ -7,6 +7,8 @@ export function mergeItineraryBuildIntoDest(
   rows: ItinDay[],
   budget?: ItineraryBudgetGuidance | null,
   bookingSearchHints?: DestCard["booking_search_hints"] | null,
+  needsCommercialFlight?: boolean | null,
+  transportPlan?: WanderlyTransportPlan | null,
 ): DestCard {
   if (rows.length === 0) return { ...card, itinerary_dirty: false };
   const ballpark = budget?.trip_ballpark_usd_pp?.trim();
@@ -30,6 +32,8 @@ export function mergeItineraryBuildIntoDest(
     ...(bookingSearchHints && (bookingSearchHints.flight_to_label || bookingSearchHints.flight_return_from_label)
       ? { booking_search_hints: { ...bookingSearchHints } }
       : {}),
+    ...(typeof needsCommercialFlight === "boolean" ? { needs_commercial_flight: needsCommercialFlight } : {}),
+    ...(transportPlan && String(transportPlan.primary_mode || "").trim() ? { transport_plan: transportPlan } : {}),
   };
   if (costLine) next = { ...next, cost: costLine };
   else next = { ...next, cost: "" };

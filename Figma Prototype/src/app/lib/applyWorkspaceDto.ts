@@ -1,6 +1,11 @@
 import type { AgentResponse, DestCard, ItinDay, ProfilePill } from "../components/TripStore";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
+import {
+  clearAllBookingPipelineCompleted,
+  clearBookingPipelineCompletedFor,
+} from "./bookingProgressIds";
 import { logItin } from "./itineraryDebug";
+import { resetDestinationBookingState } from "./resetDestinationBooking";
 
 function asDestCards(raw: unknown[]): DestCard[] {
   return raw.filter(Boolean).map((d) => {
@@ -181,17 +186,56 @@ export function mergeHeroOneCard(cards: DestCard[], row: Record<string, unknown>
   });
 }
 
+/** Strip LLM prose tails from location-like pills (must match server ``sanitize_traveler_place_pill_value``). */
+export function sanitizeTravelerPlacePillValue(key: string, value: string): string {
+  const k = key.trim().toLowerCase();
+  if (k !== "from") return value;
+  let v = value.trim().replace(/\s+/g, " ");
+  if (!v) return v;
+  v = v.replace(/-based(?=,|\s|$)/gi, "");
+  v = v.replace(/\s+based(?=,|\s|$)/gi, "");
+  v = v.replace(/-centric(?=,|\s|$)/gi, "");
+  return v.replace(/\s+/g, " ").trim().replace(/^[,\-|·\s]+|[,\-|·\s]+$/g, "");
+}
+
 export function mapDtoPillsToProfile(raw: WanderlyWorkspaceDTO["profile_pills"]): ProfilePill[] {
   return (raw || [])
     .filter((p) => String(p.key ?? "").trim() !== "tags")
-    .map((p) => ({
-      key: p.key,
-      label: p.label,
-      value: p.value,
-      icon: p.icon || "📌",
-      editable: p.editable !== false,
-      options: p.options,
-    }));
+    .map((p) => {
+      const key = String(p.key ?? "");
+      const value = sanitizeTravelerPlacePillValue(key, String(p.value ?? ""));
+      return {
+        key: p.key,
+        label: p.label,
+        value,
+        icon: p.icon || "📌",
+        editable: p.editable !== false,
+        options: p.options,
+      };
+    });
+}
+
+/**
+ * After ``profile_patch``, the server may echo pills from internal fields that lag the literal
+ * option the traveler chose (e.g. duration stored as ``Trip length:`` in notes). For keys the
+ * user actually edited, keep the submitted sidebar values so the UI does not flash back.
+ */
+export function mergeSubmittedProfileWithServerPills(
+  submitted: ProfilePill[],
+  priorCommitted: ProfilePill[],
+  serverPills: ProfilePill[] | null | undefined,
+): ProfilePill[] {
+  const changedKeys = new Set(
+    submitted
+      .filter((s) => (priorCommitted.find((p) => p.key === s.key)?.value ?? "") !== s.value)
+      .map((s) => s.key),
+  );
+  const base = serverPills?.length ? serverPills : submitted;
+  return base.map((pill) => {
+    if (!changedKeys.has(pill.key)) return pill;
+    const want = submitted.find((s) => s.key === pill.key);
+    return want ? { ...pill, value: want.value, label: want.label, icon: want.icon } : pill;
+  });
 }
 
 /** Overlay server pills onto the current sidebar so partial JSON never drops keys like ``from``. */
@@ -216,6 +260,121 @@ export function mergeProfilePillsFromDto(
     .map((k) => byKey.get(k))
     .filter((x): x is ProfilePill => Boolean(x))
     .filter((p) => p.key !== "tags");
+}
+
+/** Mapper / partial workspace JSON often emits placeholder pill text — do not replace substantive traveler choices. */
+export function isWeakTravelerProfileValue(key: string, value: string): boolean {
+  const v = value.trim().toLowerCase();
+  if (!v) return true;
+  if (/^(not specified|not specified yet|n\/a|tbd|unknown|—|--)$/.test(v)) return true;
+  if (key === "from") {
+    if (v.includes("city or airport")) return true;
+    if (/-based$|\sbased$/i.test(v)) return true;
+  }
+  if (key === "budget") {
+    if (/not specified/.test(v)) return true;
+    if (v === "flexible" && !/\d/.test(value.replace(/\s/g, ""))) return true;
+  }
+  if (key === "duration") {
+    if (v === "balanced") return true;
+  }
+  if (key === "when" && v === "dates tbd") return true;
+  return false;
+}
+
+export function normalizeProfilePillValueForCompare(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/** True when the sidebar has no real traveler constraints yet (first prompt / empty session). */
+export function isBlankTravelerProfile(pills: ProfilePill[]): boolean {
+  if (!pills.length) return true;
+  return pills.every((p) => isWeakTravelerProfileValue(p.key, p.value));
+}
+
+/** User clearly asked to edit traveler / trip constraints in the main bar (not only cards or itineraries). */
+export function workspaceUserExplicitTravelerProfileEditMessage(message: string): boolean {
+  const ml = message.trim().toLowerCase();
+  if (!ml) return false;
+  return (
+    /\b(set|change|update|edit)\s+(my\s+)?(budget|duration|trip length|length of trip|how long|when we|travel dates|dates|flying from|depart(ing)? from|origin|airport|home airport|travelers?|party size|group size|who('s| is) going|vibe|style|pace|trip style)\b/i.test(
+      ml,
+    ) ||
+    /\b(budget|duration)\s+(to|at|around|about)\b/i.test(ml) ||
+    /\b(we('re| are)|i('m| am))\s+(a\s+)?(couple|solo|family|group)\b/i.test(ml) ||
+    /\b(update|edit)\s+(my\s+)?(traveler|travel)\s+profile\b/i.test(ml) ||
+    /\b(profile|sidebar)\s+(pill|pills|field|fields)\b/i.test(ml)
+  );
+}
+
+export function profilePillsMeaningfullyDiffer(a: ProfilePill[], b: ProfilePill[]): boolean {
+  const keys = new Set([...a.map((p) => p.key), ...b.map((p) => p.key)]);
+  for (const k of keys) {
+    const va = a.find((p) => p.key === k)?.value ?? "";
+    const vb = b.find((p) => p.key === k)?.value ?? "";
+    if (normalizeProfilePillValueForCompare(va) !== normalizeProfilePillValueForCompare(vb)) return true;
+  }
+  return false;
+}
+
+export function formatProfileProposalDiffLines(baseline: ProfilePill[], proposed: ProfilePill[]): string {
+  const keys = new Set([...baseline.map((p) => p.key), ...proposed.map((p) => p.key)]);
+  const lines: string[] = [];
+  for (const k of [...keys].sort()) {
+    const label = baseline.find((p) => p.key === k)?.label ?? proposed.find((p) => p.key === k)?.label ?? k;
+    const bv = baseline.find((p) => p.key === k)?.value ?? "—";
+    const pv = proposed.find((p) => p.key === k)?.value ?? "—";
+    if (normalizeProfilePillValueForCompare(bv) !== normalizeProfilePillValueForCompare(pv)) {
+      lines.push(`**${label}**: ${bv} → ${pv}`);
+    }
+  }
+  return lines.length ? lines.join("\n") : "(No textual differences detected.)";
+}
+
+/**
+ * Like ``mergeProfilePillsFromDto``, but keeps prior pill text when the workspace would
+ * overwrite it with a placeholder (e.g. budget → "Not specified yet" after an itinerary-only refine).
+ */
+export function mergeProfilePillsConservative(
+  prior: ProfilePill[],
+  incoming: WanderlyWorkspaceDTO["profile_pills"],
+): ProfilePill[] {
+  const merged = mergeProfilePillsFromDto(prior, incoming);
+  return merged.map((pill) => {
+    const was = prior.find((p) => p.key === pill.key);
+    if (!was) return pill;
+    if (was.value === pill.value) return pill;
+    const nextWeak = isWeakTravelerProfileValue(pill.key, pill.value);
+    const priorWeak = isWeakTravelerProfileValue(pill.key, was.value);
+    if (nextWeak && !priorWeak) {
+      return { ...pill, value: was.value, label: was.label, icon: was.icon };
+    }
+    return pill;
+  });
+}
+
+/**
+ * Refine turns that mainly rebuild itineraries/cards should not replace sidebar traveler pills
+ * from workspace JSON (re-derived traveler state often lags the real sidebar).
+ */
+export function isItineraryPrimaryRefineMessage(message: string): boolean {
+  const m = message.trim();
+  if (!m) return false;
+  const ml = m.toLowerCase();
+  const asksItineraryCards =
+    /\b(update|refresh|rebuild|regenerate|rewrite|redo|revise)\b[\s\S]{0,220}\b(itineraries?|itinerary|day-by-day|day\s+plans?|schedule|cards?|shortlist|destination\s+cards?)\b/i.test(
+      ml,
+    ) ||
+    /\b(itineraries?|itinerary|day-by-day)\b[\s\S]{0,220}\b(update|refresh|rebuild|regenerate|rewrite|redo|revise|for\s+each|all|every)\b/i.test(
+      ml,
+    );
+  if (!asksItineraryCards) return false;
+  const asksProfileFields =
+    /\b(set|change|update|edit)\s+(my\s+)?(budget|duration|when|dates|origin|airport|travelers?|vibe|pace)\b/i.test(ml) ||
+    /\b(budget|duration)\s+(to|at)\s+/i.test(ml) ||
+    /\b(update|edit)\s+(my\s+)?(travel|traveler)\s+profile\b/i.test(ml) ||
+    /\b(profile\s+pills?|sidebar\s+profile)\b/i.test(ml);
+  return !asksProfileFields;
 }
 
 /** Regex: user message explicitly asks to change day-by-day / schedule wording. */
@@ -250,16 +409,21 @@ function normalizePillValueForSig(raw: string): string {
   return s;
 }
 
-function profilePillsSignature(rows: ProfilePill[]): string {
+/** Keys that should force lazy itinerary rebuilds when their values change (dates, party, origin, length, envelope). */
+const ITINERARY_CRITICAL_PROFILE_KEYS = new Set(["when", "who", "from", "budget", "duration"]);
+
+function profileCriticalPillsSignature(rows: ProfilePill[]): string {
   return [...rows]
+    .filter((x) => ITINERARY_CRITICAL_PROFILE_KEYS.has(x.key))
     .map((x) => `${x.key}=${normalizePillValueForSig(x.value)}`)
     .sort()
     .join("|");
 }
 
 /**
- * Explains why a refine turn will mark every merged destination with ``itinerary_dirty: true``
+ * Explains why a refine turn will mark merged destinations with ``itinerary_dirty: true``
  * (see ``applyWanderlyWorkspace``), which triggers lazy ``buildItinerary*`` for dirty cards (main-screen prefetch + expanded view).
+ * Profile churn uses only itinerary-critical pill keys (when / who / from / budget / duration) so a vibe relabel on add-destination refines does not wipe every card.
  */
 export function explainItineraryInvalidate(
   message: string,
@@ -271,13 +435,16 @@ export function explainItineraryInvalidate(
     return { shouldInvalidate: false, reasons: ["compare_only_skip_invalidate"] };
   }
   const reasons: string[] = [];
+  if (isItineraryPrimaryRefineMessage(m)) {
+    reasons.push("itinerary_primary_refine");
+  }
   if (ITINERARY_INVALIDATE_MESSAGE_RE.test(m)) {
     reasons.push("user_message_itinerary_keywords");
   }
   if (incomingPills?.length) {
-    const merged = mergeProfilePillsFromDto(priorProfile, incomingPills);
-    if (profilePillsSignature(merged) !== profilePillsSignature(priorProfile)) {
-      reasons.push("profile_pills_changed_vs_prior");
+    const merged = mergeProfilePillsConservative(priorProfile, incomingPills);
+    if (profileCriticalPillsSignature(merged) !== profileCriticalPillsSignature(priorProfile)) {
+      reasons.push("profile_pills_critical_changed");
     }
   }
   return { shouldInvalidate: reasons.length > 0, reasons };
@@ -351,6 +518,13 @@ export function applyWanderlyWorkspace(
     itineraryStalePlan?: ItineraryStalePlan;
     /** Current sidebar pills — merged with server pills by key so partial updates keep ``from``, etc. */
     priorProfile?: ProfilePill[];
+    /**
+     * How to merge ``w.profile_pills`` into the sidebar.
+     * - ``full``: replace/overlay per ``mergeProfilePillsFromDto`` (initial plan / smoke).
+     * - ``conservative``: keep substantive prior values when the workspace sends placeholders.
+     * - ``skip``: do not touch sidebar pills (itinerary-primary refines).
+     */
+    profilePillMergeMode?: "full" | "conservative" | "skip";
   },
 ) {
   const {
@@ -362,12 +536,21 @@ export function applyWanderlyWorkspace(
     markItinerariesStale,
     itineraryStalePlan: explicitPlan,
     priorProfile,
+    profilePillMergeMode,
   } = opts;
   const stalePlan: ItineraryStalePlan =
     explicitPlan ?? (markItinerariesStale ? { mode: "all" } : { mode: "none" });
 
   if (w.profile_pills?.length) {
-    setProfile(mergeProfilePillsFromDto(priorProfile ?? [], w.profile_pills));
+    const mode = profilePillMergeMode ?? "full";
+    const prior = priorProfile ?? [];
+    if (mode === "skip") {
+      /* Sidebar is source of truth — workspace pills are often rebuilt from partial traveler state. */
+    } else if (mode === "conservative") {
+      setProfile(mergeProfilePillsConservative(prior, w.profile_pills));
+    } else {
+      setProfile(mergeProfilePillsFromDto(prior, w.profile_pills));
+    }
   }
   if (w.destinations?.length) {
     const incoming = asDestCards(w.destinations);
@@ -386,13 +569,22 @@ export function applyWanderlyWorkspace(
         bypassItineraryPreserve: bypassPreserve,
         bypassItineraryPreserveOnlyIds: bypassOnlyIds,
       });
+      if (stalePlan.mode === "all") {
+        clearAllBookingPipelineCompleted();
+      } else if (stalePlan.mode === "focus") {
+        for (const sid of stalePlan.ids) {
+          clearBookingPipelineCompletedFor(sid);
+        }
+      }
       const final =
         stalePlan.mode === "none"
           ? merged
           : stalePlan.mode === "all"
-            ? merged.map((d) => ({ ...d, itinerary_dirty: true }))
+            ? merged.map((d) => ({ ...resetDestinationBookingState(d), itinerary_dirty: true }))
             : merged.map((d) =>
-                stalePlan.ids.includes(d.id) ? { ...d, itinerary_dirty: true } : d,
+                stalePlan.ids.includes(d.id)
+                  ? { ...resetDestinationBookingState(d), itinerary_dirty: true }
+                  : d,
               );
       if (stalePlan.mode !== "none") {
         logItin("apply_workspace_mark_itineraries_stale", {

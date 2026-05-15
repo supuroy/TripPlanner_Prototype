@@ -1,7 +1,7 @@
-import { buildItinerary } from "../../api/wanderly";
+import { buildItinerary, syncUi } from "../../api/wanderly";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
 import type { DestCard, ProfilePill } from "../components/TripStore";
-import { destinationsFromWorkspace, mergeProfilePillsFromDto } from "./applyWorkspaceDto";
+import { destinationsFromWorkspace, mergeProfilePillsConservative } from "./applyWorkspaceDto";
 import { mergeItineraryBuildIntoDest } from "./itineraryMergeCard";
 import { logItin } from "./itineraryDebug";
 
@@ -107,12 +107,23 @@ export function enqueueBackgroundItineraryBuild(args: {
         rowCount: rows.length,
         source: args.source,
       });
-      args.setDestinations((prev) =>
-        prev.map((x) => {
+      args.setDestinations((prev) => {
+        const next = prev.map((x) => {
           if (String(x.id) !== id) return x;
-          return mergeItineraryBuildIntoDest(x, rows, budget, res.booking_search_hints ?? null);
-        }),
-      );
+          return mergeItineraryBuildIntoDest(
+            x,
+            rows,
+            budget,
+            res.booking_search_hints ?? null,
+            typeof res.needs_commercial_flight === "boolean" ? res.needs_commercial_flight : null,
+            res.transport_plan ?? null,
+          );
+        });
+        queueMicrotask(() => {
+          void syncUi(args.sessionId, next as unknown[]).catch(() => {});
+        });
+        return next;
+      });
     } catch (err: unknown) {
       logItin("background_prefetch_error", { destId: id, message: String(err), source: args.source });
       args.setDestinations((prev) =>
@@ -138,7 +149,7 @@ export function scheduleWorkspaceItineraryPrefetch(opts: {
   delayMs?: number;
 }): void {
   const profile = opts.wanderly.profile_pills?.length
-    ? mergeProfilePillsFromDto(opts.priorProfile, opts.wanderly.profile_pills)
+    ? mergeProfilePillsConservative(opts.priorProfile, opts.wanderly.profile_pills)
     : opts.priorProfile;
   const merged = destinationsFromWorkspace(opts.wanderly, opts.priorDestinations) ?? [];
   const ex = opts.excludeDestinationId;

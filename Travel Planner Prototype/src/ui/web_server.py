@@ -15,6 +15,7 @@ from src.orchestrator import TravelPlannerOrchestrator
 from src.stages.criteria_stage import CriteriaStage
 from src.ui.web import HTML_SCAFFOLD
 from src.wanderly.mapper import map_workspace_to_wanderly
+from src.wanderly.schemas import sanitize_traveler_place_pill_value
 from src.wanderly.hero_enrichment import enrich_destinations_hero_images
 from src.wanderly.stock_photo_heroes import log_hero_image
 from src.wanderly.itinerary_debug_log import log_itinerary_build
@@ -31,10 +32,15 @@ from src.wanderly.cursor_advisor import (
 )
 from src.wanderly.session_store import (
     get_session,
+    hydrate_wanderly_session_from_disk,
+    patch_session_destination_itinerary,
+    persist_wanderly_session_snapshot,
     set_last_destinations,
     set_last_profile_pills,
     snapshot_destinations_for_model,
     snapshot_profile_pills,
+    start_new_wanderly_trip_session,
+    wanderly_destinations_for_session,
 )
 from src.wanderly import trip_disk_store
 from src.wanderly.legacy_session_snapshots import maybe_hydrate_empty_session_from_snapshots
@@ -209,8 +215,22 @@ def run_web_server(
                 qs = parse_qs(parsed.query or "")
                 sid_list = qs.get("session_id") or []
                 sid = sid_list[0] if sid_list else ""
-                wanderly = _wanderly_workspace_payload(orchestrator, sid)
-                self._send_json({"wanderly": wanderly}, status=200)
+                snap = False
+                wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
+                if sid:
+                    snap = bool(hydrate_wanderly_session_from_disk(sid))
+                    s = get_session(sid)
+                    # Always use session-scoped pills (including []) so a new / switched trip does not inherit
+                    # orchestrator ``map_workspace_to_wanderly`` profile from another plan.
+                    wanderly["profile_pills"] = snapshot_profile_pills(sid)
+                    wanderly["destinations"] = wanderly_destinations_for_session(s)
+                    tm = s.get("trip_meta")
+                    if isinstance(tm, dict):
+                        tid = str(tm.get("trip_id") or "").strip()
+                        tname = str(tm.get("trip_name") or "").strip()[:200]
+                        if tid or tname:
+                            wanderly["trip_meta"] = {"trip_id": tid, "trip_name": tname}
+                self._send_json({"wanderly": wanderly, "wanderly_snapshot_restored": snap}, status=200)
                 return
             self._send_json({"error": "Not found"}, status=404)
 
@@ -471,6 +491,18 @@ def run_web_server(
                     self._send_json({**meta, "wanderly": wly}, status=200)
                     return
 
+                if path == "/api/wanderly/new_trip":
+                    old_sid = (payload.get("session_id") or "").strip() or None
+                    try:
+                        new_sid, wly = start_new_wanderly_trip_session(old_sid)
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/new_trip error: {exc!r}")
+                        traceback.print_exc()
+                        self._send_json({"error": str(exc)}, status=500)
+                        return
+                    self._send_json({"session_id": new_sid, "wanderly": wly}, status=200)
+                    return
+
                 if path == "/api/wanderly/sync_ui":
                     sid = (payload.get("session_id") or "").strip()
                     dests = payload.get("destinations")
@@ -489,6 +521,13 @@ def run_web_server(
                     if trip_disk:
                         trip_disk_store.persist_trip(trip_disk, sid, get_session)
                         saved_disk = True
+                    tm = payload.get("trip_meta")
+                    if isinstance(tm, dict):
+                        tid = str(tm.get("trip_id") or "").strip()
+                        tname = str(tm.get("trip_name") or "").strip()[:200]
+                        if tid or tname:
+                            s["trip_meta"] = {"trip_id": tid, "trip_name": tname}
+                    persist_wanderly_session_snapshot(sid)
                     self._send_json(
                         {"ok": True, "saved_to_disk": saved_disk, "trip_id": trip_disk or None},
                         status=200,
@@ -536,6 +575,7 @@ def run_web_server(
                                 else:
                                     merged_ui.append(u)
                             s["ui_destinations"] = merged_ui
+                        persist_wanderly_session_snapshot(sid)
                         self._send_json(
                             {
                                 "session_id": sid,
@@ -623,6 +663,8 @@ def run_web_server(
                         rows = itin_out.get("itinerary") or []
                         bg = itin_out.get("budget_guidance")
                         bsh = itin_out.get("booking_search_hints")
+                        ncf = itin_out.get("needs_commercial_flight")
+                        itp = itin_out.get("transport_plan")
                         print(
                             f"[web] /api/wanderly/build_itinerary ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -636,6 +678,7 @@ def run_web_server(
                             rows=len(rows),
                             budget=bool(bg),
                             booking_hints=bool(bsh),
+                            needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                         )
                         resp_body: dict[str, Any] = {
                             "session_id": sid,
@@ -645,6 +688,20 @@ def run_web_server(
                         }
                         if isinstance(bsh, dict) and bsh:
                             resp_body["booking_search_hints"] = bsh
+                        if isinstance(ncf, bool):
+                            resp_body["needs_commercial_flight"] = ncf
+                        if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip():
+                            resp_body["transport_plan"] = itp
+                        if rows:
+                            patch_session_destination_itinerary(
+                                sid,
+                                did,
+                                itinerary=rows,
+                                budget_guidance=bg if isinstance(bg, dict) else None,
+                                booking_search_hints=bsh if isinstance(bsh, dict) else None,
+                                needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
+                                transport_plan=itp if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip() else None,
+                            )
                         self._send_json(resp_body, status=200)
                     except Exception as exc:
                         print(f"[web] /api/wanderly/build_itinerary error: {exc!r}")
@@ -722,6 +779,8 @@ def run_web_server(
                         rows = itin_out.get("itinerary") or []
                         bg = itin_out.get("budget_guidance")
                         bsh = itin_out.get("booking_search_hints")
+                        ncf = itin_out.get("needs_commercial_flight")
+                        itp = itin_out.get("transport_plan")
                         print(
                             f"[web] /api/wanderly/build_itinerary_stream ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -735,6 +794,7 @@ def run_web_server(
                             rows=len(rows),
                             budget=bool(bg),
                             booking_hints=bool(bsh),
+                            needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                         )
                         done_payload: dict[str, Any] = {
                             "type": "done",
@@ -745,7 +805,21 @@ def run_web_server(
                         }
                         if isinstance(bsh, dict) and bsh:
                             done_payload["booking_search_hints"] = bsh
+                        if isinstance(ncf, bool):
+                            done_payload["needs_commercial_flight"] = ncf
+                        if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip():
+                            done_payload["transport_plan"] = itp
                         emit_itin(done_payload)
+                        if rows:
+                            patch_session_destination_itinerary(
+                                sid,
+                                did,
+                                itinerary=rows,
+                                budget_guidance=bg if isinstance(bg, dict) else None,
+                                booking_search_hints=bsh if isinstance(bsh, dict) else None,
+                                needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
+                                transport_plan=itp if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip() else None,
+                            )
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         _trace_itin_web(
                             "build_itinerary_stream_client_disconnect",
@@ -825,7 +899,7 @@ def run_web_server(
                         elif k == "from":
                             vv = v.strip()
                             if vv and vv.lower() not in ("not specified", "tbd", "unknown", "n/a"):
-                                patch["traveler_origin"] = vv[:200]
+                                patch["traveler_origin"] = sanitize_traveler_place_pill_value("from", vv)[:200]
                         elif k == "who":
                             m = re.match(r"^\s*(\d+)", v)
                             if m:
@@ -932,11 +1006,10 @@ def run_web_server(
                             "primary_recommendation": {"action": "none", "why": "Cursor advisor (cheap model) reply."},
                             "model": "cursor_advisor",
                         }
-                        wanderly = (
-                            _wanderly_workspace_payload(orchestrator, sid)
-                            if sid
-                            else map_workspace_to_wanderly(orchestrator.get_workspace_state())
-                        )
+                        wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
+                        if sid:
+                            s = get_session(sid)
+                            wanderly["destinations"] = wanderly_destinations_for_session(s)
                         self._send_json(
                             {
                                 "advisor_suggestion": sug,

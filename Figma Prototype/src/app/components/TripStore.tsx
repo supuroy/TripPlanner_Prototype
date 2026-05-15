@@ -1,11 +1,19 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
-import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../../types/workspace";
+import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyTransportPlan, WanderlyWorkspaceDTO } from "../../types/workspace";
 import type { WanderlyTripSummary } from "../../api/wanderly";
-import { planReview, bootstrapWanderlyTrips, activateWanderlyTrip, createWanderlyTrip } from "../../api/wanderly";
+import { planReview, bootstrapWanderlyTrips, activateWanderlyTrip, createWanderlyTrip, syncUi } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
 import { planReviewMarkdownForUi } from "../lib/planReviewMarkdown";
+import {
+  clearTripMetaForSession,
+  loadTripMetaForSession,
+  recordTripInSavedIndex,
+  removeTripFromSavedIndex,
+  resolveTripMetaForSession,
+  saveTripMetaForSession,
+} from "../lib/tripMetaStorage";
 
 export type Phase = "idle" | "thinking" | "streaming" | "refining" | "advising" | "complete";
 
@@ -70,6 +78,10 @@ export interface DestCard {
   booking_search_outline?: { stays?: Array<{ area?: string; nights?: number; label?: string }> };
   /** Optional Expedia-oriented flight labels from the itinerary LLM (concrete cities for URL building). */
   booking_search_hints?: { flight_to_label?: string; flight_return_from_label?: string };
+  /** Lazy itinerary JSON: when false, skip commercial flight booking (road / ground-only). */
+  needs_commercial_flight?: boolean;
+  /** Itinerary agent structured transport (authoritative for booking vs regex fallback). */
+  transport_plan?: WanderlyTransportPlan;
 }
 
 export type TripDiskPersistStatus = "unknown" | "saved" | "dirty" | "saving";
@@ -99,6 +111,8 @@ export interface ItinDay {
   /** Overnight base from lazy itinerary LLM (used server-side for return flight origin). */
   base?: string;
   accent?: string;
+  /** Optional per-day movement mode from itinerary LLM (aligns with ``transport_plan``). */
+  day_transport?: { mode?: string; note?: string };
 }
 
 export interface FlightOption {
@@ -195,6 +209,14 @@ interface TripStoreType {
   profile: ProfilePill[];
   setProfile: (p: ProfilePill[]) => void;
   updateProfilePill: (key: string, value: string) => void;
+  /** Apply a full profile pill array (e.g. after user confirms **Update trip**); does not auto-invalidate itineraries. */
+  applyProfilePillBatch: (next: ProfilePill[]) => void;
+  /** Planner returned different traveler pills than the sidebar — confirm before applying. */
+  pendingAgentProfileProposal: ProfilePill[] | null;
+  /** Store a planner-suggested profile for in-chat confirmation (does not replace sidebar until confirmed). */
+  stageAgentProfileProposal: (proposed: ProfilePill[]) => void;
+  confirmAgentProfileProposal: () => void;
+  dismissAgentProfileProposal: () => void;
   destinations: DestCard[];
   setDestinations: (d: DestCard[] | ((prev: DestCard[]) => DestCard[])) => void;
   
@@ -250,6 +272,9 @@ interface TripStoreType {
   completeTripDiskSave: (dests: DestCard[], opts?: { savedToDisk?: boolean }) => void;
   failTripDiskSave: () => void;
   markTripDiskBaselineFromDestinations: (dests: DestCard[]) => void;
+  /** User-visible trip name (header); persisted via ``sync_ui`` ``trip_meta``. */
+  tripName: string;
+  setTripName: (name: string) => void;
   enrichmentPending: boolean;
   setEnrichmentPending: (v: boolean) => void;
   /** When set (and workspace has destinations), CommandBar runs a refine with this text. */
@@ -268,8 +293,20 @@ interface TripStoreType {
   setRefineUnlockCardNavigation: (v: boolean) => void;
   /** Active planner HTTP stream — call from CommandBar before smoke/refine SSE. */
   setPlannerAbortController: (ac: AbortController | null) => void;
-  /** Emergency cancel: aborts fetch + clears planner phase. */
+  /** Abort in-flight planner work and clear server-side Cursor reuse for a fresh trip. */
+  startNewTrip: (opts?: { archiveCurrent?: boolean }) => Promise<void>;
+  /** Remove a trip from this browser's saved list (caller confirms). If it is the active session, starts a blank trip. */
+  deleteSavedTrip: (targetSessionId: string) => Promise<void>;
   abortPlannerOperation: () => void;
+  /**
+   * True after the first ``GET /api/wanderly/workspace`` for the current session completes
+   * (success or failure). Used to avoid flashing the idle landing when a saved trip is restored.
+   */
+  wanderlyWorkspaceBootstrapped: boolean;
+  /** True while ``startNewTrip`` is awaiting the server — blocks sends to avoid session / ``hasStarted`` races. */
+  newTripTransitioning: boolean;
+  /** True while switching to another saved session — same guards as new trip. */
+  tripSwitchTransitioning: boolean;
 }
 
 const Ctx = createContext<TripStoreType | null>(null);
@@ -480,10 +517,33 @@ const RESERVE_DESTINATIONS: DestCard[] = [
 function readOrCreateSessionId(): string {
   try {
     const k = "wanderly_session_id";
-    const existing = sessionStorage.getItem(k);
+    let existing: string | null = null;
+    if (typeof localStorage !== "undefined") {
+      existing = localStorage.getItem(k);
+    }
+    if (!existing && typeof sessionStorage !== "undefined") {
+      const legacy = sessionStorage.getItem(k);
+      if (legacy) {
+        try {
+          localStorage.setItem(k, legacy);
+          sessionStorage.removeItem(k);
+        } catch {
+          /* ignore */
+        }
+        existing = legacy;
+      }
+    }
     if (existing) return existing;
     const id = crypto.randomUUID();
-    sessionStorage.setItem(k, id);
+    try {
+      localStorage.setItem(k, id);
+    } catch {
+      try {
+        sessionStorage.setItem(k, id);
+      } catch {
+        /* ignore */
+      }
+    }
     return id;
   } catch {
     return crypto.randomUUID();
@@ -504,12 +564,36 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [isCanvasCollapsed, setIsCanvasCollapsed] = useState(false);
   const [itineraryLaneQueueDepth, setItineraryLaneQueueDepth] = useState(0);
   const [hasStarted, setHasStarted] = useState(false);
+  const [newTripTransitioning, setNewTripTransitioning] = useState(false);
+  const newTripTransitioningRef = useRef(false);
+  const [tripSwitchTransitioning, setTripSwitchTransitioning] = useState(false);
+  const tripSwitchTransitioningRef = useRef(false);
+  const [wanderlyWorkspaceBootstrapped, setWanderlyWorkspaceBootstrapped] = useState(false);
+  const wanderlyWorkspaceBootstrappedRef = useRef(false);
   const [sessionId, setSessionId] = useState<string>(readOrCreateSessionId);
   const [wanderlyTripId, setWanderlyTripId] = useState("");
   const [savedTrips, setSavedTrips] = useState<WanderlyTripSummary[]>([]);
   const [tripDiskPersist, setTripDiskPersist] = useState<TripDiskPersistInfo>({ status: "unknown" });
   const lastPersistedSigRef = useRef<string | null>(null);
+  const [tripName, setTripNameState] = useState("Untitled trip");
   const [enrichmentPending, setEnrichmentPending] = useState(false);
+  const [pendingAgentProfileProposal, setPendingAgentProfileProposal] = useState<ProfilePill[] | null>(null);
+
+  const stageAgentProfileProposal = useCallback((proposed: ProfilePill[]) => {
+    setPendingAgentProfileProposal(proposed);
+  }, []);
+
+  const dismissAgentProfileProposal = useCallback(() => {
+    setPendingAgentProfileProposal(null);
+  }, []);
+
+  const confirmAgentProfileProposal = useCallback(() => {
+    setPendingAgentProfileProposal((cur) => {
+      if (cur?.length) setProfile(cur);
+      return null;
+    });
+  }, []);
+
   const [pendingRefineText, setPendingRefineText] = useState<string | null>(null);
   const [composerPrefill, setComposerPrefill] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
@@ -595,6 +679,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         if (res.session_id !== hintS) setSessionId(res.session_id);
         setWanderlyTripId(res.trip_id);
         setSavedTrips(res.trips);
+        const nm = res.trips.find((t) => t.trip_id === res.trip_id)?.trip_name?.trim();
+        if (nm) setTripNameState(nm);
         applyWanderlyToCanvas(res.wanderly);
         const hasDest =
           Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
@@ -610,6 +696,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         });
       } catch {
         /* allow retry on next mount or after server comes up */
+      } finally {
+        if (!cancelled) setWanderlyWorkspaceBootstrapped(true);
       }
     })();
     return () => {
@@ -619,28 +707,43 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
 
   const switchToSavedTrip = useCallback(
     async (tripId: string) => {
-      const res = await activateWanderlyTrip(tripId);
+      const id = tripId.trim();
+      if (!id || id === wanderlyTripId.trim()) return;
+      if (newTripTransitioningRef.current || tripSwitchTransitioningRef.current) return;
+      tripSwitchTransitioningRef.current = true;
+      setTripSwitchTransitioning(true);
+      plannerAbortControllerRef.current?.abort();
+      plannerAbortControllerRef.current = null;
       try {
-        sessionStorage.setItem("wanderly_session_id", res.session_id);
-        sessionStorage.setItem("wanderly_trip_id", res.trip_id);
-      } catch {
-        /* */
-      }
-      setSessionId(res.session_id);
-      setWanderlyTripId(res.trip_id);
-      setSavedTrips(res.trips);
-      applyWanderlyToCanvas(res.wanderly);
-      const hasDest = Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
-      setHasStarted(hasDest);
-      const srvDest = (res.wanderly.destinations || []) as DestCard[];
-      requestAnimationFrame(() => {
+        const res = await activateWanderlyTrip(id);
+        try {
+          sessionStorage.setItem("wanderly_session_id", res.session_id);
+          sessionStorage.setItem("wanderly_trip_id", res.trip_id);
+        } catch {
+          /* */
+        }
+        setPendingAgentProfileProposal(null);
+        setSessionId(res.session_id);
+        setWanderlyTripId(res.trip_id);
+        setSavedTrips(res.trips);
+        const nm = res.trips.find((t) => t.trip_id === res.trip_id)?.trip_name?.trim();
+        if (nm) setTripNameState(nm);
+        applyWanderlyToCanvas(res.wanderly);
+        const hasDest = Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
+        setHasStarted(hasDest);
+        const srvDest = (res.wanderly.destinations || []) as DestCard[];
         requestAnimationFrame(() => {
-          const merged = destinationsRef.current;
-          markTripDiskBaselineFromDestinations(srvDest.length > 0 ? srvDest : merged);
+          requestAnimationFrame(() => {
+            const merged = destinationsRef.current;
+            markTripDiskBaselineFromDestinations(srvDest.length > 0 ? srvDest : merged);
+          });
         });
-      });
+      } finally {
+        tripSwitchTransitioningRef.current = false;
+        setTripSwitchTransitioning(false);
+      }
     },
-    [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations],
+    [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations, wanderlyTripId],
   );
 
   const createEmptyTrip = useCallback(
@@ -655,6 +758,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setSessionId(res.session_id);
       setWanderlyTripId(res.trip_id);
       setSavedTrips(res.trips);
+      const nm = res.trips.find((t) => t.trip_id === res.trip_id)?.trip_name?.trim();
+      if (nm) setTripNameState(nm);
+      setPendingAgentProfileProposal(null);
       applyWanderlyToCanvas(res.wanderly);
       markTripDiskBaselineFromDestinations([]);
       setHasStarted(false);
@@ -689,6 +795,60 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     });
   }, [destinations]);
 
+  const setTripName = useCallback((name: string) => {
+    const trimmed = name.trim().slice(0, 200);
+    setTripNameState(trimmed.length > 0 ? trimmed : "Untitled trip");
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (sessionId) localStorage.setItem("wanderly_session_id", sessionId);
+    } catch {
+      /* ignore */
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    wanderlyWorkspaceBootstrappedRef.current = wanderlyWorkspaceBootstrapped;
+  }, [wanderlyWorkspaceBootstrapped]);
+
+  /** When the manifest ``trip_id`` changes, refresh the header label from the server trip list. */
+  const prevTripIdForNameRef = useRef("");
+  useEffect(() => {
+    const tid = wanderlyTripId.trim();
+    if (!tid || tid === prevTripIdForNameRef.current) return;
+    prevTripIdForNameRef.current = tid;
+    const row = savedTrips.find((t) => t.trip_id === tid);
+    setTripNameState(row?.trip_name?.trim() || "Untitled trip");
+  }, [wanderlyTripId, savedTrips]);
+
+  useEffect(() => {
+    if (!sessionId.trim()) return;
+    const t = window.setTimeout(() => {
+      const dests = destinationsRef.current as unknown[];
+      if (dests.length === 0 && !wanderlyWorkspaceBootstrappedRef.current) {
+        return;
+      }
+      const tid = wanderlyTripId.trim();
+      const tname = tripName.trim() || "Untitled trip";
+      if (tid) {
+        saveTripMetaForSession(sessionId, { trip_id: tid, trip_name: tname });
+      }
+      void syncUi(sessionId, dests, {
+        tripId: tid || undefined,
+        tripMeta: tid ? { trip_id: tid, trip_name: tname } : undefined,
+      }).catch(() => {});
+    }, 450);
+    return () => clearTimeout(t);
+  }, [sessionId, wanderlyTripId, tripName, destinations, wanderlyWorkspaceBootstrapped]);
+
+  /** If destination cards exist but ``hasStarted`` stayed false (e.g. new-trip vs planner race), show the workspace. */
+  useEffect(() => {
+    if (destinations.length > 0 && !hasStarted) {
+      setHasStarted(true);
+    }
+  }, [destinations, hasStarted]);
+
   const addMessage = useCallback((role: "user" | "agent", text: string, undoId?: string) => {
     setMessages((prev) => [...prev, { id: crypto.randomUUID(), role, text, ts: Date.now(), undoId }]);
   }, []);
@@ -701,14 +861,23 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setInsights((prev) => prev.map(i => i.id === id ? { ...i, dismissed: true } : i));
   }, []);
 
+  const applyProfilePillBatch = useCallback((next: ProfilePill[]) => {
+    logItin("sidebar_profile_apply_batch", {
+      keys: next.map((p) => p.key).join(","),
+      note: "Traveler profile only; itineraries and booking left unchanged until user refines or rebuilds",
+    });
+    setPendingAgentProfileProposal(null);
+    setProfile(next);
+  }, []);
+
   const updateProfilePill = useCallback((key: string, value: string) => {
+    setPendingAgentProfileProposal(null);
     logItin("sidebar_profile_pill_edit", {
       key,
       valuePreview: value.slice(0, 80),
-      note: "Marks itinerary_dirty=true on ALL destinations (sidebar edit)",
+      note: "Profile-only (no automatic itinerary invalidation)",
     });
     setProfile((prev) => prev.map((p) => (p.key === key ? { ...p, value } : p)));
-    setDestinations((prev) => prev.map((d) => ({ ...d, itinerary_dirty: true })));
   }, []);
 
   // Push current state to undo stack
@@ -760,6 +929,47 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       },
     ]);
   }, []);
+
+  const startNewTrip = useCallback(
+    async (opts?: { archiveCurrent?: boolean }) => {
+      if (newTripTransitioningRef.current || tripSwitchTransitioningRef.current) return;
+      newTripTransitioningRef.current = true;
+      setNewTripTransitioning(true);
+      plannerAbortControllerRef.current?.abort();
+      plannerAbortControllerRef.current = null;
+      try {
+        const oldSid = sessionId.trim();
+        const oldTid = wanderlyTripId.trim();
+        const oldTname = tripName.trim() || "Untitled trip";
+        const archive = opts?.archiveCurrent !== false;
+        if (archive && oldSid && oldTid) {
+          recordTripInSavedIndex({ trip_id: oldTid, session_id: oldSid, trip_name: oldTname });
+          await syncUi(oldSid, destinationsRef.current as unknown[], {
+            tripId: oldTid,
+            tripMeta: { trip_id: oldTid, trip_name: oldTname },
+          }).catch(() => {});
+        }
+        await createEmptyTrip();
+      } finally {
+        newTripTransitioningRef.current = false;
+        setNewTripTransitioning(false);
+      }
+    },
+    [sessionId, wanderlyTripId, tripName, createEmptyTrip],
+  );
+
+  const deleteSavedTrip = useCallback(
+    async (targetSessionId: string) => {
+      const tid = targetSessionId.trim();
+      if (!tid) return;
+      removeTripFromSavedIndex(tid);
+      clearTripMetaForSession(tid);
+      if (tid === sessionId.trim()) {
+        await startNewTrip({ archiveCurrent: false });
+      }
+    },
+    [sessionId, startNewTrip],
+  );
 
   const dismissResponse = useCallback((id: string) => {
     setResponses((prev) => prev.map(i => i.id === id ? { ...i, dismissed: true } : i));
@@ -875,6 +1085,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         phase, setPhase,
         profile, setProfile,
         updateProfilePill,
+        applyProfilePillBatch,
+        pendingAgentProfileProposal,
+        stageAgentProfileProposal,
+        confirmAgentProfileProposal,
+        dismissAgentProfileProposal,
         destinations, setDestinations,
         messages, addMessage,
         insights, addInsight, dismissInsight,
@@ -902,6 +1117,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         completeTripDiskSave,
         failTripDiskSave,
         markTripDiskBaselineFromDestinations,
+        tripName,
+        setTripName,
         enrichmentPending, setEnrichmentPending,
         pendingRefineText, setPendingRefineText,
         composerPrefill, setComposerPrefill,
@@ -910,7 +1127,12 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         refineUnlockCardNavigation,
         setRefineUnlockCardNavigation,
         setPlannerAbortController,
+        startNewTrip,
+        deleteSavedTrip,
         abortPlannerOperation,
+        wanderlyWorkspaceBootstrapped,
+        newTripTransitioning,
+        tripSwitchTransitioning,
       }}
     >
       {children}

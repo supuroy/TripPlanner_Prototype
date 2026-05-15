@@ -1,15 +1,21 @@
-import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, useReducer, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
+  Trash2, X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
   DollarSign, Hotel, Zap, AlertTriangle, ChevronLeft, ArrowRight,
   MapPin, Calendar, CheckCircle2, Loader2, ChevronDown, ChevronUp,
-  RefreshCw,
+  RefreshCw, RotateCcw,
 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTrip } from "./TripStore";
 import type { DestCard, ItinDay } from "./TripStore";
 import { syncUi, buildItineraryStream } from "../../api/wanderly";
+import {
+  clearBookingPipelineCompletedFor,
+  isBookingPipelineCompletedFor,
+  markBookingPipelineCompleted,
+} from "../lib/bookingProgressIds";
+import { resetDestinationBookingState } from "../lib/resetDestinationBooking";
 import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
@@ -19,14 +25,15 @@ import {
   SummaryFlightStrip,
   SummaryHotelStrip,
   BookingTimelineFace,
+  BookingCostBreakdown,
+  bookingPaxFromProfile,
   computeBookingDateHints,
+  destHasPersistentBookingSummary,
+  liveBookingExtractLooksActionable,
 } from "./bookingExpandedContent";
 
 /** Auto-advance hero slideshow when multiple URLs (enrich / planner). */
 const HERO_SLIDE_MS = 4200;
-
-/** Per destination: booking timeline progressive load has completed once (session-scoped). */
-const bookingProgressDoneIds = new Set<string>();
 
 const VIBE_COLORS: Record<string, string> = {
   Culture: "bg-purple-500/20 text-purple-300",
@@ -286,11 +293,11 @@ function ActivityStrip({ dest }: { dest: DestCard }) {
 
 /** Itinerary-planner flight band (until live booking search returns real offers). */
 function PlannerFlightStrip({ dest }: { dest: DestCard }) {
-  if (!dest.flights || dest.flights.length === 0) return null;
   const flightBallpark = (
     dest.budget_guidance?.flight_ballpark || dest.budget_guidance?.flight_band_short || ""
   ).trim();
   const showFlightGuidance = hasMeaningfulEstimateText(flightBallpark);
+  if (!showFlightGuidance && (dest.flights?.length ?? 0) === 0) return null;
   return (
     <motion.div
       className="mt-4"
@@ -316,11 +323,11 @@ function PlannerFlightStrip({ dest }: { dest: DestCard }) {
 
 /** Itinerary-planner lodging band (until live booking search). */
 function PlannerHotelStrip({ dest }: { dest: DestCard }) {
-  if (!dest.hotels || dest.hotels.length === 0) return null;
   const lodgingNote = (
     dest.budget_guidance?.lodging_style || dest.budget_guidance?.lodging_band_short || ""
   ).trim();
   const showLodgingGuidance = hasMeaningfulEstimateText(lodgingNote);
+  if (!showLodgingGuidance && (dest.hotels?.length ?? 0) === 0) return null;
   return (
     <motion.div
       className="mt-4"
@@ -503,7 +510,17 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const itinStreamAssistantRef = useRef({ text: "" });
   const itinStreamThinkingRef = useRef({ text: "" });
   const [bookingFace, setBookingFace] = useState(false);
-  const [bookingHydrated, setBookingHydrated] = useState(() => bookingProgressDoneIds.has(dest.id));
+  /** True while the live Playwright booking pipeline is running for this card (blocks premature "cached" mode). */
+  const liveBookingPipelineStartedRef = useRef(false);
+  /** Increments when pipeline bookkeeping changes so we re-evaluate cached vs live (refs alone do not re-render). */
+  const [bookingTimelineRevision, bumpBookingTimelineRevision] = useReducer((x: number) => x + 1, 0);
+
+  const useCachedBookingTimeline =
+    bookingTimelineRevision >= 0 &&
+    (isBookingPipelineCompletedFor(dest.id) ||
+      (Boolean(dest.readyToBook) &&
+        liveBookingExtractLooksActionable(dest) &&
+        !liveBookingPipelineStartedRef.current));
 
   useEffect(() => {
     setItinThought("");
@@ -511,7 +528,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     itinStreamThinkingRef.current = { text: "" };
     setItinErrorKind(null);
     setBookingFace(false);
-    setBookingHydrated(bookingProgressDoneIds.has(dest.id));
+    liveBookingPipelineStartedRef.current = false;
   }, [dest.id]);
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
@@ -596,7 +613,14 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           setDestinations((prev) => {
             const next = prev.map((d) => {
               if (d.id !== dest.id) return d;
-              return mergeItineraryBuildIntoDest(d, rows, budget, res.booking_search_hints ?? null);
+              return mergeItineraryBuildIntoDest(
+                d,
+                rows,
+                budget,
+                res.booking_search_hints ?? null,
+                typeof res.needs_commercial_flight === "boolean" ? res.needs_commercial_flight : null,
+                res.transport_plan ?? null,
+              );
             });
             queueMicrotask(() => {
               beginTripDiskSave();
@@ -655,6 +679,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
   const dismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setExpandedDest(null);
     setDestinations((prev: DestCard[]) => prev.map(d => d.id === dest.id ? { ...d, dismissed: true } : d));
   };
 
@@ -671,6 +696,11 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
         relatedTo: dest.id,
       });
     }
+  };
+
+  const closeExpanded = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedDest(null);
   };
 
   // Extract location flow for trip visualization
@@ -702,18 +732,52 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   }, [dest.itinerary]);
 
   const onBookingFirstLoad = useCallback(() => {
-    if (!bookingProgressDoneIds.has(dest.id)) {
-      bookingProgressDoneIds.add(dest.id);
-      setBookingHydrated(true);
+    liveBookingPipelineStartedRef.current = false;
+    if (!isBookingPipelineCompletedFor(dest.id)) {
+      markBookingPipelineCompleted(dest.id);
     }
+    bumpBookingTimelineRevision();
   }, [dest.id]);
 
+  const showReadyToBookCta = useMemo(() => {
+    if (dest.readyToBook) return false;
+    if ((dest.flights?.length ?? 0) > 0 || (dest.hotels?.length ?? 0) > 0) return true;
+    const fp = (dest.budget_guidance?.flight_ballpark || dest.budget_guidance?.flight_band_short || "").trim();
+    const lp = (dest.budget_guidance?.lodging_style || dest.budget_guidance?.lodging_band_short || "").trim();
+    return hasMeaningfulEstimateText(fp) || hasMeaningfulEstimateText(lp);
+  }, [dest.readyToBook, dest.flights?.length, dest.hotels?.length, dest.budget_guidance]);
+
+  const refreshBookingSummary = useCallback(() => {
+    clearBookingPipelineCompletedFor(dest.id);
+    liveBookingPipelineStartedRef.current = false;
+    setBookingFace(false);
+    setDestinations((prev) => {
+      const next = prev.map((d) => (d.id === dest.id ? resetDestinationBookingState(d) : d));
+      if (sessionId) {
+        queueMicrotask(() => {
+          void syncUi(sessionId, next as unknown[]).catch(() => {});
+        });
+      }
+      return next;
+    });
+    bumpBookingTimelineRevision();
+    addResponse({
+      type: "tip",
+      text: `Cleared saved flight and hotel results for ${dest.name}. Tap “Ready to Book” when you want fresh live prices.`,
+    });
+  }, [dest.id, dest.name, sessionId, setDestinations, addResponse]);
+
   const readyToBook = Boolean(dest.readyToBook);
-  const flipTitle = !readyToBook
-    ? "Click 'Ready to Book' to view booking details"
+  const flipTooltip = !readyToBook
+    ? "Open the booking view after you tap Ready to Book on this card"
     : bookingFace
-      ? "View itinerary"
-      : "View booking details";
+      ? "Return to the itinerary view"
+      : "Open the booking view (flights and hotels)";
+  const pinTooltip = dest.pinned
+    ? "Unpin this destination (remove the comparison highlight)"
+    : "Pin this destination to keep it highlighted while you compare";
+  const dismissTooltip = "Remove this destination from your trip (discards this card)";
+  const closeViewTooltip = "Close this view and return to all destinations (keeps this card on your trip)";
 
   return (
     <motion.div
@@ -791,8 +855,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           <div className="absolute top-2.5 right-2.5 z-20 flex gap-1.5">
             <motion.button
               type="button"
-              title={flipTitle}
-              aria-label={flipTitle}
+              title={flipTooltip}
+              aria-label={flipTooltip}
               disabled={!readyToBook}
               onClick={(e) => {
                 e.stopPropagation();
@@ -812,18 +876,29 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             <button
               type="button"
               onClick={togglePin}
+              title={pinTooltip}
               className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${dest.pinned ? "bg-indigo-500 text-white" : "bg-black/40 text-white/60 hover:text-white backdrop-blur-sm"}`}
-              aria-label={dest.pinned ? "Unpin destination" : "Pin destination"}
+              aria-label={pinTooltip}
             >
               {dest.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
             </button>
             <button
               type="button"
-              onClick={dismiss}
+              onClick={closeExpanded}
+              title={closeViewTooltip}
               className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
-              aria-label="Remove destination"
+              aria-label={closeViewTooltip}
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-3.5 h-3.5" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={dismiss}
+              title={dismissTooltip}
+              className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
+              aria-label={dismissTooltip}
+            >
+              <Trash2 className="w-3.5 h-3.5" aria-hidden />
             </button>
           </div>
 
@@ -853,8 +928,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                 <ScoreBadge score={dest.score} />
                 <motion.button
                   type="button"
-                  title={flipTitle}
-                  aria-label={flipTitle}
+                  title={flipTooltip}
+                  aria-label={flipTooltip}
                   disabled={!readyToBook}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -874,20 +949,31 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                 <button
                   type="button"
                   onClick={togglePin}
+                  title={pinTooltip}
                   className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
                     dest.pinned ? "bg-indigo-500 text-white" : "bg-white/[0.06] text-white/60 hover:text-white border border-white/[0.08]"
                   }`}
-                  aria-label={dest.pinned ? "Unpin destination" : "Pin destination"}
+                  aria-label={pinTooltip}
                 >
                   {dest.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
                 </button>
                 <button
                   type="button"
-                  onClick={dismiss}
+                  onClick={closeExpanded}
+                  title={closeViewTooltip}
                   className="w-8 h-8 rounded-lg bg-white/[0.06] text-white/60 hover:text-white flex items-center justify-center border border-white/[0.08]"
-                  aria-label="Remove destination"
+                  aria-label={closeViewTooltip}
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-3.5 h-3.5" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={dismiss}
+                  title={dismissTooltip}
+                  className="w-8 h-8 rounded-lg bg-white/[0.06] text-white/60 hover:text-white flex items-center justify-center border border-white/[0.08]"
+                  aria-label={dismissTooltip}
+                >
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden />
                 </button>
               </div>
             </div>
@@ -1019,56 +1105,78 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                         <ActivityStrip dest={dest} />
                       </div>
                       <div>
-                        {dest.liveBookingEstimates ? (
-                          <>
-                            <SummaryFlightStrip dest={dest} />
-                            <SummaryHotelStrip dest={dest} />
-                          </>
+                        {liveBookingExtractLooksActionable(dest) ? (
+                          <BookingCostBreakdown
+                            dest={dest}
+                            paxCount={bookingPaxFromProfile(profile)}
+                            variant="summary"
+                          />
                         ) : (
                           <>
-                            <PlannerFlightStrip dest={dest} />
-                            <PlannerHotelStrip dest={dest} />
+                            {dest.liveBookingEstimates ? (
+                              <>
+                                <SummaryFlightStrip dest={dest} />
+                                <SummaryHotelStrip dest={dest} />
+                              </>
+                            ) : (
+                              <>
+                                <PlannerFlightStrip dest={dest} />
+                                <PlannerHotelStrip dest={dest} />
+                              </>
+                            )}
+
+                            <motion.div
+                              className="mt-6 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20"
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: 0.5 }}
+                            >
+                              {(() => {
+                                let costLine = (dest.budget_guidance?.trip_ballpark_usd_pp ?? "").trim();
+                                if (!costLine) costLine = (dest.cost ?? "").trim();
+                                if (/^tbd\s*\(placeholder\)$/i.test(costLine) || /^tbd$/i.test(costLine)) costLine = "";
+                                const hasCost = hasMeaningfulEstimateText(costLine);
+                                return (
+                                  <>
+                                    <span className="block text-[12px] text-white/40">
+                                      {dest.pinned ? "Total Cost (2 pax)" : "Estimated Range (2 pax)"}
+                                    </span>
+                                    {hasCost ? (
+                                      <p className="mt-1.5 text-[12px] sm:text-[13px] leading-snug text-white/85 break-words">
+                                        {costLine}
+                                      </p>
+                                    ) : (
+                                      <div className="mt-1.5 min-h-[2.25rem]" aria-label="Trip total estimate pending" />
+                                    )}
+                                    {dest.pinned && (
+                                      <p className="text-[10px] text-indigo-300/50 mt-2">Includes all flights, hotels & activities</p>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </motion.div>
                           </>
                         )}
 
-                        <motion.div
-                          className="mt-6 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.5 }}
-                        >
-                          {(() => {
-                            let costLine = (dest.budget_guidance?.trip_ballpark_usd_pp ?? "").trim();
-                            if (!costLine) costLine = (dest.cost ?? "").trim();
-                            if (/^tbd\s*\(placeholder\)$/i.test(costLine) || /^tbd$/i.test(costLine)) costLine = "";
-                            const hasCost = hasMeaningfulEstimateText(costLine);
-                            return (
-                              <>
-                                <span className="block text-[12px] text-white/40">
-                                  {dest.pinned ? "Total Cost (2 pax)" : "Estimated Range (2 pax)"}
-                                </span>
-                                {hasCost ? (
-                                  <p className="mt-1.5 text-[12px] sm:text-[13px] leading-snug text-white/85 break-words">
-                                    {costLine}
-                                  </p>
-                                ) : (
-                                  <div className="mt-1.5 min-h-[2.25rem]" aria-label="Trip total estimate pending" />
-                                )}
-                                {dest.pinned && (
-                                  <p className="text-[10px] text-indigo-300/50 mt-2">Includes all flights, hotels & activities</p>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </motion.div>
-
-                        {!dest.readyToBook && (dest.flights?.length || dest.hotels?.length) ? (
+                        {/* ``readyToBook`` alone hides ``showReadyToBookCta`` — if live OTA rows never became
+                         * ``destHasPersistentBookingSummary`` (e.g. hotel-only / ground trip with no flight rows,
+                         * or a restored session), neither CTA rendered. Always offer reset when booking was armed. */}
+                        {destHasPersistentBookingSummary(dest) || dest.readyToBook ? (
+                          <button
+                            type="button"
+                            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 py-3 text-[13px] font-medium text-amber-100/95 transition-colors hover:bg-amber-500/20 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
+                            onClick={refreshBookingSummary}
+                          >
+                            <RotateCcw className="h-4 w-4 shrink-0" aria-hidden />
+                            Reset booking
+                          </button>
+                        ) : showReadyToBookCta ? (
                           <button
                             type="button"
                             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 py-3 text-[13px] font-medium text-white transition-colors hover:from-indigo-600 hover:to-purple-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
                             onClick={() => {
-                              bookingProgressDoneIds.delete(dest.id);
-                              setBookingHydrated(false);
+                              clearBookingPipelineCompletedFor(dest.id);
+                              liveBookingPipelineStartedRef.current = true;
                               setDestinations((prev) =>
                                 prev.map((d) => (d.id === dest.id ? { ...d, readyToBook: true } : d)),
                               );
@@ -1103,7 +1211,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                         dest={dest}
                         sessionId={sessionId}
                         profile={profile}
-                        useCachedResults={bookingHydrated}
+                        useCachedResults={useCachedBookingTimeline}
                         dateHints={computeBookingDateHints(profile, dest.itinerary?.length ?? 7)}
                         onSearchFinished={onBookingFirstLoad}
                       />
@@ -1189,6 +1297,11 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
     }
   };
 
+  const pinTooltip = dest.pinned
+    ? "Unpin this destination (remove the comparison highlight)"
+    : "Pin this destination to keep it highlighted while you compare";
+  const dismissTooltip = "Remove this destination from your trip (discards this card)";
+
   return (
     <motion.div
       layout
@@ -1255,11 +1368,23 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
 
         {/* Top controls */}
         <div className="absolute top-2.5 right-2.5 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={togglePin} className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${dest.pinned ? "bg-indigo-500 text-white" : "bg-black/40 text-white/60 hover:text-white backdrop-blur-sm"}`}>
+          <button
+            type="button"
+            title={pinTooltip}
+            aria-label={pinTooltip}
+            onClick={togglePin}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${dest.pinned ? "bg-indigo-500 text-white" : "bg-black/40 text-white/60 hover:text-white backdrop-blur-sm"}`}
+          >
             {dest.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
           </button>
-          <button onClick={dismiss} className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm">
-            <X className="w-3.5 h-3.5" />
+          <button
+            type="button"
+            title={dismissTooltip}
+            aria-label={dismissTooltip}
+            onClick={dismiss}
+            className="w-7 h-7 rounded-lg bg-black/40 text-white/60 hover:text-white flex items-center justify-center backdrop-blur-sm"
+          >
+            <Trash2 className="w-3.5 h-3.5" aria-hidden />
           </button>
         </div>
 

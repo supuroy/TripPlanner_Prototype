@@ -16,6 +16,13 @@ export function ImageWithFallback(props: React.ImgHTMLAttributes<HTMLImageElemen
     typeof src === "string" &&
     (src.startsWith("https://") || src.startsWith("http://") || src.startsWith("//"));
 
+  // ``no-referrer`` breaks some OTA/CDN hotel thumbnails that validate Referer. Use a stricter policy only
+  // for known lodging image hosts so other remote URLs keep privacy-friendly defaults.
+  const otaImageReferrerOk =
+    typeof src === "string" &&
+    /^https?:\/\//i.test(src) &&
+    /(expedia\.com|travel-assets\.com|hotels\.com|hoteles\.com|orbitz\.com)/i.test(src);
+
   return didError ? (
     <div
       className={`inline-block bg-gray-100 text-center align-middle ${className ?? ''}`}
@@ -32,7 +39,9 @@ export function ImageWithFallback(props: React.ImgHTMLAttributes<HTMLImageElemen
       className={className}
       style={style}
       {...rest}
-      referrerPolicy={isRemote ? "no-referrer" : undefined}
+      referrerPolicy={
+        isRemote ? (otaImageReferrerOk ? "strict-origin-when-cross-origin" : "no-referrer") : undefined
+      }
       onError={handleError}
     />
   )

@@ -67,6 +67,112 @@ def _httpx_err_snip(e: httpx.HTTPStatusError) -> str:
         return ""
 
 
+# ``GET …/runs/{id}/stream`` sometimes returns 409 (conflict) or 503 while the run is still
+# materializing, or if a second stream open races Cursor's lifecycle. Retry with backoff.
+_RETRYABLE_SSE_STATUS = frozenset({404, 425, 409, 503})
+
+
+def _sse_retry_sleep_seconds(attempt: int) -> float:
+    """Bounded exponential backoff (same spirit as ``POST …/runs`` 409 retries)."""
+    return min(12.0, 1.25 * (2 ** max(0, attempt)))
+
+
+def assistant_text_from_run_json(blob: dict[str, Any]) -> str:
+    """
+    Best-effort extract assistant-visible text from ``GET /v1/agents/{id}/runs/{run_id}`` JSON
+    when SSE cannot be opened again (e.g. second stream returns 409 after run finished).
+    """
+    for key in ("assistant_message", "result", "output", "summary", "responseText", "text"):
+        v = blob.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    msgs = blob.get("messages")
+    if isinstance(msgs, list):
+        parts: list[str] = []
+        for m in msgs:
+            if not isinstance(m, dict):
+                continue
+            role = str(m.get("role") or "").lower()
+            if role in ("assistant", "agent", "model"):
+                c = m.get("content")
+                if isinstance(c, str) and c.strip():
+                    parts.append(c.strip())
+                elif isinstance(c, list):
+                    for bit in c:
+                        if isinstance(bit, dict) and isinstance(bit.get("text"), str) and bit["text"].strip():
+                            parts.append(bit["text"].strip())
+        if parts:
+            return "\n".join(parts)
+    out = blob.get("output")
+    if isinstance(out, dict):
+        inner = assistant_text_from_run_json(out)
+        if inner:
+            return inner
+    resp = blob.get("response")
+    if isinstance(resp, dict):
+        inner = assistant_text_from_run_json(resp)
+        if inner:
+            return inner
+    if isinstance(resp, str) and resp.strip():
+        return resp.strip()
+    return ""
+
+
+def _assistant_text_from_run_resource(client: httpx.Client, agent_id: str, run_id: str) -> str:
+    try:
+        r = client.get(f"/v1/agents/{agent_id}/runs/{run_id}")
+        r.raise_for_status()
+        body = r.json()
+    except Exception:
+        return ""
+    blob: Any = body
+    if isinstance(body, dict):
+        run_o = body.get("run")
+        if isinstance(run_o, dict):
+            blob = run_o
+    if not isinstance(blob, dict):
+        return ""
+    return assistant_text_from_run_json(blob)
+
+
+def poll_run_for_assistant_text(
+    client: httpx.Client,
+    agent_id: str,
+    run_id: str,
+    *,
+    max_wait_s: float = 90.0,
+    interval_s: float = 0.45,
+) -> str:
+    """
+    Poll ``GET …/runs/{id}`` until assistant text appears or the run fails / timeout.
+    Used when SSE ``/stream`` consistently returns 409 (Cursor lifecycle / single-consumer semantics).
+    """
+    deadline = time.monotonic() + max_wait_s
+    terminal_fail = frozenset({"FAILED", "CANCELLED", "ERROR"})
+    while time.monotonic() < deadline:
+        try:
+            r = client.get(f"/v1/agents/{agent_id}/runs/{run_id}")
+            r.raise_for_status()
+            body = r.json()
+        except Exception:
+            time.sleep(interval_s)
+            continue
+        blob: Any = body
+        if isinstance(body, dict):
+            run_o = body.get("run")
+            if isinstance(run_o, dict):
+                blob = run_o
+        if isinstance(blob, dict):
+            txt = assistant_text_from_run_json(blob)
+            if txt.strip():
+                return txt.strip()
+            st = str(blob.get("status") or blob.get("state") or "").upper()
+            if st in terminal_fail:
+                break
+        time.sleep(interval_s)
+    return ""
+
+
 def load_env_from_roots(extra_roots: list[str] | None = None) -> None:
     """Load .env from cwd, repo root candidates, and Travel Planner Prototype."""
     load_dotenv()
@@ -427,6 +533,53 @@ def cursor_reuse_agents_enabled() -> bool:
     return raw not in ("0", "false", "no", "off")
 
 
+_REUSE_FOLLOWUP_HINT_DEFAULT = (
+    "Follow-up on this same Cloud Agent thread: keep the same output format and every rule you were given "
+    "earlier in this thread (they still apply). Do not restate the long instructions. "
+    "Respond using only the new information below."
+)
+
+
+def cursor_reuse_strip_static_instructions_enabled() -> bool:
+    """
+    When true (default), follow-up runs on an existing agent may omit a leading static instruction block
+    that was already sent on the first run (see ``persistent_instruction_prefix`` on run helpers).
+    New-agent paths always send the full prompt text.
+    """
+    raw = (os.environ.get("CURSOR_REUSE_STRIP_STATIC_INSTRUCTIONS") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def effective_followup_prompt_for_reuse(
+    *,
+    full_prompt: str,
+    persistent_instruction_prefix: str | None,
+    existing_agent_id: str | None,
+) -> str:
+    """
+    For ``POST …/agents/{id}/runs``, optionally replace ``full_prompt`` with a shorter follow-up body.
+
+    Callers pass the same ``full_prompt`` as for a fresh agent; when reusing an agent id and
+    ``persistent_instruction_prefix`` matches the start of ``full_prompt``, the prefix is stripped and a
+    short reminder is prepended so the model still knows prior rules apply.
+    """
+    if not (existing_agent_id or "").strip():
+        return full_prompt
+    if not cursor_reuse_strip_static_instructions_enabled():
+        return full_prompt
+    pfx = (persistent_instruction_prefix or "").strip()
+    if not pfx:
+        return full_prompt
+    base = full_prompt or ""
+    if not base.startswith(pfx):
+        return full_prompt
+    tail = base[len(pfx) :].lstrip("\n")
+    if len(tail.strip()) < 12:
+        return full_prompt
+    hint = (os.environ.get("CURSOR_REUSE_FOLLOWUP_HINT") or "").strip() or _REUSE_FOLLOWUP_HINT_DEFAULT
+    return f"{hint}\n\n{tail}"
+
+
 def create_followup_run(client: httpx.Client, agent_id: str, prompt_text: str) -> str:
     """Start a new run on an existing Cloud Agent (same repo/workspace context as prior runs)."""
     r = client.post(f"/v1/agents/{agent_id}/runs", json={"prompt": {"text": prompt_text}})
@@ -445,6 +598,7 @@ def _begin_cloud_agent_run(
     *,
     model_id_override: str | None = None,
     existing_agent_id: str | None = None,
+    persistent_instruction_prefix: str | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
     cursor_trace_path: str | None = None,
@@ -452,12 +606,22 @@ def _begin_cloud_agent_run(
     tp = (cursor_trace_path or "").strip() or None
     aid_in = (existing_agent_id or "").strip()
     if cursor_reuse_agents_enabled() and aid_in:
+        followup_prompt = effective_followup_prompt_for_reuse(
+            full_prompt=prompt_text,
+            persistent_instruction_prefix=persistent_instruction_prefix,
+            existing_agent_id=aid_in,
+        )
+        if followup_prompt != prompt_text:
+            _trace_cursor(
+                f"reuse_prompt_strip reuse=1 chars_in={len(prompt_text)} chars_out={len(followup_prompt)}",
+                path=tp,
+            )
         _trace_cursor(f"reuse_attempt agent_tail={aid_in[-8:]!r} reuse=1", path=tp)
         last_err: httpx.HTTPStatusError | None = None
         max_busy_tries = 6
         for busy_try in range(max_busy_tries):
             try:
-                run_id = create_followup_run(client, aid_in, prompt_text)
+                run_id = create_followup_run(client, aid_in, followup_prompt)
                 _trace_cursor(f"reuse_ok agent_tail={aid_in[-8:]!r} run_tail={str(run_id)[-8:]!r}", path=tp)
                 return aid_in, run_id
             except httpx.HTTPStatusError as e:
@@ -521,11 +685,25 @@ def _assistant_text_or_retry_sse(
     """
     First SSE read sometimes finishes before ``assistant`` events (race on new runs).
     Wait for a terminal run status, then open the stream again and collect (non-streaming consumer).
+    If Cursor returns 409 on the second stream (common once a run is terminal), fall back to
+    ``GET …/runs/{id}`` JSON when the API exposes assistant text there.
     """
     if (text or "").strip():
         return text
     wait_for_stream_ready(client, agent_id, run_id)
-    retry = consume_sse_assistant(client, agent_id, run_id)
+    try:
+        retry = consume_sse_assistant(client, agent_id, run_id)
+    except httpx.HTTPStatusError as e:
+        sc = e.response.status_code if e.response is not None else 0
+        if sc == 409:
+            _trace_cursor(
+                "sse_second_stream_409_try_run_json "
+                f"run_tail={str(run_id)[-8:]!r} body_snip={_httpx_err_snip(e)!r}",
+                path=None,
+            )
+            fb = poll_run_for_assistant_text(client, agent_id, run_id, max_wait_s=75.0)
+            return fb if (fb or "").strip() else text
+        raise
     return retry if (retry or "").strip() else text
 
 
@@ -535,6 +713,7 @@ def run_prompt_collect_assistant_text(
     *,
     model_id_override: str | None = None,
     existing_agent_id: str | None = None,
+    persistent_instruction_prefix: str | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
     cursor_trace_path: str | None = None,
@@ -548,6 +727,7 @@ def run_prompt_collect_assistant_text(
             prompt_text,
             model_id_override=model_id_override,
             existing_agent_id=existing_agent_id,
+            persistent_instruction_prefix=persistent_instruction_prefix,
             on_new_agent=on_new_agent,
             on_agent_cleared=on_agent_cleared,
             cursor_trace_path=tp,
@@ -566,8 +746,8 @@ def run_prompt_collect_assistant_text(
                     f"body_snip={_httpx_err_snip(e)!r}",
                     path=tp,
                 )
-                if e.response is not None and e.response.status_code in (404, 425):
-                    time.sleep(0.75 * (attempt + 1))
+                if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
+                    time.sleep(_sse_retry_sleep_seconds(attempt))
                     continue
                 raise
             except Exception as e:
@@ -578,6 +758,16 @@ def run_prompt_collect_assistant_text(
                 )
                 raise
         if last_err:
+            if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
+                sc = last_err.response.status_code
+                if sc in _RETRYABLE_SSE_STATUS:
+                    polled = poll_run_for_assistant_text(client, agent_id, run_id)
+                    if polled.strip():
+                        _trace_cursor(
+                            f"sse_retries_exhausted_poll_ok mode=buffered sc={sc} run_tail={str(run_id)[-8:]!r}",
+                            path=tp,
+                        )
+                        return polled
             raise last_err
         return ""
 
@@ -589,6 +779,7 @@ def run_prompt_collect_assistant_text_streaming(
     emit: Callable[[dict[str, Any]], None] | None = None,
     model_id_override: str | None = None,
     existing_agent_id: str | None = None,
+    persistent_instruction_prefix: str | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
     cursor_trace_path: str | None = None,
@@ -608,6 +799,7 @@ def run_prompt_collect_assistant_text_streaming(
             prompt_text,
             model_id_override=model_id_override,
             existing_agent_id=existing_agent_id,
+            persistent_instruction_prefix=persistent_instruction_prefix,
             on_new_agent=on_new_agent,
             on_agent_cleared=on_agent_cleared,
             cursor_trace_path=tp,
@@ -631,14 +823,14 @@ def run_prompt_collect_assistant_text_streaming(
                     f"body_snip={_httpx_err_snip(e)!r}",
                     path=tp,
                 )
-                if e.response is not None and e.response.status_code in (404, 425):
+                if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
                     _emit(
                         {
                             "type": "phase",
                             "message": "Still connecting — trying again in a moment…",
                         }
                     )
-                    time.sleep(0.75 * (attempt + 1))
+                    time.sleep(_sse_retry_sleep_seconds(attempt))
                     continue
                 raise
             except Exception as e:
@@ -649,6 +841,16 @@ def run_prompt_collect_assistant_text_streaming(
                 )
                 raise
         if last_err:
+            if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
+                sc = last_err.response.status_code
+                if sc in _RETRYABLE_SSE_STATUS:
+                    polled = poll_run_for_assistant_text(client, agent_id, run_id)
+                    if polled.strip():
+                        _trace_cursor(
+                            f"sse_retries_exhausted_poll_ok mode=streaming sc={sc} run_tail={str(run_id)[-8:]!r}",
+                            path=tp,
+                        )
+                        return polled
             raise last_err
         return ""
 
@@ -725,8 +927,8 @@ def run_llm_hello_impl(client: httpx.Client, prompt_text: str) -> None:
             return
         except httpx.HTTPStatusError as e:
             last_err = e
-            if e.response is not None and e.response.status_code in (404, 425):
-                time.sleep(0.75 * (attempt + 1))
+            if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
+                time.sleep(_sse_retry_sleep_seconds(attempt))
                 continue
             raise
     if last_err:

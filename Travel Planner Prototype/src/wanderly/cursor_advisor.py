@@ -100,6 +100,7 @@ Rules:
 - Infer from the latest user message; use prior pills + context only to disambiguate (prefer new facts over stale values).
 - If unknown, use concise placeholders (e.g. "Flexible dates", "Not specified") for the six required pills only.
 - If the user names a home city or airport (e.g. "from Seattle", "SEA"), set "from" accordingly.
+- **from** (and any city/airport you infer for it): use plain **OTA-style** place text only — e.g. ``Seattle, WA``, ``San Juan, PR``, ``SEA``, ``SFO``. Never narrative qualifiers like ``Seattle-based``, ``…-based hub``, or a trailing `` based``; those strings are not valid flight-search endpoints and confuse downstream tools.
 - **when**: travel dates **and** trip length if clear (e.g. "Apr 1–8 · 8 days"). **duration**: trip length ("1 week", "10 days") when not already fully covered in **when**; otherwise a short length placeholder — **not** intraday packing density. **vibe**: style + how busy days should feel (romantic, packed days, slow mornings, …). **who**: travelers and pets only (no budget, no dates).
 """.strip()
 
@@ -187,6 +188,7 @@ def run_profile_listener_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
+                persistent_instruction_prefix=_PROFILE_LISTENER_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_PROFILE_LISTENER, trace_path="cursor_advisor.profile_listener"
                 ),
@@ -271,6 +273,7 @@ def run_plan_review_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
+                persistent_instruction_prefix=_PLAN_REVIEW_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_PLAN_REVIEW, trace_path="cursor_advisor.plan_review"
                 ),
@@ -597,6 +600,7 @@ def run_advisor_chat_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
+                persistent_instruction_prefix=_ADVISOR_CHAT_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_ADVISOR_FEED, trace_path="cursor_advisor.advisor_feed"
                 ),
@@ -728,6 +732,7 @@ def run_profile_change_advisor_cursor(
                 client,
                 prompt,
                 model_id_override=mid,
+                persistent_instruction_prefix=_PROFILE_CHANGE_PROMPT + "\n\nContext JSON:\n",
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_PROFILE_CHANGE, trace_path="cursor_advisor.profile_change"
                 ),
@@ -808,6 +813,10 @@ def merge_profile_pills_advisor_precedence(
     for p in advisor_pills:
         if not isinstance(p, dict):
             continue
+        dto = coerce_profile_pill(p)
+        if dto is None:
+            continue
+        p = dto.model_dump()
         k = str(p.get("key") or "").strip()
         if not k or k == "tags":
             continue

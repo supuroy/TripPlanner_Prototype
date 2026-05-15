@@ -25,8 +25,21 @@ You are Wanderly. Build a day-by-day trip outline for ONE destination plus rough
 Return ONLY one JSON object (no markdown fences, no prose before or after). Shape:
 {
   "itinerary": [
-    {"day": <int 1..N>, "label": "Short title → optional area", "base": "Overnight base city/town (repeat on day trips)", "items": ["3-5 concrete bullets"], "accent": "emerald|blue|purple|amber"}
+    {
+      "day": <int 1..N>,
+      "label": "Short title → optional area",
+      "base": "Overnight base city/town (repeat on day trips)",
+      "items": ["3-5 concrete bullets"],
+      "accent": "emerald|blue|purple|amber",
+      "day_transport": {"mode": "drive|commercial_flight|ferry|train|local|mixed", "note": "≤80 chars — how you move that day (omit if same as trip default)"}
+    }
   ],
+  "transport_plan": {
+    "primary_mode": "ground_only | commercial_air | mixed",
+    "summary": "1-3 sentences: home → destination movement (e.g. all driving + ferries, or fly in then drive). Must agree with day bullets.",
+    "commercial_flight_segments": [],
+    "lodging_moves": [{"day_range": "1-2", "area": "City / town", "note": "why you sleep here"}]
+  },
   "budget_guidance": {
     "trip_ballpark_usd_pp": "e.g. ≈ $2.2–3.8k pp all-in (ballpark; say if intl flights excluded)",
     "lodging_style": "e.g. mid-range boutique + one splurge night",
@@ -39,14 +52,21 @@ Return ONLY one JSON object (no markdown fences, no prose before or after). Shap
   "booking_search_hints": {
     "flight_to_label": "Expedia typeahead string for flying TO this destination (e.g. primary gateway city + country)",
     "flight_return_from_label": "Expedia typeahead for the return leg departure city (usually the last overnight base / main airport city, NOT a vague region name)"
-  }
+  },
+  "needs_commercial_flight": true
 }
 
 Rules:
 - itinerary: exactly N days; day 1..N inclusive; last day travel-out / fly home style.
 - items: short strings — no exact prices inside day bullets.
+- **transport_plan (REQUIRED):** Structured truth for downstream OTA booking — **not** regex guesses.
+  - **primary_mode** = `ground_only` when there is **no** commercial airline segment (road trip, drive/rental, ferries, trains only). `commercial_air` when the trip **depends** on flying (in/out or between cities). `mixed` when both apply (e.g. fly in, then drive); then **commercial_flight_segments** must list every airline leg with Expedia-style `from_search_label` / `to_search_label` (city + state/country) and `role`: `inbound` | `within_trip` | `return`.
+  - **commercial_flight_segments**: Use **[]** when `primary_mode` is `ground_only`. Never omit the key.
+  - **lodging_moves**: Optional but encouraged when the traveler changes overnight towns — helps hotel search alignment.
+- **day_transport:** Optional per day; use `mode`=`commercial_flight` only on days with a real airline segment; otherwise `drive`, `ferry`, `train`, or `local`. Must be consistent with **transport_plan**.
 - budget_guidance: include all seven keys with non-empty strings. The four long fields are for detail panels; the three *_short fields MUST be concise (hard cap ~40 characters each, no newlines) so they fit destination mini-cards — compress ranges and drop filler words.
-- booking_search_hints: OPTIONAL. Include only when confident. Use concrete cities/airport metros Expedia would recognize (avoid broad regions like "Tuscany" alone for flight endpoints). Omit the whole object if unsure.
+- booking_search_hints: OPTIONAL. Include only when confident. Use concrete cities/airport metros Expedia would recognize (avoid broad regions like "Tuscany" alone for flight endpoints). Never append prose suffixes like "-based" or " based" to city names (breaks Expedia typeahead). Omit the whole object when **primary_mode** is `ground_only` unless you still need return-flight labels for a **mixed** trip. Omit the whole object if unsure.
+- needs_commercial_flight: REQUIRED boolean — must match **transport_plan** (`false` iff `primary_mode` is `ground_only`; `true` if `commercial_air`; if `mixed`, **true**). Downstream booking uses **transport_plan** first; this flag is a compact duplicate for older clients.
 - Optional accent on 1-2 highlight days only; omit accent on most days.
 - Set `base` for every day to the overnight city/town. Day trips and excursions should keep the same `base` unless there is an actual lodging move that night.
 - Default pace should be comfortable, not exhausting. Avoid "run around every day" plans unless user explicitly asks for fast-paced / whirlwind / many-city hopping.
@@ -149,13 +169,88 @@ def _normalize_booking_search_hints(raw: Any) -> dict[str, str] | None:
     return out or None
 
 
+def _normalize_transport_plan(raw: Any) -> dict[str, Any] | None:
+    """
+    Structured movement plan from the itinerary agent — primary input for booking (flight vs ground).
+
+    ``primary_mode``: ground_only | commercial_air | mixed (aliases normalized).
+    """
+    if not isinstance(raw, dict):
+        return None
+    mode_raw = str(raw.get("primary_mode") or "").strip().lower().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "ground": "ground_only",
+        "surface_only": "ground_only",
+        "no_flight": "ground_only",
+        "road_trip": "ground_only",
+        "air": "commercial_air",
+        "fly": "commercial_air",
+        "flight": "commercial_air",
+        "flights": "commercial_air",
+    }
+    mode = aliases.get(mode_raw, mode_raw)
+    if mode not in ("ground_only", "commercial_air", "mixed"):
+        return None
+    out: dict[str, Any] = {
+        "primary_mode": mode,
+        "summary": " ".join(str(raw.get("summary") or "").split())[:500],
+    }
+    segs = raw.get("commercial_flight_segments")
+    if isinstance(segs, list):
+        clean: list[dict[str, Any]] = []
+        for x in segs[:8]:
+            if not isinstance(x, dict):
+                continue
+            fr = " ".join(str(x.get("from_search_label") or "").split())[:120]
+            to = " ".join(str(x.get("to_search_label") or "").split())[:120]
+            if not fr and not to:
+                continue
+            seg: dict[str, Any] = {"from_search_label": fr, "to_search_label": to}
+            role = str(x.get("role") or "").strip().lower()[:24]
+            if role:
+                seg["role"] = role
+            dh = x.get("day_hint")
+            if isinstance(dh, (int, float)) and int(dh) == dh:
+                seg["day_hint"] = int(dh)
+            clean.append(seg)
+        out["commercial_flight_segments"] = clean
+    else:
+        out["commercial_flight_segments"] = []
+    moves = raw.get("lodging_moves")
+    if isinstance(moves, list):
+        lm: list[dict[str, Any]] = []
+        for x in moves[:14]:
+            if not isinstance(x, dict):
+                continue
+            dr = str(x.get("day_range") or "").strip()[:24]
+            area = " ".join(str(x.get("area") or "").split())[:120]
+            note = " ".join(str(x.get("note") or "").split())[:220]
+            if dr or area or note:
+                lm.append({"day_range": dr, "area": area, "note": note})
+        if lm:
+            out["lodging_moves"] = lm
+    return out
+
+
+def _normalize_needs_commercial_flight(raw: Any) -> bool | None:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("true", "yes", "1"):
+            return True
+        if s in ("false", "no", "0"):
+            return False
+    return None
+
+
 def _extract_itinerary_payload(
     raw_text: str,
-) -> tuple[list[Any], dict[str, str] | None, dict[str, str] | None]:
-    """Prefer wrapped ``{itinerary, budget_guidance, booking_search_hints?}``; fall back to bare JSON array."""
+) -> tuple[list[Any], dict[str, str] | None, dict[str, str] | None, bool | None, dict[str, Any] | None]:
+    """Prefer wrapped object with itinerary; fall back to bare JSON array. Fifth: normalized ``transport_plan``."""
     t = _strip_code_fences(raw_text).lstrip("\ufeff")
     if not t:
-        return [], None, None
+        return [], None, None, None, None
     # Skip leading noise (models sometimes print a preamble before the JSON object)
     lead = t.lstrip()
     if lead and not lead.startswith(("{", "[")):
@@ -171,9 +266,11 @@ def _extract_itinerary_payload(
         if isinstance(top, dict) and isinstance(top.get("itinerary"), list):
             bg = _normalize_budget_guidance(top.get("budget_guidance"))
             bh = _normalize_booking_search_hints(top.get("booking_search_hints"))
-            return list(top["itinerary"]), bg, bh
+            ncf = _normalize_needs_commercial_flight(top.get("needs_commercial_flight"))
+            tp = _normalize_transport_plan(top.get("transport_plan"))
+            return list(top["itinerary"]), bg, bh, ncf, tp
         if isinstance(top, list):
-            return top, None, None
+            return top, None, None, None, None
     except json.JSONDecodeError:
         pass
     for i, ch in enumerate(t):
@@ -184,11 +281,13 @@ def _extract_itinerary_payload(
             if isinstance(obj, dict) and isinstance(obj.get("itinerary"), list):
                 bg = _normalize_budget_guidance(obj.get("budget_guidance"))
                 bh = _normalize_booking_search_hints(obj.get("booking_search_hints"))
-                return list(obj["itinerary"]), bg, bh
+                ncf = _normalize_needs_commercial_flight(obj.get("needs_commercial_flight"))
+                tp = _normalize_transport_plan(obj.get("transport_plan"))
+                return list(obj["itinerary"]), bg, bh, ncf, tp
         except json.JSONDecodeError:
             continue
     legacy = _extract_json_array(raw_text) or []
-    return legacy, None, None
+    return legacy, None, None, None, None
 
 
 def _parse_itinerary_day_number(raw: Any) -> int | None:
@@ -305,6 +404,12 @@ def _normalize_itinerary_rows(raw: list[Any], *, max_days: int) -> list[dict[str
         ac = str(row.get("accent") or "").strip().lower()
         if ac in allowed_accents:
             entry["accent"] = ac
+        dt = row.get("day_transport")
+        if isinstance(dt, dict):
+            dm = str(dt.get("mode") or "").strip().lower()[:32]
+            dnote = " ".join(str(dt.get("note") or "").split())[:160]
+            if dm or dnote:
+                entry["day_transport"] = {"mode": dm, "note": dnote}
         out.append(entry)
     out.sort(key=lambda x: int(x["day"]))
     # de-dupe by day (keep first)
@@ -476,8 +581,12 @@ def _itinerary_cursor_lane(light: str | None) -> str:
 
 
 def itinerary_parallel_dest_enabled() -> bool:
-    """When true, each destination uses its own Cursor persistence lane (parallel builds; see env README)."""
-    return (os.environ.get("WANDERLY_ITINERARY_PARALLEL_DEST") or "").strip().lower() in ("1", "true", "yes", "on")
+    """When true (default), each destination uses its own Cursor persistence lane (parallel builds).
+
+    Opt out with ``WANDERLY_ITINERARY_PARALLEL_DEST=0`` (or ``false`` / ``off``).
+    """
+    raw = (os.environ.get("WANDERLY_ITINERARY_PARALLEL_DEST") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def _cursor_lane_for_itinerary_build(session_id: str, destination_id: str, light: str | None) -> str:
@@ -550,10 +659,16 @@ def _itinerary_client_response(
     itinerary_rows: list[dict[str, Any]],
     budget: dict[str, str] | None,
     booking_hints: dict[str, str] | None,
+    needs_commercial_flight: bool | None,
+    transport_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {"itinerary": itinerary_rows, "budget_guidance": budget}
     if booking_hints:
         out["booking_search_hints"] = booking_hints
+    if isinstance(needs_commercial_flight, bool):
+        out["needs_commercial_flight"] = needs_commercial_flight
+    if isinstance(transport_plan, dict) and transport_plan.get("primary_mode"):
+        out["transport_plan"] = transport_plan
     return out
 
 
@@ -588,6 +703,7 @@ def build_itinerary_for_destination(
                 client,
                 prompt,
                 model_id_override=light,
+                persistent_instruction_prefix=_ITINERARY_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(session_id or "", _lane, trace_path=_tp),
             )
     except Exception as e:
@@ -597,7 +713,7 @@ def build_itinerary_for_destination(
         )
         raise
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    extracted, budget, booking_hints = _extract_itinerary_payload(raw)
+    extracted, budget, booking_hints, needs_cf, transport_plan = _extract_itinerary_payload(raw)
     out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
     out = _enforce_comfortable_hops(
         out,
@@ -617,7 +733,13 @@ def build_itinerary_for_destination(
     if not out and itinerary_debug_verbose():
         snippet = (raw or "").strip().replace("\r", "")[:2000]
         log_itinerary_build(f"DEBUG_EMPTY rid={rid} raw_head={snippet!r}")
-    return _itinerary_client_response(itinerary_rows=out, budget=budget, booking_hints=booking_hints)
+    return _itinerary_client_response(
+        itinerary_rows=out,
+        budget=budget,
+        booking_hints=booking_hints,
+        needs_commercial_flight=needs_cf,
+        transport_plan=transport_plan,
+    )
 
 
 def build_itinerary_for_destination_streaming(
@@ -663,6 +785,7 @@ def build_itinerary_for_destination_streaming(
                 prompt,
                 emit=_safe_emit if emit else None,
                 model_id_override=light,
+                persistent_instruction_prefix=_ITINERARY_PROMPT,
                 **cursor_run_persist_kwargs_for_lane(session_id or "", _lane, trace_path=_tp),
             )
     except Exception as e:
@@ -672,7 +795,7 @@ def build_itinerary_for_destination_streaming(
         )
         raise
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    extracted, budget, booking_hints = _extract_itinerary_payload(raw)
+    extracted, budget, booking_hints, needs_cf, transport_plan = _extract_itinerary_payload(raw)
     out = _normalize_itinerary_rows(extracted if isinstance(extracted, list) else [], max_days=n)
     out = _enforce_comfortable_hops(
         out,
@@ -692,7 +815,13 @@ def build_itinerary_for_destination_streaming(
     if not out and itinerary_debug_verbose():
         snippet = (raw or "").strip().replace("\r", "")[:2000]
         log_itinerary_build(f"DEBUG_EMPTY rid={rid} raw_head={snippet!r}")
-    return _itinerary_client_response(itinerary_rows=out, budget=budget, booking_hints=booking_hints)
+    return _itinerary_client_response(
+        itinerary_rows=out,
+        budget=budget,
+        booking_hints=booking_hints,
+        needs_commercial_flight=needs_cf,
+        transport_plan=transport_plan,
+    )
 
 
 def default_trip_days_from_pills(profile_pills: list[dict[str, Any]]) -> int:

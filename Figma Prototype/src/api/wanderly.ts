@@ -1,5 +1,11 @@
 import { apiFetch, apiPostSseJson } from "./client";
-import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../types/workspace";
+import type {
+  ItineraryBudgetGuidance,
+  WanderlyProfilePillDTO,
+  WanderlyTransportPlan,
+  WanderlyTripMeta,
+  WanderlyWorkspaceDTO,
+} from "../types/workspace";
 import type { FlightOption, HotelOption, ItinDay, ProfilePill } from "../app/components/TripStore";
 
 function sleepMs(ms: number): Promise<void> {
@@ -175,9 +181,11 @@ export async function planWithOrchestrator(sessionId: string, input: string) {
   );
 }
 
-export async function fetchWorkspace(sessionId: string) {
-  const q = new URLSearchParams({ session_id: sessionId });
-  return apiFetch<{ wanderly: WanderlyWorkspaceDTO }>(`/api/wanderly/workspace?${q.toString()}`);
+export async function newTrip(sessionId: string) {
+  return apiFetch<{ session_id: string; wanderly: WanderlyWorkspaceDTO }>("/api/wanderly/new_trip", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
 }
 
 export type WanderlyTripSummary = {
@@ -227,9 +235,26 @@ export type SyncUiResponse = {
   trip_id?: string | null;
 };
 
-export async function syncUi(sessionId: string, destinations: unknown[], opts?: { tripId?: string }) {
+export async function fetchWorkspace(sessionId: string) {
+  const q = new URLSearchParams({ session_id: sessionId });
+  return apiFetch<{ wanderly: WanderlyWorkspaceDTO; wanderly_snapshot_restored?: boolean }>(
+    `/api/wanderly/workspace?${q.toString()}`,
+  );
+}
+
+export async function syncUi(
+  sessionId: string,
+  destinations: unknown[],
+  opts?: { tripId?: string; tripMeta?: WanderlyTripMeta },
+) {
   const body: Record<string, unknown> = { session_id: sessionId, destinations };
   if (opts?.tripId) body.trip_id = opts.tripId;
+  if (opts?.tripMeta && (String(opts.tripMeta.trip_id || "").trim() || String(opts.tripMeta.trip_name || "").trim())) {
+    body.trip_meta = {
+      trip_id: String(opts.tripMeta.trip_id || "").trim(),
+      trip_name: String(opts.tripMeta.trip_name || "").trim().slice(0, 200),
+    };
+  }
   return apiFetch<SyncUiResponse>("/api/wanderly/sync_ui", {
     method: "POST",
     body: JSON.stringify(body),
@@ -284,6 +309,8 @@ export async function buildItinerary(
     itinerary: ItinDay[];
     budget_guidance?: ItineraryBudgetGuidance | null;
     booking_search_hints?: BookingSearchHints | null;
+    needs_commercial_flight?: boolean;
+    transport_plan?: WanderlyTransportPlan | null;
   }>(
     "/api/wanderly/build_itinerary",
     {
@@ -309,6 +336,8 @@ export async function buildItineraryStream(
   itinerary: ItinDay[];
   budget_guidance?: ItineraryBudgetGuidance | null;
   booking_search_hints?: BookingSearchHints | null;
+  needs_commercial_flight?: boolean;
+  transport_plan?: WanderlyTransportPlan | null;
 }> {
   const body: Record<string, unknown> = {
     session_id: sessionId,
@@ -326,6 +355,8 @@ export async function buildItineraryStream(
         itinerary: ItinDay[];
         budget_guidance?: ItineraryBudgetGuidance | null;
         booking_search_hints?: BookingSearchHints | null;
+        needs_commercial_flight?: boolean;
+        transport_plan?: WanderlyTransportPlan | null;
       }
     | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -343,6 +374,8 @@ export async function buildItineraryStream(
             const it = obj.itinerary;
             const bgRaw = (obj as { budget_guidance?: unknown }).budget_guidance;
             const bhRaw = (obj as { booking_search_hints?: unknown }).booking_search_hints;
+            const ncfRaw = (obj as { needs_commercial_flight?: unknown }).needs_commercial_flight;
+            const tpRaw = (obj as { transport_plan?: unknown }).transport_plan;
             let budget_guidance: ItineraryBudgetGuidance | undefined;
             if (bgRaw && typeof bgRaw === "object" && !Array.isArray(bgRaw)) {
               budget_guidance = bgRaw as ItineraryBudgetGuidance;
@@ -351,12 +384,27 @@ export async function buildItineraryStream(
             if (bhRaw && typeof bhRaw === "object" && !Array.isArray(bhRaw)) {
               booking_search_hints = bhRaw as BookingSearchHints;
             }
+            let needs_commercial_flight: boolean | undefined;
+            if (typeof ncfRaw === "boolean") {
+              needs_commercial_flight = ncfRaw;
+            }
+            let transport_plan: WanderlyTransportPlan | undefined;
+            if (
+              tpRaw &&
+              typeof tpRaw === "object" &&
+              !Array.isArray(tpRaw) &&
+              String((tpRaw as { primary_mode?: unknown }).primary_mode || "").trim()
+            ) {
+              transport_plan = tpRaw as WanderlyTransportPlan;
+            }
             result = {
               session_id: String(obj.session_id),
               destination_id: String(obj.destination_id),
               itinerary: Array.isArray(it) ? (it as ItinDay[]) : [],
               budget_guidance,
               booking_search_hints,
+              needs_commercial_flight,
+              transport_plan,
             };
           }
         },
@@ -454,12 +502,17 @@ export type BookingSearchPrepareResponse = {
   /** Resolved multi-stay rows (outline / itinerary / advisor). Client should merge into the card + sync_ui. */
   hotels_for_session?: Array<Record<string, unknown>>;
   booking_outline_source?: string;
+  /** When false, the server skipped commercial flight search (e.g. road / ferry-only trip). */
+  include_flight_search?: boolean;
 };
 
 export type BookingSearchStepResponse = {
   ok: boolean;
   step?: string;
   error?: string;
+  /** True when flight step was intentionally skipped (ground-only trip). */
+  skipped?: boolean;
+  reason?: string;
   flight?: FlightOption;
   hotel?: HotelOption;
   hotel_index?: number;

@@ -53,18 +53,17 @@ export function runStatusCaption(status: string): string | null {
 
 /** Rolling preview of streamed assistant JSON so the UI does not look frozen while tokens arrive. */
 export function structuredPlannerStreamCaption(
-  assistantChars: number,
   oneLine: string,
   thinkingDraft: { text: string },
   mode: StructuredStreamMode = "workspace",
 ): string {
-  const tail = oneLine.length > 260 ? oneLine.slice(-260) : oneLine;
+  // Wider tail now that we omit a character count (saves horizontal space in the status strip).
+  const tail = oneLine.length > 420 ? oneLine.slice(-420) : oneLine;
   const thinking = thinkingDraft.text.replace(/\s+/g, " ").trim();
-  const n = assistantChars.toLocaleString();
   const mid =
     mode === "itinerary"
-      ? `Building your day-by-day outline — ${n} characters streamed · ${tail || "…"}`
-      : `Filling sidebar & trip cards — ${n} characters streamed · ${tail || "…"}`;
+      ? `Building your day-by-day outline — ${tail || "…"}`
+      : `Filling sidebar & trip cards — ${tail || "…"}`;
   if (!thinking) return mid;
   return `Considering options — ${thinking.slice(-320)}\n\n${mid}`;
 }
@@ -120,7 +119,7 @@ export function streamEventToCaption(
       /"itinerary"\s*:/.test(oneLine) ||
       (/[\[{]/.test(oneLine[0] || "") && /"day"\s*:/.test(oneLine));
     if (looksLikeStructuredPayload) {
-      return structuredPlannerStreamCaption(assistantDraft.text.length, oneLine, thinkingDraft, structuredMode);
+      return structuredPlannerStreamCaption(oneLine, thinkingDraft, structuredMode);
     }
     const proseWindow = oneLine.length > 900 ? `…${oneLine.slice(-900)}` : oneLine;
     return `Writing your plan — ${proseWindow}`;
