@@ -513,10 +513,10 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const bootstrapOnceRef = useRef(false);
+  /** True only after a successful bootstrap — avoids Strict Mode double-mount skipping the real run. */
+  const wanderlyBootstrapOkRef = useRef(false);
   useEffect(() => {
-    if (bootstrapOnceRef.current) return;
-    bootstrapOnceRef.current = true;
+    if (wanderlyBootstrapOkRef.current) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -543,8 +543,12 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         setWanderlyTripId(res.trip_id);
         setSavedTrips(res.trips);
         applyWanderlyToCanvas(res.wanderly);
+        const hasDest =
+          Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
+        if (hasDest) setHasStarted(true);
+        wanderlyBootstrapOkRef.current = true;
       } catch {
-        bootstrapOnceRef.current = false;
+        /* allow retry on next mount or after server comes up */
       }
     })();
     return () => {
