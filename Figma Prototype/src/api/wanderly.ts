@@ -220,10 +220,17 @@ export async function createWanderlyTrip(name?: string) {
   });
 }
 
+export type SyncUiResponse = {
+  ok: boolean;
+  /** False when session is not linked to a manifest trip (nothing written under ``wanderly_trips/``). */
+  saved_to_disk?: boolean;
+  trip_id?: string | null;
+};
+
 export async function syncUi(sessionId: string, destinations: unknown[], opts?: { tripId?: string }) {
   const body: Record<string, unknown> = { session_id: sessionId, destinations };
   if (opts?.tripId) body.trip_id = opts.tripId;
-  return apiFetch<{ ok: boolean }>("/api/wanderly/sync_ui", {
+  return apiFetch<SyncUiResponse>("/api/wanderly/sync_ui", {
     method: "POST",
     body: JSON.stringify(body),
   });

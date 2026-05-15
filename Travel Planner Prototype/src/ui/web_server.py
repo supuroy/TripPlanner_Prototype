@@ -483,9 +483,16 @@ def run_web_server(
                     s = get_session(sid)
                     s["ui_destinations"] = dests
                     trip_disk = (payload.get("trip_id") or "").strip()
+                    if not trip_disk:
+                        trip_disk = (trip_disk_store.lookup_trip_id_for_session(sid) or "").strip()
+                    saved_disk = False
                     if trip_disk:
                         trip_disk_store.persist_trip(trip_disk, sid, get_session)
-                    self._send_json({"ok": True}, status=200)
+                        saved_disk = True
+                    self._send_json(
+                        {"ok": True, "saved_to_disk": saved_disk, "trip_id": trip_disk or None},
+                        status=200,
+                    )
                     return
 
                 if path == "/api/wanderly/enrich_heroes":

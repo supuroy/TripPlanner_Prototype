@@ -27,6 +27,16 @@ def _fake_get_session(store: dict):
     return get_session
 
 
+def test_lookup_trip_id_for_session(trips_dir: Path) -> None:
+    store: dict = {}
+    gs = _fake_get_session(store)
+    meta = trip_disk_store.bootstrap(None, None, gs)
+    sid = meta["session_id"]
+    tid = meta["trip_id"]
+    assert trip_disk_store.lookup_trip_id_for_session(sid) == tid
+    assert trip_disk_store.lookup_trip_id_for_session("missing-session") is None
+
+
 def test_bootstrap_creates_manifest_and_trip_file(trips_dir: Path) -> None:
     store: dict = {}
     gs = _fake_get_session(store)

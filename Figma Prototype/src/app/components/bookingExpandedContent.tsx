@@ -661,7 +661,7 @@ export function BookingTimelineFace({
   dateHints: BookingDateHints;
   onSearchFinished: () => void;
 }) {
-  const { setDestinations, wanderlyTripId } = useTrip();
+  const { setDestinations, wanderlyTripId, beginTripDiskSave, completeTripDiskSave, failTripDiskSave } = useTrip();
   const flights = dest.flights || [];
   const hotels = dest.hotels || [];
 
@@ -886,7 +886,10 @@ export function BookingTimelineFace({
                 }
               : d,
           );
-          void syncUi(sessionId, next as unknown[], { tripId: wanderlyTripId || undefined });
+          beginTripDiskSave();
+          void syncUi(sessionId, next as unknown[], { tripId: wanderlyTripId || undefined })
+            .then((r) => completeTripDiskSave(next as DestCard[], { savedToDisk: Boolean(r.saved_to_disk) }))
+            .catch(() => failTripDiskSave());
           return next;
         });
 

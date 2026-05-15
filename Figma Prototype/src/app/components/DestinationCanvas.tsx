@@ -491,6 +491,9 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     profile,
     itineraryLaneQueueDepth,
     queuePlanReviewAfterItineraries,
+    beginTripDiskSave,
+    completeTripDiskSave,
+    failTripDiskSave,
   } = useTrip();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [conversationMode, setConversationMode] = useState<"minimized" | "footer" | "panel">("minimized");
@@ -596,7 +599,10 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
               return mergeItineraryBuildIntoDest(d, rows, budget, res.booking_search_hints ?? null);
             });
             queueMicrotask(() => {
-              void syncUi(sessionId, next as unknown[], { tripId: wanderlyTripId || undefined }).catch(() => {});
+              beginTripDiskSave();
+              void syncUi(sessionId, next as unknown[], { tripId: wanderlyTripId || undefined })
+                .then((r) => completeTripDiskSave(next, { savedToDisk: Boolean(r.saved_to_disk) }))
+                .catch(() => failTripDiskSave());
               queuePlanReviewAfterItineraries(sessionId);
             });
             return next;
@@ -620,7 +626,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     };
     // Keep deps minimal so a long-running build is not aborted by redundant identity churn
     // (e.g. ``profile`` ref vs stable ``profileSig``).
-  }, [sessionId, dest.id, needsItinFetch, profileSig, addResponse, setDestinations, queuePlanReviewAfterItineraries]);
+  }, [sessionId, dest.id, needsItinFetch, profileSig, addResponse, setDestinations, queuePlanReviewAfterItineraries, beginTripDiskSave, completeTripDiskSave, failTripDiskSave, wanderlyTripId]);
 
   const images = useMemo(() => {
     const imgs = (dest.images || []).filter((u): u is string => typeof u === "string" && u.trim().length > 0);
@@ -1384,6 +1390,9 @@ export function DestinationCanvas() {
     setDestinations,
     phase,
     refineUnlockCardNavigation,
+    beginTripDiskSave,
+    completeTripDiskSave,
+    failTripDiskSave,
   } = useTrip();
   const [comparisonStartIndex, setComparisonStartIndex] = useState(0);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1403,12 +1412,15 @@ export function DestinationCanvas() {
     if (!sessionId || destinations.length === 0) return;
     if (syncTimer.current) clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => {
-      void syncUi(sessionId, destinations, { tripId: wanderlyTripId || undefined }).catch(() => {});
+      beginTripDiskSave();
+      void syncUi(sessionId, destinations, { tripId: wanderlyTripId || undefined })
+        .then((r) => completeTripDiskSave(destinations, { savedToDisk: Boolean(r.saved_to_disk) }))
+        .catch(() => failTripDiskSave());
     }, 450);
     return () => {
       if (syncTimer.current) clearTimeout(syncTimer.current);
     };
-  }, [destinations, sessionId, wanderlyTripId]);
+  }, [destinations, sessionId, wanderlyTripId, beginTripDiskSave, completeTripDiskSave, failTripDiskSave]);
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
 

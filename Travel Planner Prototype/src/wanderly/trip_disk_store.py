@@ -48,6 +48,21 @@ def _atomic_write_json(path: Path, doc: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def lookup_trip_id_for_session(session_id: str) -> str | None:
+    """Return ``trip_id`` from the manifest for this ``session_id``, if any."""
+    sid = (session_id or "").strip()
+    if not sid:
+        return None
+    manifest = read_manifest()
+    for row in manifest.get("trips") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("session_id") or "").strip() == sid:
+            tid = str(row.get("trip_id") or "").strip()
+            return tid or None
+    return None
+
+
 def read_manifest() -> dict[str, Any]:
     p = manifest_path()
     if not p.is_file():

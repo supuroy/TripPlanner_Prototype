@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyWorkspaceDTO } from "../../types/workspace";
 import type { WanderlyTripSummary } from "../../api/wanderly";
 import { planReview, bootstrapWanderlyTrips, activateWanderlyTrip, createWanderlyTrip } from "../../api/wanderly";
@@ -70,6 +70,26 @@ export interface DestCard {
   booking_search_outline?: { stays?: Array<{ area?: string; nights?: number; label?: string }> };
   /** Optional Expedia-oriented flight labels from the itinerary LLM (concrete cities for URL building). */
   booking_search_hints?: { flight_to_label?: string; flight_return_from_label?: string };
+}
+
+export type TripDiskPersistStatus = "unknown" | "saved" | "dirty" | "saving";
+
+export interface TripDiskPersistInfo {
+  status: TripDiskPersistStatus;
+  savedAtMs?: number;
+  saveError?: boolean;
+}
+
+/** Compact fingerprint of cards for trip-file dirty detection (not full JSON). */
+export function computeTripDestDiskSig(destinations: DestCard[]): string {
+  const rows = destinations.map((d) => [
+    d.id,
+    Boolean(d.pinned),
+    Boolean(d.dismissed),
+    d.itinerary?.length ?? 0,
+    d.itinerary_dirty ? 1 : 0,
+  ]);
+  return JSON.stringify(rows);
 }
 
 export interface ItinDay {
@@ -224,6 +244,12 @@ interface TripStoreType {
   savedTrips: WanderlyTripSummary[];
   switchToSavedTrip: (tripId: string) => Promise<void>;
   createEmptyTrip: (name?: string) => Promise<void>;
+  /** Per-trip JSON under ``wanderly_trips/``: dirty vs last successful ``sync_ui`` write. */
+  tripDiskPersist: TripDiskPersistInfo;
+  beginTripDiskSave: () => void;
+  completeTripDiskSave: (dests: DestCard[], opts?: { savedToDisk?: boolean }) => void;
+  failTripDiskSave: () => void;
+  markTripDiskBaselineFromDestinations: (dests: DestCard[]) => void;
   enrichmentPending: boolean;
   setEnrichmentPending: (v: boolean) => void;
   /** When set (and workspace has destinations), CommandBar runs a refine with this text. */
@@ -481,6 +507,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [sessionId, setSessionId] = useState<string>(readOrCreateSessionId);
   const [wanderlyTripId, setWanderlyTripId] = useState("");
   const [savedTrips, setSavedTrips] = useState<WanderlyTripSummary[]>([]);
+  const [tripDiskPersist, setTripDiskPersist] = useState<TripDiskPersistInfo>({ status: "unknown" });
+  const lastPersistedSigRef = useRef<string | null>(null);
   const [enrichmentPending, setEnrichmentPending] = useState(false);
   const [pendingRefineText, setPendingRefineText] = useState<string | null>(null);
   const [composerPrefill, setComposerPrefill] = useState<string | null>(null);
@@ -511,6 +539,31 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         return { ...p, ...s, pinned: p.pinned, dismissed: p.dismissed };
       });
     });
+  }, []);
+
+  const markTripDiskBaselineFromDestinations = useCallback((dests: DestCard[]) => {
+    lastPersistedSigRef.current = computeTripDestDiskSig(dests);
+    setTripDiskPersist({ status: "saved", savedAtMs: Date.now(), saveError: false });
+  }, []);
+
+  const beginTripDiskSave = useCallback(() => {
+    setTripDiskPersist((prev) => ({ ...prev, status: "saving", saveError: false }));
+  }, []);
+
+  const completeTripDiskSave = useCallback((dests: DestCard[], opts?: { savedToDisk?: boolean }) => {
+    const disk = opts?.savedToDisk !== false;
+    if (disk) {
+      lastPersistedSigRef.current = computeTripDestDiskSig(dests);
+    }
+    setTripDiskPersist({
+      status: disk ? "saved" : "dirty",
+      savedAtMs: disk ? Date.now() : undefined,
+      saveError: !disk,
+    });
+  }, []);
+
+  const failTripDiskSave = useCallback(() => {
+    setTripDiskPersist((prev) => ({ ...prev, status: "dirty", saveError: true }));
   }, []);
 
   /** True only after a successful bootstrap — avoids Strict Mode double-mount skipping the real run. */
@@ -547,6 +600,14 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
         if (hasDest) setHasStarted(true);
         wanderlyBootstrapOkRef.current = true;
+        const srvDest = (res.wanderly.destinations || []) as DestCard[];
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (cancelled) return;
+            const merged = destinationsRef.current;
+            markTripDiskBaselineFromDestinations(srvDest.length > 0 ? srvDest : merged);
+          });
+        });
       } catch {
         /* allow retry on next mount or after server comes up */
       }
@@ -554,7 +615,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [applyWanderlyToCanvas]);
+  }, [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations]);
 
   const switchToSavedTrip = useCallback(
     async (tripId: string) => {
@@ -571,8 +632,15 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       applyWanderlyToCanvas(res.wanderly);
       const hasDest = Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
       setHasStarted(hasDest);
+      const srvDest = (res.wanderly.destinations || []) as DestCard[];
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const merged = destinationsRef.current;
+          markTripDiskBaselineFromDestinations(srvDest.length > 0 ? srvDest : merged);
+        });
+      });
     },
-    [applyWanderlyToCanvas],
+    [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations],
   );
 
   const createEmptyTrip = useCallback(
@@ -588,6 +656,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setWanderlyTripId(res.trip_id);
       setSavedTrips(res.trips);
       applyWanderlyToCanvas(res.wanderly);
+      markTripDiskBaselineFromDestinations([]);
       setHasStarted(false);
       setPhase("idle");
       setExpandedDest(null);
@@ -595,7 +664,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setMessages([]);
       setInsights([]);
     },
-    [applyWanderlyToCanvas],
+    [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations],
   );
 
   // Use refs to avoid stale closures in pushUndo
@@ -603,6 +672,22 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   destinationsRef.current = destinations;
   const profileRef = useRef(profile);
   profileRef.current = profile;
+
+  useLayoutEffect(() => {
+    const sig = computeTripDestDiskSig(destinations);
+    if (lastPersistedSigRef.current === null) {
+      lastPersistedSigRef.current = sig;
+      setTripDiskPersist({ status: "unknown", saveError: false });
+      return;
+    }
+    setTripDiskPersist((prev) => {
+      if (prev.status === "saving") return prev;
+      if (sig !== lastPersistedSigRef.current) {
+        return { ...prev, status: "dirty", saveError: false };
+      }
+      return { ...prev, status: "saved", saveError: false };
+    });
+  }, [destinations]);
 
   const addMessage = useCallback((role: "user" | "agent", text: string, undoId?: string) => {
     setMessages((prev) => [...prev, { id: crypto.randomUUID(), role, text, ts: Date.now(), undoId }]);
@@ -812,6 +897,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         savedTrips,
         switchToSavedTrip,
         createEmptyTrip,
+        tripDiskPersist,
+        beginTripDiskSave,
+        completeTripDiskSave,
+        failTripDiskSave,
+        markTripDiskBaselineFromDestinations,
         enrichmentPending, setEnrichmentPending,
         pendingRefineText, setPendingRefineText,
         composerPrefill, setComposerPrefill,

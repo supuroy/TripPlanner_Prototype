@@ -107,7 +107,7 @@ export async function installWanderlyApiMocks(page: Page, opts: WanderlyMockOpti
   });
 
   await page.route("**/api/wanderly/sync_ui", async (route) => {
-    await route.fulfill(json({ ok: true }));
+    await route.fulfill(json({ ok: true, saved_to_disk: true, trip_id: "trip-e2e-1" }));
   });
 
   await page.route("**/api/wanderly/trips/bootstrap", async (route) => {

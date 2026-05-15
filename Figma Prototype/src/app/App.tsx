@@ -82,6 +82,37 @@ function AgentResponsesHeader() {
   );
 }
 
+function TripDiskPersistBadge() {
+  const { wanderlyTripId, savedTrips, tripDiskPersist } = useTrip();
+  if (!wanderlyTripId && savedTrips.length === 0) return null;
+  const { status, savedAtMs, saveError } = tripDiskPersist;
+  let text: string;
+  if (status === "unknown") text = "Trip file: idle";
+  else if (status === "saving") text = "Saving to trip file…";
+  else if (status === "dirty") {
+    text = saveError ? "Save failed — trip file may be stale" : "Unsaved card changes (auto-save pending)";
+  } else {
+    const t =
+      savedAtMs != null
+        ? new Date(savedAtMs).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" })
+        : "";
+    text = t ? `Trip file saved · ${t}` : "Trip file saved";
+  }
+  const colorClass =
+    status === "dirty"
+      ? "text-amber-300/90"
+      : status === "saving"
+        ? "text-sky-300/90"
+        : status === "saved"
+          ? "text-emerald-300/85"
+          : "text-white/35";
+  return (
+    <span className={`max-w-[min(320px,85vw)] truncate text-center text-[10px] ${colorClass}`} title={text}>
+      {text}
+    </span>
+  );
+}
+
 function SavedTripsBar() {
   const { savedTrips, wanderlyTripId, switchToSavedTrip, createEmptyTrip } = useTrip();
   const [busy, setBusy] = useState(false);
@@ -179,8 +210,9 @@ function Workspace() {
             </div>
             <span className="text-[15px] text-white/70">Wanderly</span>
           </div>
-          <div className="flex min-w-0 flex-1 items-center justify-center px-2">
+          <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-2">
             <SavedTripsBar />
+            <TripDiskPersistBadge />
           </div>
           {(agentStatus || itineraryLaneQueueDepth > 0) && (
             <motion.div
