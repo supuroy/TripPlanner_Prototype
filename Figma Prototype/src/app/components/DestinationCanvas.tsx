@@ -1,36 +1,60 @@
-import { useState, useMemo, useEffect, useRef, useCallback, useReducer, type ReactNode } from "react";
+import {
+  useState,
+  useMemo,
+  useEffect,
+  useRef,
+  useCallback,
+  Fragment,
+  type ReactNode,
+} from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Trash2, X, Pin, PinOff, ChevronRight, Plane, Clock, Thermometer,
-  DollarSign, Hotel, Zap, AlertTriangle, ChevronLeft, ArrowRight,
-  MapPin, Calendar, CheckCircle2, Loader2, ChevronDown, ChevronUp,
-  RefreshCw, RotateCcw,
+  Trash2,
+  X,
+  Pin,
+  PinOff,
+  ChevronRight,
+  Plane,
+  PlaneTakeoff,
+  PlaneLanding,
+  Clock,
+  DollarSign,
+  Hotel,
+  Car,
+  Ship,
+  Train,
+  Zap,
+  AlertTriangle,
+  ChevronLeft,
+  ArrowRight,
+  MapPin,
+  Calendar,
+  CheckCircle2,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+  Route,
+  RotateCcw,
 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTrip } from "./TripStore";
 import type { DestCard, ItinDay } from "./TripStore";
 import { syncUi, buildItineraryStream } from "../../api/wanderly";
-import {
-  clearBookingPipelineCompletedFor,
-  isBookingPipelineCompletedFor,
-  markBookingPipelineCompleted,
-} from "../lib/bookingProgressIds";
+import { clearBookingPipelineCompletedFor } from "../lib/bookingProgressIds";
 import { resetDestinationBookingState } from "../lib/resetDestinationBooking";
 import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
+import { buildLogisticsBreadcrumb, type LogisticsCrumb } from "../lib/logisticsBreadcrumb";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
 import { streamEventToCaption } from "../lib/streamCaption";
 import { ConversationPanel } from "./ConversationPanel";
 import {
-  SummaryFlightStrip,
-  SummaryHotelStrip,
-  BookingTimelineFace,
   BookingCostBreakdown,
   bookingPaxFromProfile,
-  computeBookingDateHints,
   destHasPersistentBookingSummary,
   liveBookingExtractLooksActionable,
 } from "./bookingExpandedContent";
+import { LogisticsPlanFlipFace } from "./LogisticsPlanFlipFace";
 
 /** Auto-advance hero slideshow when multiple URLs (enrich / planner). */
 const HERO_SLIDE_MS = 4200;
@@ -90,6 +114,50 @@ function hasMeaningfulEstimateText(s: string | undefined | null): boolean {
   if (!t || t === "-") return false;
   if (/^tbd\s*\(placeholder\)$/i.test(t) || /^tbd$/i.test(t)) return false;
   return true;
+}
+
+function LogisticsCrumbIcon({ crumb }: { crumb: LogisticsCrumb }) {
+  switch (crumb.kind) {
+    case "flight_in":
+      return <PlaneTakeoff className="w-3 h-3 shrink-0 text-sky-300/90" aria-hidden />;
+    case "flight_return":
+      return <PlaneLanding className="w-3 h-3 shrink-0 text-sky-300/90" aria-hidden />;
+    case "hotel":
+      return (
+        <span className="inline-flex items-center gap-0.5">
+          <Hotel className="w-3 h-3 shrink-0 text-amber-300/85" aria-hidden />
+          {crumb.nights != null && crumb.nights > 0 ? (
+            <span className="text-[10px] text-white/45 font-medium tabular-nums leading-none">{crumb.nights}</span>
+          ) : null}
+        </span>
+      );
+    case "car":
+      return <Car className="w-3 h-3 shrink-0 text-emerald-300/85" aria-hidden />;
+    case "ferry":
+      return <Ship className="w-3 h-3 shrink-0 text-cyan-300/85" aria-hidden />;
+    case "train":
+      return <Train className="w-3 h-3 shrink-0 text-violet-300/85" aria-hidden />;
+    default:
+      return null;
+  }
+}
+
+/** Compact outline of bookable logistics (replaces weather + generic flight line on cards). */
+function LogisticsBreadcrumbRow({ dest }: { dest: DestCard }) {
+  const crumbs = useMemo(() => buildLogisticsBreadcrumb(dest), [dest]);
+  return (
+    <span
+      className="inline-flex flex-wrap items-center gap-x-0.5 gap-y-0.5 min-w-0 max-w-[58%] sm:max-w-[64%]"
+      title="Logistics outline from itinerary (flights, ferries, drives, stays)"
+    >
+      {crumbs.map((c, i) => (
+        <Fragment key={`${i}-${c.kind}-${c.nights ?? ""}`}>
+          {i > 0 ? <ChevronRight className="w-2.5 h-2.5 text-white/15 shrink-0 self-center" aria-hidden /> : null}
+          <LogisticsCrumbIcon crumb={c} />
+        </Fragment>
+      ))}
+    </span>
+  );
 }
 
 function destHeroUrls(dest: DestCard): string[] {
@@ -291,66 +359,6 @@ function ActivityStrip({ dest }: { dest: DestCard }) {
   );
 }
 
-/** Itinerary-planner flight band (until live booking search returns real offers). */
-function PlannerFlightStrip({ dest }: { dest: DestCard }) {
-  const flightBallpark = (
-    dest.budget_guidance?.flight_ballpark || dest.budget_guidance?.flight_band_short || ""
-  ).trim();
-  const showFlightGuidance = hasMeaningfulEstimateText(flightBallpark);
-  if (!showFlightGuidance && (dest.flights?.length ?? 0) === 0) return null;
-  return (
-    <motion.div
-      className="mt-4"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.3 }}
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-[11px] uppercase tracking-widest text-white/30">Flight Options</p>
-      </div>
-      <div className="relative group">
-        {showFlightGuidance ? (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-3 py-2.5">
-            <p className="break-words text-[11px] leading-snug text-white/70">{flightBallpark}</p>
-          </div>
-        ) : (
-          <div className="min-h-[44px] rounded-xl border border-white/[0.05] bg-white/[0.02]" aria-label="Flight estimate pending" />
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-/** Itinerary-planner lodging band (until live booking search). */
-function PlannerHotelStrip({ dest }: { dest: DestCard }) {
-  const lodgingNote = (
-    dest.budget_guidance?.lodging_style || dest.budget_guidance?.lodging_band_short || ""
-  ).trim();
-  const showLodgingGuidance = hasMeaningfulEstimateText(lodgingNote);
-  if (!showLodgingGuidance && (dest.hotels?.length ?? 0) === 0) return null;
-  return (
-    <motion.div
-      className="mt-4"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.4 }}
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-[11px] uppercase tracking-widest text-white/30">Stay Options</p>
-      </div>
-      <div className="relative group">
-        {showLodgingGuidance ? (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-3 py-2.5">
-            <p className="break-words text-[11px] leading-snug text-white/70">{lodgingNote}</p>
-          </div>
-        ) : (
-          <div className="min-h-[44px] rounded-xl border border-white/[0.05] bg-white/[0.02]" aria-label="Lodging estimate pending" />
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
 /* ── Comparison Mini Card (shown in sidebar when another card is expanded) ── */
 function ComparisonMiniCard({
   dest,
@@ -510,17 +518,6 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const itinStreamAssistantRef = useRef({ text: "" });
   const itinStreamThinkingRef = useRef({ text: "" });
   const [bookingFace, setBookingFace] = useState(false);
-  /** True while the live Playwright booking pipeline is running for this card (blocks premature "cached" mode). */
-  const liveBookingPipelineStartedRef = useRef(false);
-  /** Increments when pipeline bookkeeping changes so we re-evaluate cached vs live (refs alone do not re-render). */
-  const [bookingTimelineRevision, bumpBookingTimelineRevision] = useReducer((x: number) => x + 1, 0);
-
-  const useCachedBookingTimeline =
-    bookingTimelineRevision >= 0 &&
-    (isBookingPipelineCompletedFor(dest.id) ||
-      (Boolean(dest.readyToBook) &&
-        liveBookingExtractLooksActionable(dest) &&
-        !liveBookingPipelineStartedRef.current));
 
   useEffect(() => {
     setItinThought("");
@@ -528,7 +525,6 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     itinStreamThinkingRef.current = { text: "" };
     setItinErrorKind(null);
     setBookingFace(false);
-    liveBookingPipelineStartedRef.current = false;
   }, [dest.id]);
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
@@ -620,6 +616,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                 res.booking_search_hints ?? null,
                 typeof res.needs_commercial_flight === "boolean" ? res.needs_commercial_flight : null,
                 res.transport_plan ?? null,
+                res.booking_hooks ?? null,
               );
             });
             queueMicrotask(() => {
@@ -713,7 +710,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     if (willPin) {
       addResponse({
         type: "success",
-        text: `📌 ${dest.name} is now bookmarked for comparison. Click 'Ready to Book' when you want to see detailed flight and hotel options.`,
+        text: `📌 ${dest.name} is now bookmarked for comparison. Use the logistics button (route icon) on the photo to open the trip logistics view when the day-by-day plan is ready.`,
         relatedTo: dest.id,
       });
     }
@@ -752,25 +749,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     );
   }, [dest.itinerary]);
 
-  const onBookingFirstLoad = useCallback(() => {
-    liveBookingPipelineStartedRef.current = false;
-    if (!isBookingPipelineCompletedFor(dest.id)) {
-      markBookingPipelineCompleted(dest.id);
-    }
-    bumpBookingTimelineRevision();
-  }, [dest.id]);
-
-  const showReadyToBookCta = useMemo(() => {
-    if (dest.readyToBook) return false;
-    if ((dest.flights?.length ?? 0) > 0 || (dest.hotels?.length ?? 0) > 0) return true;
-    const fp = (dest.budget_guidance?.flight_ballpark || dest.budget_guidance?.flight_band_short || "").trim();
-    const lp = (dest.budget_guidance?.lodging_style || dest.budget_guidance?.lodging_band_short || "").trim();
-    return hasMeaningfulEstimateText(fp) || hasMeaningfulEstimateText(lp);
-  }, [dest.readyToBook, dest.flights?.length, dest.hotels?.length, dest.budget_guidance]);
-
   const refreshBookingSummary = useCallback(() => {
     clearBookingPipelineCompletedFor(dest.id);
-    liveBookingPipelineStartedRef.current = false;
     setBookingFace(false);
     setDestinations((prev) => {
       const next = prev.map((d) => (d.id === dest.id ? resetDestinationBookingState(d) : d));
@@ -781,19 +761,18 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
       }
       return next;
     });
-    bumpBookingTimelineRevision();
     addResponse({
       type: "tip",
-      text: `Cleared saved flight and hotel results for ${dest.name}. Tap “Ready to Book” when you want fresh live prices.`,
+      text: `Cleared saved flight and hotel results for ${dest.name}.`,
     });
-  }, [dest.id, dest.name, sessionId, setDestinations, addResponse]);
+  }, [dest.id, dest.name, sessionId, setDestinations, addResponse, profile]);
 
-  const readyToBook = Boolean(dest.readyToBook);
-  const flipTooltip = !readyToBook
-    ? "Open the booking view after you tap Ready to Book on this card"
+  const hasLogisticsFlip = (dest.itinerary?.length ?? 0) > 0;
+  const flipTooltip = !hasLogisticsFlip
+    ? "Trip logistics open after the day-by-day plan loads"
     : bookingFace
-      ? "Return to the itinerary view"
-      : "Open the booking view (flights and hotels)";
+      ? "Return to itinerary view"
+      : "Open trip logistics — flights, stays, ground, day by day";
   const pinTooltip = dest.pinned
     ? "Unpin this destination (remove the comparison highlight)"
     : "Pin this destination to keep it highlighted while you compare";
@@ -878,21 +857,21 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
               type="button"
               title={flipTooltip}
               aria-label={flipTooltip}
-              disabled={!readyToBook}
+              disabled={!hasLogisticsFlip}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!readyToBook) return;
+                if (!hasLogisticsFlip) return;
                 setBookingFace((v) => !v);
               }}
-              whileTap={readyToBook ? { rotate: 180, scale: 0.9 } : undefined}
-              transition={{ duration: 0.3 }}
+              whileTap={hasLogisticsFlip ? { scale: 0.88 } : undefined}
+              transition={{ duration: 0.15 }}
               className={`flex h-7 w-7 items-center justify-center rounded-lg backdrop-blur-sm transition-all ${
-                readyToBook
+                hasLogisticsFlip
                   ? "cursor-pointer bg-indigo-500 text-white hover:bg-indigo-600"
                   : "cursor-not-allowed bg-black/40 text-white/30 opacity-50"
               }`}
             >
-              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+              <Route className="h-3.5 w-3.5" aria-hidden />
             </motion.button>
             <button
               type="button"
@@ -960,21 +939,21 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                   type="button"
                   title={flipTooltip}
                   aria-label={flipTooltip}
-                  disabled={!readyToBook}
+                  disabled={!hasLogisticsFlip}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (!readyToBook) return;
+                    if (!hasLogisticsFlip) return;
                     setBookingFace((v) => !v);
                   }}
-                  whileTap={readyToBook ? { rotate: 180, scale: 0.9 } : undefined}
-                  transition={{ duration: 0.3 }}
+                  whileTap={hasLogisticsFlip ? { scale: 0.88 } : undefined}
+                  transition={{ duration: 0.15 }}
                   className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-all ${
-                    readyToBook
+                    hasLogisticsFlip
                       ? "cursor-pointer border-indigo-500/40 bg-indigo-500 text-white hover:bg-indigo-600"
                       : "cursor-not-allowed border-white/[0.08] bg-white/[0.04] text-white/30 opacity-50"
                   }`}
                 >
-                  <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                  <Route className="h-3.5 w-3.5" aria-hidden />
                 </motion.button>
                 <button
                   type="button"
@@ -1049,11 +1028,13 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             </button>
           </div>
 
-          {/* Quick stats */}
-          <div className="flex items-center gap-3 mt-3 text-[11px] text-white/30">
-            <span className="flex items-center gap-1"><Thermometer className="w-3 h-3" />{dest.temp}</span>
-            <span className="flex items-center gap-1"><Plane className="w-3 h-3" />{dest.flight}</span>
-            <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />{estimateOrDash(dest.cost)}</span>
+          {/* Logistics outline + budget (weather removed — use itinerary logistics) */}
+          <div className="flex items-center justify-between gap-2 mt-3 text-[11px] text-white/30">
+            <LogisticsBreadcrumbRow dest={dest} />
+            <span className="flex items-center gap-1 shrink-0">
+              <DollarSign className="w-3 h-3" aria-hidden />
+              {estimateOrDash(dest.cost)}
+            </span>
           </div>
 
           {/* Vibes */}
@@ -1152,23 +1133,11 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                           />
                         ) : (
                           <>
-                            {dest.liveBookingEstimates ? (
-                              <>
-                                <SummaryFlightStrip dest={dest} />
-                                <SummaryHotelStrip dest={dest} />
-                              </>
-                            ) : (
-                              <>
-                                <PlannerFlightStrip dest={dest} />
-                                <PlannerHotelStrip dest={dest} />
-                              </>
-                            )}
-
                             <motion.div
-                              className="mt-6 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20"
+                              className="mt-1 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20"
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: 0.5 }}
+                              transition={{ delay: 0.25 }}
                             >
                               {(() => {
                                 let costLine = (dest.budget_guidance?.trip_ballpark_usd_pp ?? "").trim();
@@ -1197,45 +1166,33 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                           </>
                         )}
 
-                        {/* ``readyToBook`` alone hides ``showReadyToBookCta`` — if live OTA rows never became
-                         * ``destHasPersistentBookingSummary`` (e.g. hotel-only / ground trip with no flight rows,
-                         * or a restored session), neither CTA rendered. Always offer reset when booking was armed. */}
-                        {destHasPersistentBookingSummary(dest) || dest.readyToBook ? (
+                        {destHasPersistentBookingSummary(dest) ? (
                           <button
                             type="button"
                             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 py-3 text-[13px] font-medium text-amber-100/95 transition-colors hover:bg-amber-500/20 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
                             onClick={refreshBookingSummary}
                           >
                             <RotateCcw className="h-4 w-4 shrink-0" aria-hidden />
-                            Reset booking
-                          </button>
-                        ) : showReadyToBookCta ? (
-                          <button
-                            type="button"
-                            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 py-3 text-[13px] font-medium text-white transition-colors hover:from-indigo-600 hover:to-purple-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
-                            onClick={() => {
-                              clearBookingPipelineCompletedFor(dest.id);
-                              liveBookingPipelineStartedRef.current = true;
-                              setDestinations((prev) =>
-                                prev.map((d) => (d.id === dest.id ? { ...d, readyToBook: true } : d)),
-                              );
-                              addResponse({
-                                type: "message",
-                                role: "agent",
-                                text: `🔍 Searching for the best flight and hotel options for ${dest.name}...`,
-                              });
-                              setBookingFace(true);
-                            }}
-                          >
-                            <Plane className="h-4 w-4 shrink-0" aria-hidden />
-                            Ready to Book
+                            Reset saved flight / hotel results
                           </button>
                         ) : null}
+                        {hasLogisticsFlip ? (
+                          <p className="mt-3 text-[11px] leading-relaxed text-white/35">
+                            Tap the <span className="text-white/55">logistics</span> button (route icon) on the photo
+                            to see flights, stays, ground moves, and each day in detail. Live Expedia price search is not
+                            in this build yet.
+                          </p>
+                        ) : (
+                          <p className="mt-3 text-[11px] leading-relaxed text-white/30">
+                            When the day-by-day plan finishes loading, use the logistics button on the photo to open the
+                            trip logistics view.
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Booking face — mount timeline only when flipped open so search runs after “Ready to Book”, not on expand */}
+                  {/* Back face: planner logistics timeline (no live OTA pipeline in this build). */}
                   <div
                     className="col-start-1 row-start-1 w-full min-w-0 [backface-visibility:hidden]"
                     style={{
@@ -1245,15 +1202,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                     }}
                   >
                     {bookingFace ? (
-                      <BookingTimelineFace
-                        key={`booking-${dest.id}`}
-                        dest={dest}
-                        sessionId={sessionId}
-                        profile={profile}
-                        useCachedResults={useCachedBookingTimeline}
-                        dateHints={computeBookingDateHints(profile, dest.itinerary?.length ?? 7)}
-                        onSearchFinished={onBookingFirstLoad}
-                      />
+                      <LogisticsPlanFlipFace key={`logistics-${dest.id}`} dest={dest} profile={profile} />
                     ) : (
                       <div className="min-h-[200px]" aria-hidden />
                     )}
@@ -1342,7 +1291,7 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
     if (willPin) {
       addResponse({
         type: "success",
-        text: `📌 ${dest.name} is now bookmarked for comparison. Click 'Ready to Book' when you want to see detailed flight and hotel options.`,
+        text: `📌 ${dest.name} is now bookmarked for comparison. Use the logistics button (route icon) on the photo to open the trip logistics view when the day-by-day plan is ready.`,
         relatedTo: dest.id,
       });
     }
@@ -1455,11 +1404,13 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
       <div className="p-3 sm:p-4">
         <p className="text-[12px] leading-relaxed text-white/50 sm:text-[13px]">{renderHookWithBold(dest.hook)}</p>
 
-        {/* Quick stats */}
-        <div className="flex items-center gap-3 mt-3 text-[11px] text-white/30">
-          <span className="flex items-center gap-1"><Thermometer className="w-3 h-3" />{dest.temp}</span>
-          <span className="flex items-center gap-1"><Plane className="w-3 h-3" />{dest.flight}</span>
-          <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />{estimateOrDash(dest.cost)}</span>
+        {/* Logistics outline + budget */}
+        <div className="flex items-center justify-between gap-2 mt-3 text-[11px] text-white/30">
+          <LogisticsBreadcrumbRow dest={dest} />
+          <span className="flex items-center gap-1 shrink-0">
+            <DollarSign className="w-3 h-3" aria-hidden />
+            {estimateOrDash(dest.cost)}
+          </span>
         </div>
         {dest.weather_summary && (
           <p className="text-[10px] text-sky-300/80 mt-2 leading-snug">{dest.weather_summary}</p>

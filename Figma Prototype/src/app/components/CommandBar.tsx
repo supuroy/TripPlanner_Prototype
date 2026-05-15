@@ -417,7 +417,7 @@ export function CommandBar() {
           "explicit_remove_destinations",
         ]);
         if (!plannerActions.has(action) || !orch.parse_ok) {
-          setAgentStatus("Quick advisor…");
+          setAgentStatus("Travel agent…");
           const stopAdvSpin = startRotatingWaitCaption(setAgentStreamCaption, WAIT_ADVISOR_CAPTIONS);
           let out: Awaited<ReturnType<typeof advisorFeed>>;
           try {
@@ -431,7 +431,7 @@ export function CommandBar() {
           } else {
             addResponse({
               type: "warning",
-              text: "Advisor returned an empty reply. Try rephrasing, or prefix with /trip to run the full planner.",
+              text: "Travel agent returned an empty reply. Try rephrasing, or prefix with /trip to run the full planner.",
             });
           }
           return;
@@ -614,7 +614,7 @@ export function CommandBar() {
     if (isWorking) {
       const cap = agentStreamCaption.trim();
       if (phase === "refining") return cap || "Refining your trip…";
-      if (phase === "advising") return cap || "Advisor reply…";
+      if (phase === "advising") return cap || "Travel agent reply…";
       return cap || "Working…";
     }
     return hasStarted ? "Tell me what to change or refine..." : "Describe your dream trip...";

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -42,10 +44,73 @@ def trip_file_path(trip_id: str) -> Path:
 
 
 def _atomic_write_json(path: Path, doc: dict[str, Any]) -> None:
+    """
+    Write JSON atomically where the OS allows it.
+
+    A sibling ``*.tmp`` in the same folder as ``path`` often fails on Windows under OneDrive
+    (``PermissionError`` on ``replace``). We stage in the process temp dir, then ``os.replace``
+    into the destination with retries; fall back to ``shutil.move`` and finally in-place write.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    payload = (json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
+    dest = str(path.resolve())
+    tmp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            delete=False,
+            prefix="wanderly_",
+            suffix=".json.tmp",
+            dir=tempfile.gettempdir(),
+        ) as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+            tmp_path = f.name
+
+        last_err: OSError | None = None
+        for attempt in range(8):
+            if attempt:
+                time.sleep(0.04 * attempt)
+            try:
+                os.replace(tmp_path, dest)
+                tmp_path = None
+                return
+            except (PermissionError, OSError) as e:
+                last_err = e
+                winerr = getattr(e, "winerror", None)
+                errno = getattr(e, "errno", None)
+                if isinstance(e, PermissionError) or winerr in (5, 32, 183) or errno in (13, 11, 16, 1224):
+                    continue
+                raise
+
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                shutil.move(tmp_path, dest)
+                tmp_path = None
+                return
+            except OSError as e:
+                last_err = e
+
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                path.write_bytes(Path(tmp_path).read_bytes())
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            tmp_path = None
+            return
+
+        if last_err:
+            raise last_err
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def lookup_trip_id_for_session(session_id: str) -> str | None:
@@ -141,24 +206,49 @@ def write_trip_file(
         _atomic_write_json(trip_file_path(trip_id), doc)
 
 
-def persist_trip(trip_id: str, session_id: str, get_session: Any) -> None:
-    """Persist RAM session slice for ``trip_id`` after mutating ``get_session(session_id)``."""
-    s = get_session(session_id)
+def persist_trip(trip_id: str, session_id: str, get_session: Any) -> bool:
+    """Persist RAM session slice for ``trip_id`` after mutating ``get_session(session_id)``.
+
+    Returns True when the per-trip JSON file was written. If the manifest row is missing but the
+    trip file already exists for this ``trip_id`` and its stored ``session_id`` matches the caller
+    (same browser tab), the manifest row is recreated so saves are not silently dropped.
+    """
+    tid = (trip_id or "").strip()
+    sid = (session_id or "").strip()
+    if not tid or not sid:
+        return False
+    s = get_session(sid)
     manifest = read_manifest()
     trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
     name = _default_trip_name()
     found = False
     for row in trips:
-        if str(row.get("trip_id") or "").strip() == (trip_id or "").strip():
+        if str(row.get("trip_id") or "").strip() == tid:
             found = True
             name = str(row.get("trip_name") or name)[:120] or name
-            row["session_id"] = session_id
+            row["session_id"] = sid
             row["updated_at_ms"] = int(time.time() * 1000)
             break
     if not found:
-        return
+        blob = read_trip_file(tid)
+        if not isinstance(blob, dict):
+            return False
+        blob_sid = str(blob.get("session_id") or "").strip()
+        if blob_sid and blob_sid != sid:
+            return False
+        name = str(blob.get("trip_name") or name)[:120] or name
+        new_row = {"trip_id": tid, "trip_name": name, "session_id": sid, "updated_at_ms": int(time.time() * 1000)}
+        trips = [r for r in trips if str(r.get("trip_id") or "").strip() != tid]
+        trips.append(new_row)
+        manifest["trips"] = trips
+        if not str(manifest.get("active_trip_id") or "").strip():
+            manifest["active_trip_id"] = tid
+        write_manifest(manifest)
+        write_trip_file(tid, name, sid, _session_slice(s))
+        return True
     write_manifest({**manifest, "trips": trips})
-    write_trip_file(trip_id, name, session_id, _session_slice(s))
+    write_trip_file(tid, name, sid, _session_slice(s))
+    return True
 
 
 def apply_trip_to_session(trip_blob: dict[str, Any], get_session: Any) -> str:
@@ -191,6 +281,14 @@ def _manifest_index_trips_by_id(manifest: dict[str, Any]) -> dict[str, dict[str,
         if tid:
             out[tid] = row
     return out
+
+
+def manifest_contains_trip_id(trip_id: str) -> bool:
+    """True if ``trip_id`` appears on a row in ``manifest.json``."""
+    tid = (trip_id or "").strip()
+    if not tid:
+        return False
+    return tid in _manifest_index_trips_by_id(read_manifest())
 
 
 def ensure_manifest_with_trip(

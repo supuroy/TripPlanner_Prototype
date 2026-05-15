@@ -126,7 +126,7 @@ function TripDiskPersistBadge() {
           ? "text-emerald-300/85"
           : "text-white/35";
   return (
-    <span className={`max-w-[min(320px,85vw)] truncate text-center text-[10px] ${colorClass}`} title={text}>
+    <span className={`max-w-[min(320px,85vw)] truncate text-center text-[10px] sm:text-left ${colorClass}`} title={text}>
       {text}
     </span>
   );
@@ -160,7 +160,8 @@ function SavedTripsBar() {
   const chipBtn = `${chip} text-white/55 hover:bg-white/[0.07] hover:text-white/85`;
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5 text-[12px] text-white/40">
+    <div className="flex max-w-full flex-col items-center gap-1 text-[12px] text-white/40">
+      <div className="flex w-full min-w-0 max-w-full flex-nowrap items-center justify-center gap-x-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {wanderlyTripId ? (
         <>
           <label className="sr-only" htmlFor="wanderly-trip-name-input">
@@ -175,7 +176,7 @@ function SavedTripsBar() {
               setTripName(e.target.value);
             }}
             disabled={busy || !wanderlyWorkspaceBootstrapped}
-            className={`min-w-0 max-w-[min(220px,40vw)] ${chip} text-white/80 outline-none placeholder:text-white/25 hover:bg-white/[0.05]`}
+            className={`min-w-0 max-w-[min(220px,40vw)] shrink ${chip} text-white/80 outline-none placeholder:text-white/25 hover:bg-white/[0.05]`}
             placeholder="Name this trip"
             aria-label="Trip name"
             maxLength={120}
@@ -183,7 +184,7 @@ function SavedTripsBar() {
           <button
             type="button"
             disabled={busy || !wanderlyWorkspaceBootstrapped}
-            className={chipBtn}
+            className={`${chipBtn} shrink-0 whitespace-nowrap`}
             onClick={() => {
               if (!tripIdForRename) {
                 setRenameError("Pick a trip in the list before saving the name.");
@@ -204,7 +205,7 @@ function SavedTripsBar() {
           </button>
         </>
       ) : null}
-      <span className="hidden text-white/40 sm:inline">Trips</span>
+      <span className="hidden shrink-0 text-white/40 sm:inline">Trips</span>
       <Select
         value={selectTripValue}
         onValueChange={(id) => {
@@ -217,7 +218,7 @@ function SavedTripsBar() {
         <SelectTrigger
           size="sm"
           aria-label="Active saved trip"
-          className="h-8 max-w-[min(200px,44vw)] min-w-[8rem] gap-1.5 rounded-lg border-white/[0.08] bg-white/[0.04] px-3 py-0 text-[12px] font-normal text-white/75 shadow-none hover:bg-white/[0.07] focus-visible:border-indigo-500/35 focus-visible:ring-1 focus-visible:ring-indigo-500/25 data-[size=sm]:h-8 dark:border-white/[0.08] dark:bg-white/[0.04] dark:hover:bg-white/[0.07] [&_svg]:size-3.5 [&_svg]:opacity-60"
+          className="h-8 max-w-[min(240px,50vw)] min-w-[8rem] shrink-0 gap-1.5 rounded-lg border-white/[0.08] bg-white/[0.04] px-3 py-0 text-[12px] font-normal text-white/75 shadow-none hover:bg-white/[0.07] focus-visible:border-indigo-500/35 focus-visible:ring-1 focus-visible:ring-indigo-500/25 data-[size=sm]:h-8 dark:border-white/[0.08] dark:bg-white/[0.04] dark:hover:bg-white/[0.07] [&_svg]:size-3.5 [&_svg]:opacity-60"
         >
           <SelectValue placeholder="Choose trip" />
         </SelectTrigger>
@@ -240,7 +241,7 @@ function SavedTripsBar() {
       <button
         type="button"
         disabled={busy}
-        className={chipBtn}
+        className={`${chipBtn} shrink-0 whitespace-nowrap`}
         onClick={() => {
           const label = window.prompt("Name the new trip (optional). Cancel to abort.", "");
           if (label === null) return;
@@ -272,8 +273,9 @@ function SavedTripsBar() {
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
         </button>
       ) : null}
+      </div>
       {renameError ? (
-        <span className="basis-full text-center text-[10px] text-amber-200/90" role="alert">
+        <span className="w-full max-w-full px-1 text-center text-[10px] text-amber-200/90" role="alert">
           {renameError}
         </span>
       ) : null}
@@ -285,6 +287,8 @@ function Workspace() {
   const {
     hasStarted,
     wanderlyWorkspaceBootstrapped,
+    wanderlyTripId,
+    savedTrips,
     agentStatus,
     profile,
     expandedDest,
@@ -295,6 +299,10 @@ function Workspace() {
     itineraryLaneQueueDepth,
     tripSwitchTransitioning,
   } = useTrip();
+
+  const showTripFileStatus = Boolean(wanderlyTripId || savedTrips.length > 0);
+  const showPlannerHeaderStatus = Boolean(agentStatus || itineraryLaneQueueDepth > 0);
+  const showHeaderStatusRow = showTripFileStatus || showPlannerHeaderStatus;
 
   useEffect(() => {
     document.body.style.backgroundColor = "#0a0a0f";
@@ -336,45 +344,59 @@ function Workspace() {
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0a0a0f] text-white">
       {/* Header */}
       <header className="shrink-0 z-30 border-b border-white/[0.04] bg-[#0a0a0f]/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1400px] flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:max-w-[min(420px,42vw)]">
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <Compass className="w-3.5 h-3.5 text-white" />
+        <div className="mx-auto flex max-w-[1400px] flex-col gap-2 px-4 py-3 sm:px-6">
+          {/* Top row: full width for trip name + trip switcher; no planner status here. */}
+          <div className="flex min-w-0 flex-row items-center gap-2 sm:gap-3">
+            <div className="flex shrink-0 flex-col gap-1.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                  <Compass className="w-3.5 h-3.5 text-white" />
+                </div>
+                <span className="text-[15px] text-white/70">Wanderly</span>
               </div>
-              <span className="text-[15px] text-white/70">Wanderly</span>
+            </div>
+            <div className="flex min-w-0 flex-1 justify-center px-1 sm:px-2">
+              <SavedTripsBar />
+            </div>
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-[11px] text-white">
+                J
+              </div>
             </div>
           </div>
-          <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-2">
-            <SavedTripsBar />
-            <TripDiskPersistBadge />
-          </div>
-          {(agentStatus || itineraryLaneQueueDepth > 0) && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex min-w-0 max-w-[min(440px,58vw)] flex-1 flex-col items-end gap-0.5 text-right sm:mx-4"
-            >
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 shrink-0 rounded-full bg-indigo-400 animate-pulse" />
-                <span className="text-[12px] text-white/30">
-                  {agentStatus ||
-                    `Refreshing day-by-day plans (${itineraryLaneQueueDepth} in queue, one at a time)…`}
-                </span>
-              </div>
-              {agentStatus && itineraryLaneQueueDepth > 0 ? (
-                <span className="text-[10px] text-white/22">
-                  Itinerary lane: {itineraryLaneQueueDepth} job{itineraryLaneQueueDepth > 1 ? "s" : ""} queued — cards
-                  stay open; updates apply as each run finishes.
-                </span>
+          {/* Second row: trip file / save line + planner queue status share one line. */}
+          {showHeaderStatusRow ? (
+            <div className="flex min-w-0 flex-col gap-1.5 border-t border-white/[0.05] pt-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:border-t-0 sm:pt-0">
+              {showTripFileStatus ? (
+                <div className="flex min-w-0 flex-1 justify-center sm:justify-start">
+                  <TripDiskPersistBadge />
+                </div>
+              ) : (
+                <div className="hidden min-w-0 flex-1 sm:block" aria-hidden />
+              )}
+              {showPlannerHeaderStatus ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex min-w-0 w-full max-w-full shrink-0 flex-col items-center gap-0.5 text-center sm:w-auto sm:max-w-[min(560px,72vw)] sm:items-end sm:text-right"
+                >
+                  <div className="flex items-center justify-center gap-2 sm:justify-end">
+                    <div className="w-1.5 h-1.5 shrink-0 rounded-full bg-indigo-400 animate-pulse" />
+                    <span className="text-[12px] text-white/30">
+                      {agentStatus ||
+                        `Refreshing day-by-day plans (${itineraryLaneQueueDepth} in queue, one at a time)…`}
+                    </span>
+                  </div>
+                  {agentStatus && itineraryLaneQueueDepth > 0 ? (
+                    <span className="max-w-full text-[10px] leading-snug text-white/22">
+                      Itinerary lane: {itineraryLaneQueueDepth} job{itineraryLaneQueueDepth > 1 ? "s" : ""} queued — cards
+                      stay open; updates apply as each run finishes.
+                    </span>
+                  ) : null}
+                </motion.div>
               ) : null}
-            </motion.div>
-          )}
-          <div className="flex shrink-0 items-center gap-2 sm:self-start sm:gap-3">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-[11px] text-white">
-              J
             </div>
-          </div>
+          ) : null}
         </div>
       </header>
 

@@ -194,8 +194,8 @@ def test_transport_plan_commercial_air_skips_heuristic_parse() -> None:
     assert booking_should_include_flight_search(dest, []) is True
 
 
-def test_transport_plan_mixed_empty_segments_falls_through() -> None:
-    """``mixed`` without listed segments is ambiguous — fall back to heuristics."""
+def test_transport_plan_mixed_empty_segments_no_heuristic_fallback() -> None:
+    """``mixed`` without listed segments is authoritative — no regex fallback."""
     dest = {
         "transport_plan": {"primary_mode": "mixed", "summary": "?", "commercial_flight_segments": []},
         "itinerary": [
@@ -207,7 +207,7 @@ def test_transport_plan_mixed_empty_segments_falls_through() -> None:
         ],
         "flights": [],
     }
-    assert booking_should_include_flight_search(dest, []) is True
+    assert booking_should_include_flight_search(dest, []) is False
 
 
 def test_booking_prepare_fingerprint_includes_flight_gate() -> None:

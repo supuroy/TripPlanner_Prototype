@@ -97,7 +97,10 @@ Schema:
 Rules:
 - Always include exactly these six keys in profile_pills in this order. Never add ``tags`` or any other pill — interpretive or \"inner voice\" content belongs **only** in ``advisor_note``.
 - ``advisor_note``: brief sidebar whisper (e.g. what you noticed about tension, pace, or unstated needs). Do **not** duplicate the six pill values as prose; do not list destinations. Max ~220 chars. Empty if redundant with prior context.
-- Infer from the latest user message; use prior pills + context only to disambiguate (prefer new facts over stale values).
+- **Stability (critical):** When ``prior_profile_pills`` already has substantive text for a slot and the latest user message does **not** state a **new** traveler fact for that slot, **copy that pill's value verbatim** from ``prior_profile_pills``. Do **not** paraphrase **vibe**, re-punctuate, or swap synonyms for polish.
+- If the user only asks to refresh/rebuild/regenerate **itineraries** or **day plans** (no new profile facts), return ``profile_pills`` that match ``prior_profile_pills`` **character-for-character** on every value.
+- **Material change** = dates/length, budget, party/pets, home airport, accessibility, or clearly different vibe/pace **intent** stated in the message — only then rewrite the affected pill(s).
+- Infer new facts from the latest user message; use prior pills + context only to disambiguate (prefer new facts over stale values).
 - If unknown, use concise placeholders (e.g. "Flexible dates", "Not specified") for the six required pills only.
 - If the user names a home city or airport (e.g. "from Seattle", "SEA"), set "from" accordingly.
 - **from** (and any city/airport you infer for it): use plain **OTA-style** place text only — e.g. ``Seattle, WA``, ``San Juan, PR``, ``SEA``, ``SFO``. Never narrative qualifiers like ``Seattle-based``, ``…-based hub``, or a trailing `` based``; those strings are not valid flight-search endpoints and confuse downstream tools.

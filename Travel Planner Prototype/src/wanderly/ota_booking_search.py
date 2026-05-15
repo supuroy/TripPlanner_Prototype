@@ -42,6 +42,13 @@ from src.wanderly.session_store import (
     set_booking_prefetch_html,
     set_booking_search_intent,
 )
+from src.wanderly.booking_hooks import (
+    booking_include_commercial_flights,
+    commercial_flight_segments_for_booking,
+    lodging_moves_for_booking,
+    parse_day_range_nights,
+    resolve_booking_hooks_from_dest,
+)
 
 _TRAVEL_PLANNER_ROOT = Path(__file__).resolve().parents[2]
 _REPO_ROOT = _TRAVEL_PLANNER_ROOT.parent
@@ -469,12 +476,33 @@ def _hotel_row_stub(area: str, nights: int, *, image: str, name: str = "Hotel pl
     }
 
 
+_AREA_DATE_SPAN_CHUNK = re.compile(
+    r"^[A-Za-z]{3,9}\s+\d{1,2}\s*[\u2013\-]\s*[A-Za-z]{3,9}\s+\d{1,2}$"
+)
+
+
+def _strip_hotel_card_area_date_spans(area: str) -> str:
+    """
+    Remove ``Sep 19–Sep 21``-style chunks from ``area`` when re-hydrating hotel rows from the
+    session card. Client ``buildPlannedHotelRows`` appends those after `` · ``; without stripping,
+    ``card_multi_fitted`` would feed them back and the client would stack duplicates each prepare.
+    """
+    raw = (area or "").strip()
+    if not raw:
+        return ""
+    parts = [p.strip() for p in re.split(r"\s*·\s*", raw) if p.strip()]
+    base = [p for p in parts if not _AREA_DATE_SPAN_CHUNK.match(p)]
+    joined = " · ".join(base).strip()
+    return joined
+
+
 def _normalize_hotel_rows_from_card(hotels: list[Any], image_fallback: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for h in hotels:
         if not isinstance(h, dict):
             continue
-        area = str(h.get("area") or "").strip()
+        area_raw = str(h.get("area") or "").strip()
+        area = _strip_hotel_card_area_date_spans(area_raw) or "Stay"
         nights = max(1, int(h.get("nights") or 1))
         img = str(h.get("image") or "").strip() or image_fallback
         out.append(
@@ -576,6 +604,27 @@ def _stays_from_json_outline(
     if not rows:
         return None, ""
     return _fit_stays_to_trip_nights(rows, trip_nights, image_fallback=image_fallback), "json_outline"
+
+
+def _stays_from_lodging_moves(
+    dest: dict[str, Any], trip_nights: int, image_fallback: str
+) -> tuple[list[dict[str, Any]] | None, str]:
+    """Prefer itinerary ``lodging_moves`` / ``booking_hooks`` before heuristics or advisor LLM."""
+    moves = lodging_moves_for_booking(dest)
+    if not moves:
+        return None, ""
+    rows: list[dict[str, Any]] = []
+    for m in moves:
+        area = str(m.get("area") or "").strip() or "Stay"
+        nights_raw = m.get("nights")
+        if isinstance(nights_raw, (int, float)) and int(nights_raw) > 0:
+            nights = int(nights_raw)
+        else:
+            nights = parse_day_range_nights(str(m.get("day_range") or ""), default=1)
+        rows.append(_hotel_row_stub(area, max(1, nights), image=image_fallback))
+    if not rows:
+        return None, ""
+    return _fit_stays_to_trip_nights(rows, trip_nights, image_fallback=image_fallback), "transport_lodging_moves"
 
 
 def _stays_from_itinerary_heuristic(
@@ -1015,28 +1064,10 @@ def _transport_hints_text_blob(
 
 
 def _booking_include_flights_from_transport_plan(tp: Any) -> bool | None:
-    """
-    Primary gate for commercial flight search: structured ``transport_plan`` from the itinerary agent.
-
-    Returns ``None`` when the plan is absent or ambiguous so callers can fall back to legacy flags / heuristics.
-    """
-    if not isinstance(tp, dict):
+    """Delegate to ``booking_hooks`` when a structured transport block is present."""
+    if not isinstance(tp, dict) or not str(tp.get("primary_mode") or "").strip():
         return None
-    mode = str(tp.get("primary_mode") or "").strip().lower()
-    segs = tp.get("commercial_flight_segments")
-    n_segs = len([x for x in segs if isinstance(x, dict)]) if isinstance(segs, list) else 0
-
-    if mode == "ground_only":
-        if n_segs > 0:
-            return True
-        return False
-    if mode == "commercial_air":
-        return True
-    if mode == "mixed":
-        if n_segs > 0:
-            return True
-        return None
-    return None
+    return booking_include_commercial_flights({"transport_plan": tp})
 
 
 def _booking_flight_gate_fingerprint(dest: dict[str, Any]) -> str:
@@ -1085,7 +1116,7 @@ def booking_should_include_flight_search(
     3. Non-placeholder ``flights[]`` rows that look like airline inventory (not drive/ferry skeletons).
     4. Regex / keyword heuristics on itinerary + profile text (last resort).
     """
-    planned = _booking_include_flights_from_transport_plan(dest.get("transport_plan"))
+    planned = booking_include_commercial_flights(dest)
     if planned is not None:
         return planned
 
@@ -1299,6 +1330,43 @@ def _merge_profile_budget_into_hotel_search_intent(
         calendar_nights=int(calendar_nights),
         llm_had_prices=bool(ll_min is not None or ll_max is not None),
     )
+    return out
+
+
+def _merge_itinerary_lodging_pet_into_hotel_search_intent(
+    dest: dict[str, Any], search_intent: dict[str, Any] | None
+) -> dict[str, Any]:
+    """When any day ``lodging.pet_friendly`` is true, add ``PETS`` to hotel URL filter intent."""
+    out: dict[str, Any] = copy.deepcopy(search_intent) if isinstance(search_intent, dict) else {}
+    it = dest.get("itinerary")
+    if not isinstance(it, list):
+        return out
+    wants = False
+    for r in it:
+        if not isinstance(r, dict):
+            continue
+        dl = r.get("day_logistics")
+        if not isinstance(dl, dict):
+            continue
+        lod = dl.get("lodging")
+        if isinstance(lod, dict) and lod.get("pet_friendly") is True:
+            wants = True
+            break
+    if not wants:
+        return out
+    h0 = out.get("hotel")
+    h: dict[str, Any] = dict(h0) if isinstance(h0, dict) else {}
+    raw_am = h.get("amenities")
+    am: list[str] = []
+    if isinstance(raw_am, list):
+        for x in raw_am:
+            aa = str(x).strip().upper()
+            if aa in {"PETS", "POOL", "FREE_WIFI", "WIFI", "AIR_CONDITIONING", "GYM", "SPA", "KITCHEN"}:
+                am.append(aa)
+    if "PETS" not in am:
+        am.append("PETS")
+    h["amenities"] = am[:4]
+    out["hotel"] = h
     return out
 
 
@@ -1725,6 +1793,7 @@ Rules:
         calendar_nights=max(1, int(trip_nights)),
         adults=adults,
     )
+    intent = _merge_itinerary_lodging_pet_into_hotel_search_intent(dest, intent)
     set_booking_hotels_plan(sid, did, rows)
     if intent:
         set_booking_search_intent(sid, did, intent)
@@ -1777,6 +1846,11 @@ def resolve_booking_hotels_plan(
     ex = dest.get("hotels") or []
     ex_list = [x for x in ex if isinstance(x, dict)] if isinstance(ex, list) else []
 
+    got, src = _stays_from_lodging_moves(dest, trip_nights, image_fb)
+    if got:
+        booking_search_trace("booking_hotels_plan", source=src, rows=len(got), trip_nights=trip_nights)
+        return got, src
+
     got, src = _stays_from_json_outline(dest, trip_nights, image_fb)
     if got:
         booking_search_trace("booking_hotels_plan", source=src, rows=len(got), trip_nights=trip_nights)
@@ -1797,6 +1871,7 @@ def resolve_booking_hotels_plan(
         booking_search_outline_llm_enabled()
         and bool((session_id or "").strip())
         and trip_nights >= 3
+        and not lodging_moves_for_booking(dest)
         and (
             _itinerary_suggests_multi_base(itinerary_rows)
             or (len(heur) == 1 and trip_nights >= 4 and len(itinerary_rows) >= 4)
@@ -1823,12 +1898,115 @@ def resolve_booking_hotels_plan(
     return heur, hsrc
 
 
+def _structured_lodging_date_span(itinerary_rows: list[dict[str, Any]]) -> tuple[date, date] | None:
+    """
+    Derive trip start/end (inclusive calendar days) from ``day_logistics.lodging`` check_in / check_out
+    (YYYY-MM-DD) when the lazy itinerary populated concrete dates.
+    """
+    check_ins: list[date] = []
+    last_nights: list[date] = []
+    for r in sorted(itinerary_rows, key=lambda x: int(x.get("day") or 0)):
+        dl = r.get("day_logistics")
+        if not isinstance(dl, dict):
+            continue
+        lod = dl.get("lodging")
+        if not isinstance(lod, dict):
+            continue
+        ci = str(lod.get("check_in") or "").strip()[:10]
+        co = str(lod.get("check_out") or "").strip()[:10]
+        if len(ci) < 10 or len(co) < 10:
+            continue
+        try:
+            di = date.fromisoformat(ci[:10])
+            co_d = date.fromisoformat(co[:10])
+        except ValueError:
+            continue
+        check_ins.append(di)
+        # check_out is exclusive in hospitality; last occupied night is the day before.
+        last_nights.append(co_d - timedelta(days=1))
+    if not check_ins or not last_nights:
+        return None
+    sd, ed = min(check_ins), max(last_nights)
+    if sd > ed:
+        return None
+    return sd, ed
+
+
+def _adults_from_itinerary_lodging(itinerary_rows: list[dict[str, Any]]) -> int | None:
+    best: int | None = None
+    for r in itinerary_rows:
+        dl = r.get("day_logistics")
+        if not isinstance(dl, dict):
+            continue
+        lod = dl.get("lodging")
+        if not isinstance(lod, dict):
+            continue
+        for key in ("guests", "traveler_party"):
+            g = lod.get(key)
+            if not isinstance(g, dict):
+                continue
+            a = g.get("adults")
+            if isinstance(a, (int, float)) and 1 <= int(a) <= 9:
+                ai = int(a)
+                best = ai if best is None else max(best, ai)
+    return best
+
+
+def _date_hints_iso_pair(dh: dict[str, Any]) -> tuple[date | None, date | None]:
+    start_d: date | None = None
+    end_d: date | None = None
+    if isinstance(dh.get("start_iso"), str) and str(dh.get("start_iso") or "").strip():
+        try:
+            start_d = date.fromisoformat(str(dh["start_iso"]).strip()[:10])
+        except ValueError:
+            start_d = None
+    if isinstance(dh.get("end_iso"), str) and str(dh.get("end_iso") or "").strip():
+        try:
+            end_d = date.fromisoformat(str(dh["end_iso"]).strip()[:10])
+        except ValueError:
+            end_d = None
+    return start_d, end_d
+
+
+def _itinerary_structured_booking_fast_path(
+    dest: dict[str, Any],
+    itinerary_rows: list[dict[str, Any]],
+    dh: dict[str, Any],
+    hooks: dict[str, Any] | None,
+) -> bool:
+    """
+    True when normalized ``booking_hooks`` exist and lodging is machine-readable (moves or per-day
+    lodging ISO dates), and we can resolve trip dates without advisor LLMs.
+
+    In that mode ``build_booking_criteria`` skips unified bundle, travel-window LLM, params LLM, and
+    relies on ``search_preferences`` on hooks (plus profile budget / pet merges) for URL filters.
+    """
+    if not hooks:
+        return False
+    if not lodging_moves_for_booking(dest) and _structured_lodging_date_span(itinerary_rows) is None:
+        return False
+    if _structured_lodging_date_span(itinerary_rows) is not None:
+        return True
+    s, e = _date_hints_iso_pair(dh)
+    return s is not None and e is not None
+
+
+def _search_intent_from_booking_hooks(hooks: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(hooks, dict):
+        return {}
+    prefs = hooks.get("search_preferences")
+    if isinstance(prefs, dict) and prefs:
+        return _normalize_booking_search_intent(prefs)
+    return {}
+
+
 def build_booking_criteria(
     dest: dict[str, Any],
     profile_pills: list[dict[str, Any]],
     *,
     date_hints: dict[str, Any] | None = None,
     session_id: str | None = None,
+    skip_parallel_prefetch: bool = False,
 ) -> dict[str, Any]:
     """Human-readable lines + parsed dates / adults for search steps."""
     lines: list[str] = []
@@ -1875,8 +2053,16 @@ def build_booking_criteria(
     if sid and did:
         clear_booking_html_prefetch(sid, did)
 
+    hooks_for_struct = resolve_booking_hooks_from_dest(dest)
+    structured_fast = _itinerary_structured_booking_fast_path(dest, itinerary_rows, dh, hooks_for_struct)
+    booking_search_trace(
+        "build_booking_criteria_structured_fast",
+        destination_id=did,
+        structured_fast=bool(structured_fast),
+    )
+
     unified: dict[str, Any] | None = None
-    if sid:
+    if sid and not structured_fast:
         unified = run_booking_unified_bundle_llm(
             dest=dest,
             profile_pills=profile_pills,
@@ -1890,6 +2076,8 @@ def build_booking_criteria(
     end_d: date | None = None
     date_guess_reason: str | None = None
     llm_travel_window_ok = False
+    exact_start: date | None = None
+    exact_end: date | None = None
     if unified:
         start_d = unified["start_d"]
         end_d = unified["end_d"]
@@ -1897,48 +2085,78 @@ def build_booking_criteria(
         llm_travel_window_ok = True
 
     if not unified:
-        if booking_search_dates_llm_enabled() and sid and when_s.strip():
-            tw = run_booking_travel_window_llm(
-                profile_pills=profile_pills,
-                dest=dest,
-                itinerary_days=n_days,
-                session_id=sid,
-            )
-            if tw:
-                start_d, end_d = tw
-                llm_travel_window_ok = True
-                date_guess_reason = "llm_travel_window"
+        if structured_fast:
+            span = _structured_lodging_date_span(itinerary_rows)
+            if span:
+                start_d, end_d = span
+                date_guess_reason = "itinerary_lodging_iso"
+            else:
+                hs, he = _date_hints_iso_pair(dh)
+                start_d, end_d = hs, he
+                if start_d and not end_d:
+                    end_d = start_d + timedelta(days=max(1, n_days) - 1)
+                if start_d and end_d:
+                    date_guess_reason = "itinerary_date_hints"
+            if not start_d or not end_d:
+                exact_start, exact_end = _when_pill_dates(when_s, itinerary_days=n_days)
+                start_d = start_d or exact_start
+                end_d = end_d or exact_end
+            if not start_d or not end_d:
+                gv, ge = _guess_dates_from_vague_when(when_s, itinerary_days=n_days)
+                if gv is not None and ge is not None:
+                    start_d = start_d or gv
+                    end_d = end_d or ge
+                    if exact_start is None and exact_end is None and not date_guess_reason:
+                        date_guess_reason = "vague"
+            if start_d is None:
+                start_d, end_d = _default_search_dates(n_days)
+                date_guess_reason = "default"
+            elif end_d is None:
+                end_d = start_d + timedelta(days=max(1, n_days) - 1)
+            llm_travel_window_ok = bool(start_d and end_d)
+        else:
+            if booking_search_dates_llm_enabled() and sid and when_s.strip():
+                tw = run_booking_travel_window_llm(
+                    profile_pills=profile_pills,
+                    dest=dest,
+                    itinerary_days=n_days,
+                    session_id=sid,
+                )
+                if tw:
+                    start_d, end_d = tw
+                    llm_travel_window_ok = True
+                    date_guess_reason = "llm_travel_window"
 
-        if not llm_travel_window_ok and isinstance(dh.get("start_iso"), str) and dh["start_iso"].strip():
-            try:
-                start_d = date.fromisoformat(dh["start_iso"].strip()[:10])
-            except ValueError:
-                start_d = None
-        if not llm_travel_window_ok and isinstance(dh.get("end_iso"), str) and dh["end_iso"].strip():
-            try:
-                end_d = date.fromisoformat(dh["end_iso"].strip()[:10])
-            except ValueError:
-                end_d = None
+            if not llm_travel_window_ok and isinstance(dh.get("start_iso"), str) and dh["start_iso"].strip():
+                try:
+                    start_d = date.fromisoformat(dh["start_iso"].strip()[:10])
+                except ValueError:
+                    start_d = None
+            if not llm_travel_window_ok and isinstance(dh.get("end_iso"), str) and dh["end_iso"].strip():
+                try:
+                    end_d = date.fromisoformat(dh["end_iso"].strip()[:10])
+                except ValueError:
+                    end_d = None
 
-        exact_start, exact_end = (None, None)
-        if start_d is None or end_d is None:
-            exact_start, exact_end = _when_pill_dates(when_s, itinerary_days=n_days)
-            start_d = start_d or exact_start
-            end_d = end_d or exact_end
+            exact_start, exact_end = (None, None)
+            if start_d is None or end_d is None:
+                exact_start, exact_end = _when_pill_dates(when_s, itinerary_days=n_days)
+                start_d = start_d or exact_start
+                end_d = end_d or exact_end
 
-        if start_d is None or end_d is None:
-            gv, ge = _guess_dates_from_vague_when(when_s, itinerary_days=n_days)
-            if gv is not None and ge is not None:
-                start_d = start_d or gv
-                end_d = end_d or ge
-                if exact_start is None and exact_end is None:
-                    date_guess_reason = "vague"
+            if start_d is None or end_d is None:
+                gv, ge = _guess_dates_from_vague_when(when_s, itinerary_days=n_days)
+                if gv is not None and ge is not None:
+                    start_d = start_d or gv
+                    end_d = end_d or ge
+                    if exact_start is None and exact_end is None:
+                        date_guess_reason = "vague"
 
-        if start_d is None:
-            start_d, end_d = _default_search_dates(n_days)
-            date_guess_reason = "default"
-        elif end_d is None:
-            end_d = start_d + timedelta(days=max(1, n_days) - 1)
+            if start_d is None:
+                start_d, end_d = _default_search_dates(n_days)
+                date_guess_reason = "default"
+            elif end_d is None:
+                end_d = start_d + timedelta(days=max(1, n_days) - 1)
 
     shifted_past_window = False
     if start_d is not None and end_d is not None and start_d < date.today():
@@ -1947,6 +2165,8 @@ def build_booking_criteria(
 
     if unified:
         date_resolve_source = "unified_bundle_llm"
+    elif structured_fast:
+        date_resolve_source = "itinerary_structured"
     else:
         date_resolve_source = date_guess_reason or ""
         if not date_resolve_source:
@@ -1973,6 +2193,10 @@ def build_booking_criteria(
         adults = int(unified["adults"])
     else:
         adults = _parse_adults_from_who(who)
+        if structured_fast:
+            ia = _adults_from_itinerary_lodging(itinerary_rows)
+            if ia is not None:
+                adults = ia
     ao_raw = dh.get("adults")
     if isinstance(ao_raw, bool):
         ao_raw = None
@@ -1996,6 +2220,10 @@ def build_booking_criteria(
         lines.append("Search dates: advisor interpretation of your trip timing (LLM).")
     if date_guess_reason == "unified_bundle_llm":
         lines.append("Search dates, lodging split, and Expedia filters from a single advisor bundle (LLM).")
+    if date_guess_reason == "itinerary_lodging_iso":
+        lines.append("Search dates: from day_logistics.lodging check-in/out on the itinerary (structured).")
+    if date_guess_reason == "itinerary_date_hints":
+        lines.append("Search dates: profile/date hints aligned with itinerary transport hooks.")
     if date_guess_reason == "vague" and when_s:
         lines.append(
             f"Dates for search are our best guess from “{when_s}” (you can narrow this later)."
@@ -2037,6 +2265,8 @@ def build_booking_criteria(
         lines.append("Lodging: stays split from your day-by-day plan (advisor outline).")
     elif outline_src == "json_outline":
         lines.append("Lodging: using booking_search_outline from the destination card.")
+    elif outline_src == "transport_lodging_moves":
+        lines.append("Lodging: overnight bases from itinerary transport hooks (lodging_moves).")
 
     flights = dest.get("flights") or []
     route_hint = ""
@@ -2088,37 +2318,47 @@ def build_booking_criteria(
 
     search_intent: dict[str, Any] = {}
     if sid and did:
-        cached_intent = get_booking_search_intent(sid, did)
-        if isinstance(cached_intent, dict):
-            search_intent = cached_intent
+        if structured_fast:
+            search_intent = _search_intent_from_booking_hooks(hooks_for_struct)
             booking_search_trace(
                 "booking_search_intent",
-                source="session_cache",
+                source="itinerary_hooks",
                 destination_id=did,
                 has_flight=bool(search_intent.get("flight")),
                 has_hotel=bool(search_intent.get("hotel")),
             )
         else:
-            generated = run_booking_search_params_llm(
-                dest=dest,
-                profile_pills=profile_pills,
-                itinerary_rows=itinerary_rows,
-                criteria_lines=lines,
-                start_iso=start_iso,
-                end_iso=end_iso,
-                trip_nights=trip_nights,
-                session_id=sid,
-            )
-            if isinstance(generated, dict) and generated:
-                search_intent = generated
-                set_booking_search_intent(sid, did, search_intent)
+            cached_intent = get_booking_search_intent(sid, did)
+            if isinstance(cached_intent, dict):
+                search_intent = cached_intent
                 booking_search_trace(
                     "booking_search_intent",
-                    source="advisor_llm",
+                    source="session_cache",
                     destination_id=did,
                     has_flight=bool(search_intent.get("flight")),
                     has_hotel=bool(search_intent.get("hotel")),
                 )
+            else:
+                generated = run_booking_search_params_llm(
+                    dest=dest,
+                    profile_pills=profile_pills,
+                    itinerary_rows=itinerary_rows,
+                    criteria_lines=lines,
+                    start_iso=start_iso,
+                    end_iso=end_iso,
+                    trip_nights=trip_nights,
+                    session_id=sid,
+                )
+                if isinstance(generated, dict) and generated:
+                    search_intent = generated
+                    set_booking_search_intent(sid, did, search_intent)
+                    booking_search_trace(
+                        "booking_search_intent",
+                        source="advisor_llm",
+                        destination_id=did,
+                        has_flight=bool(search_intent.get("flight")),
+                        has_hotel=bool(search_intent.get("hotel")),
+                    )
 
     search_intent = _merge_profile_budget_into_hotel_search_intent(
         search_intent if isinstance(search_intent, dict) else {},
@@ -2126,6 +2366,7 @@ def build_booking_criteria(
         calendar_nights=trip_nights,
         adults=adults,
     )
+    search_intent = _merge_itinerary_lodging_pet_into_hotel_search_intent(dest, search_intent)
     if sid and did and search_intent:
         set_booking_search_intent(sid, did, search_intent)
 
@@ -2143,7 +2384,16 @@ def build_booking_criteria(
         "search_intent": search_intent if search_intent else None,
         "include_flight_search": include_flight_search,
     }
+    if skip_parallel_prefetch and sid and did:
+        booking_search_trace(
+            "prefetch_skipped_by_request",
+            destination_id=did,
+            session_id_prefix=sid[:12] if len(sid) >= 12 else sid,
+        )
     jobs: list[tuple[str, str]] = []
+    # Always persist criteria snapshot when we have dates so ``run_booking_search_step`` can use
+    # ``crit_src=snapshot`` instead of re-running LLMs. Background Playwright prefetch is optional
+    # and gated separately (``skip_parallel_prefetch`` used e.g. by single-hotel search).
     if sid and did and start_d and end_d:
         fp = date_hints_fingerprint(date_hints if isinstance(date_hints, dict) else None)
         snap = dict(ret)
@@ -2156,26 +2406,27 @@ def build_booking_criteria(
             date_hints_fp_sha8=hashlib.sha256(fp.encode("utf-8")).hexdigest()[:8],
             date_hints_fp_len=len(fp),
         )
-        jobs = _collect_booking_prefetch_jobs(
-            dest, ret, profile_pills, start_d=start_d, end_d=end_d, adults=adults
-        )
-        if booking_search_parallel_prefetch_enabled() and jobs:
-            prefetch_gen = bump_booking_prefetch_generation(sid, did)
-
-            def _bg_prefetch() -> None:
-                _run_booking_prefetch_parallel(sid, did, jobs, expected_generation=prefetch_gen)
-
-            threading.Thread(
-                target=_bg_prefetch,
-                daemon=True,
-                name=f"wanderly-booking-prefetch-{did[:12]}",
-            ).start()
-            booking_search_trace(
-                "prefetch_parallel_scheduled_async",
-                destination_id=did,
-                job_count=len(jobs),
-                prefetch_generation=prefetch_gen,
+        if not skip_parallel_prefetch:
+            jobs = _collect_booking_prefetch_jobs(
+                dest, ret, profile_pills, start_d=start_d, end_d=end_d, adults=adults
             )
+            if booking_search_parallel_prefetch_enabled() and jobs:
+                prefetch_gen = bump_booking_prefetch_generation(sid, did)
+
+                def _bg_prefetch() -> None:
+                    _run_booking_prefetch_parallel(sid, did, jobs, expected_generation=prefetch_gen)
+
+                threading.Thread(
+                    target=_bg_prefetch,
+                    daemon=True,
+                    name=f"wanderly-booking-prefetch-{did[:12]}",
+                ).start()
+                booking_search_trace(
+                    "prefetch_parallel_scheduled_async",
+                    destination_id=did,
+                    job_count=len(jobs),
+                    prefetch_generation=prefetch_gen,
+                )
     build_elapsed_ms = int((time.perf_counter() - t_build) * 1000)
     booking_search_trace(
         "build_booking_criteria_done",
@@ -2184,6 +2435,7 @@ def build_booking_criteria(
         unified_bundle_applied=bool(unified),
         booking_outline_source=outline_src,
         prefetch_jobs=len(jobs),
+        skip_parallel_prefetch=bool(skip_parallel_prefetch),
     )
     return ret
 
@@ -2772,6 +3024,8 @@ def booking_prepare_request_fingerprint(
     dest: dict[str, Any],
     profile_pills: list[dict[str, Any]],
     date_hints: dict[str, Any] | None,
+    *,
+    skip_parallel_prefetch: bool = False,
 ) -> str:
     """Digest for deduping duplicate ``booking_search_prepare`` calls with identical inputs."""
     did = str(dest.get("id") or "")
@@ -2799,6 +3053,7 @@ def booking_prepare_request_fingerprint(
         "itin": rows_digest,
         "hints": hints,
         "flight_gate_fp": _booking_flight_gate_fingerprint(dest),
+        "skip_parallel_prefetch": bool(skip_parallel_prefetch),
     }
     return hashlib.sha256(json.dumps(blob, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
@@ -2973,6 +3228,7 @@ def _collect_booking_prefetch_jobs(
     search_intent = _merge_profile_budget_into_hotel_search_intent(
         search_intent, profile_pills, calendar_nights=cal_nights, adults=adults
     )
+    search_intent = _merge_itinerary_lodging_pet_into_hotel_search_intent(dest, search_intent)
     include_flights = meta.get("include_flight_search", True) is not False
     if include_flights:
         from_raw = _profile_pill_value(profile_pills, "from")
@@ -3596,12 +3852,13 @@ def run_booking_search_step(
     date_hints: dict[str, Any] | None = None,
     session_id: str | None = None,
     flight_leg: str | None = None,
+    flight_segment_index: int | None = None,
 ) -> dict[str, Any]:
     """
     ``step``: ``flight`` | ``hotel``.
     ``hotel_index``: required when step is ``hotel`` (0-based).
-    ``flight_leg``: for ``step=flight``, ``outbound`` (default) or ``return`` (second one-way search,
-    destination → home on the trip end date).
+    ``flight_leg``: for ``step=flight``, ``outbound`` (default) or ``return`` (legacy two-leg trips).
+    ``flight_segment_index``: when set, searches ``commercial_flight_segments[flight_segment_index]`` (one-way).
     """
     if not booking_search_enabled():
         return {"ok": False, "error": "Booking search disabled (BOOKING_SEARCH_ENABLED=0)."}
@@ -3625,7 +3882,9 @@ def run_booking_search_step(
         meta = {k: v for k, v in snap.items() if not (isinstance(k, str) and k.startswith("_"))}
         crit_src = "snapshot"
     else:
-        meta = build_booking_criteria(dest, profile_pills, date_hints=date_hints, session_id=session_id)
+        meta = build_booking_criteria(
+            dest, profile_pills, date_hints=date_hints, session_id=session_id, skip_parallel_prefetch=True
+        )
         crit_src = "rebuild"
     crit_elapsed_ms = int((time.perf_counter() - t_crit) * 1000)
     booking_search_trace(
@@ -3661,6 +3920,7 @@ def run_booking_search_step(
     search_intent = _merge_profile_budget_into_hotel_search_intent(
         search_intent, profile_pills, calendar_nights=calendar_nights, adults=adults
     )
+    search_intent = _merge_itinerary_lodging_pet_into_hotel_search_intent(dest, search_intent)
     fl_leg = (flight_leg or "outbound").strip().lower()
     if fl_leg not in ("outbound", "return"):
         fl_leg = "outbound"
@@ -3681,10 +3941,43 @@ def run_booking_search_step(
                     "flight_leg": fl_leg,
                     "reason": "no_commercial_flight_for_ground_trip",
                 }
+            segments = commercial_flight_segments_for_booking(dest, profile_pills)
+            seg_ix: int | None = None
+            if flight_segment_index is not None and 0 <= int(flight_segment_index) < len(segments):
+                seg_ix = int(flight_segment_index)
+            elif segments:
+                if fl_leg == "return":
+                    ret_ix = None
+                    for i, s in enumerate(segments):
+                        if str(s.get("role") or "").strip().lower() == "return":
+                            ret_ix = i
+                    seg_ix = ret_ix if ret_ix is not None else len(segments) - 1
+                else:
+                    seg_ix = 0
+
             from_l = _profile_pill_value(profile_pills, "from")
             to_l = _flight_to_label_for_booking(dest, route_hint)
             if not (to_l or "").strip():
                 to_l = None
+            depart_d = start_d
+            return_home: date | None = end_d if end_d > start_d else None
+            ret_origin_resolved: str | None = None
+            use_segment = seg_ix is not None and segments
+            if use_segment:
+                seg = segments[seg_ix]  # type: ignore[index]
+                from_l = str(seg.get("from_search_label") or from_l or "").strip() or from_l
+                to_l = str(seg.get("to_search_label") or to_l or "").strip() or to_l
+                seg_role = str(seg.get("role") or "").strip().lower()
+                if seg_role == "return":
+                    fl_leg = "return"
+                elif seg_role in ("inbound", "within_trip"):
+                    fl_leg = "outbound"
+                day_off = seg.get("day_offset")
+                if isinstance(day_off, int) and day_off >= 0:
+                    depart_d = start_d + timedelta(days=day_off)
+                elif seg_role == "return" and return_home:
+                    depart_d = return_home
+                return_home = None
             booking_search_trace(
                 "flight_labels",
                 destination_id=dest_id,
@@ -3693,9 +3986,10 @@ def run_booking_search_step(
                 route_hint_card=route_hint or "",
                 adults=adults,
                 flight_leg=fl_leg,
+                flight_segment_index=seg_ix,
+                segment_count=len(segments),
             )
-            return_home = end_d if end_d > start_d else None
-            if fl_leg == "return" and (not return_home or return_home <= start_d):
+            if not use_segment and fl_leg == "return" and (not return_home or return_home <= start_d):
                 booking_search_trace(
                     "step_skip_return_no_window",
                     destination_id=dest_id,
@@ -3707,21 +4001,24 @@ def run_booking_search_step(
                     "step": step,
                     "flight_leg": fl_leg,
                 }
-            ret_origin_resolved: str | None = None
-            if fl_leg == "return":
+            if use_segment:
+                ret_origin_resolved = None
+            elif fl_leg == "return":
                 ret_origin_resolved = _flight_return_origin_label(dest, to_l or "").strip() or None
             route_llm = route_hint or f"To {name}"
-            if fl_leg == "return":
+            if use_segment and from_l and to_l:
+                route_llm = f"{from_l} → {to_l}"
+            elif fl_leg == "return":
                 home_bit = (from_l or "").strip() or "Home"
                 dest_bit = (ret_origin_resolved or to_l or "").strip() or name
                 route_llm = f"{dest_bit} → {home_bit}"
             url, round_trip = _build_flight_search_url(
-                depart=start_d,
+                depart=depart_d,
                 return_d=return_home,
                 adults=adults,
                 from_label=from_l,
                 to_label=to_l,
-                flight_leg=fl_leg,
+                flight_leg="outbound" if use_segment else fl_leg,
                 search_intent=search_intent,
                 return_origin_label=ret_origin_resolved,
             )
@@ -3733,7 +4030,7 @@ def run_booking_search_step(
                     "or set EXPEDIA_FLIGHT_SEARCH_CATALOG_JSON.",
                     "step": step,
                 }
-            ck = f"flight:{fl_leg}"
+            ck = f"flight:{seg_ix if use_segment else fl_leg}"
             t_html = time.perf_counter()
             ph = pop_booking_prefetch_html(sid, dest_id, ck) if sid else None
             html = ph if ph else _fetch_html(url)
@@ -3805,6 +4102,8 @@ def run_booking_search_step(
                 "round_trip": round_trip,
                 "flight_leg": fl_leg,
             }
+            if use_segment and seg_ix is not None:
+                out_flight["flight_segment_index"] = seg_ix
             if booking_search_api_debug_enabled():
                 dbg: dict[str, Any] = {
                     "step": "flight",

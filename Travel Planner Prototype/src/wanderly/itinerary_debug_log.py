@@ -19,6 +19,11 @@ def itinerary_debug_verbose() -> bool:
     return (os.environ.get("WANDERLY_ITIN_DEBUG") or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def logistics_debug_enabled() -> bool:
+    """Extra per-build logistics / ``day_logistics`` traces (raw keys, first row)."""
+    return (os.environ.get("WANDERLY_LOGISTICS_DEBUG") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def itinerary_file_log_enabled() -> bool:
     """Mirror hero_images: default on unless explicitly disabled."""
     v = (os.environ.get("WANDERLY_ITIN_LOG") or "1").strip().lower()
@@ -29,7 +34,7 @@ def log_itinerary_build(msg: str) -> None:
     """Console + ``.cache/itinerary_debug.log`` when ``WANDERLY_ITIN_LOG`` is not disabled (default on).
 
     Wanderly uses this for itinerary rows, HTTP milestones (``path=http.…``), advisor failures
-    (``path=cursor_advisor.…``), and Cursor transport (``CURSOR path=…``).
+    (``path=cursor_advisor.…``), Cursor transport (``CURSOR path=…``), and ``LOGISTICS_TRACE`` lines.
     """
     if not itinerary_file_log_enabled():
         return

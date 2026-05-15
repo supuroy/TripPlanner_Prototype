@@ -58,9 +58,45 @@ def test_persist_round_trip(trips_dir: Path) -> None:
     s = gs(sid)
     s["ui_destinations"] = [{"id": "x", "name": "Test"}]
     s["profile_pills"] = [{"key": "when", "label": "When", "value": "June", "icon": "📅"}]
-    trip_disk_store.persist_trip(tid, sid, gs)
+    assert trip_disk_store.persist_trip(tid, sid, gs) is True
     raw = json.loads((trips_dir / f"{tid}.json").read_text(encoding="utf-8"))
     assert raw["session"]["ui_destinations"][0]["id"] == "x"
+
+
+def test_persist_repairs_manifest_when_row_missing(trips_dir: Path) -> None:
+    store: dict = {}
+    gs = _fake_get_session(store)
+    sid = str(uuid.uuid4())
+    meta = trip_disk_store.bootstrap(sid, None, gs)
+    tid = meta["trip_id"]
+    mf = trip_disk_store.read_manifest()
+    mf["trips"] = []
+    mf["active_trip_id"] = ""
+    trip_disk_store.write_manifest(mf)
+    gs(sid)["ui_destinations"] = [{"id": "d1", "name": "Tokyo", "hotels": [{"name": "Hotel Zen"}]}]
+    assert trip_disk_store.persist_trip(tid, sid, gs) is True
+    m2 = trip_disk_store.read_manifest()
+    assert trip_disk_store.manifest_contains_trip_id(tid)
+    raw = json.loads((trips_dir / f"{tid}.json").read_text(encoding="utf-8"))
+    assert raw["session"]["ui_destinations"][0].get("hotels")
+
+
+def test_persist_no_repair_when_trip_file_session_mismatch(trips_dir: Path) -> None:
+    store: dict = {}
+    gs = _fake_get_session(store)
+    sid = str(uuid.uuid4())
+    meta = trip_disk_store.bootstrap(sid, None, gs)
+    tid = meta["trip_id"]
+    p = trips_dir / f"{tid}.json"
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    doc["session_id"] = "other-session-id"
+    p.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    mf = trip_disk_store.read_manifest()
+    mf["trips"] = []
+    mf["active_trip_id"] = ""
+    trip_disk_store.write_manifest(mf)
+    gs(sid)["ui_destinations"] = [{"id": "d1", "hotels": [{"name": "X"}]}]
+    assert trip_disk_store.persist_trip(tid, sid, gs) is False
 
 
 def test_activate_second_trip_isolated_sessions(trips_dir: Path) -> None:

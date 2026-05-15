@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
-import type { ItineraryBudgetGuidance, WanderlyProfilePillDTO, WanderlyTransportPlan, WanderlyWorkspaceDTO } from "../../types/workspace";
+import type {
+  DayLogistics,
+  ItineraryBudgetGuidance,
+  WanderlyBookingHooks,
+  WanderlyProfilePillDTO,
+  WanderlyTransportPlan,
+  WanderlyWorkspaceDTO,
+} from "../../types/workspace";
 import type { WanderlyTripSummary } from "../../api/wanderly";
 import {
   planReview,
@@ -80,7 +87,7 @@ export interface DestCard {
   itinerary_dirty?: boolean;
   /** Destination-scoped chat (expanded card conversation panel). */
   conversation?: ConversationMessage[];
-  /** User confirmed "Ready to Book" — enables flip to detailed booking view. */
+  /** Legacy: previously gated flip to live booking timeline; flip is now itinerary-driven (logistics). */
   readyToBook?: boolean;
   /** When true, normal-view flight/hotel strips use live search summaries; otherwise planner ``budget_guidance`` bands. */
   liveBookingEstimates?: boolean;
@@ -92,6 +99,8 @@ export interface DestCard {
   needs_commercial_flight?: boolean;
   /** Itinerary agent structured transport (authoritative for booking vs regex fallback). */
   transport_plan?: WanderlyTransportPlan;
+  /** Canonical book-time hooks from itinerary build (``transport`` mirrors ``transport_plan``). */
+  booking_hooks?: WanderlyBookingHooks;
 }
 
 export type TripDiskPersistStatus = "unknown" | "saved" | "dirty" | "saving";
@@ -123,6 +132,8 @@ export interface ItinDay {
   accent?: string;
   /** Optional per-day movement mode from itinerary LLM (aligns with ``transport_plan``). */
   day_transport?: { mode?: string; note?: string };
+  /** URL-oriented flight/lodging/surface slice for booking builders (from ``day_logistics`` JSON). */
+  day_logistics?: DayLogistics | null;
 }
 
 export interface FlightOption {
@@ -1211,7 +1222,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           const rev = r.review;
           if (!rev || rev.skipped) return;
           const md = planReviewMarkdownForUi(rev.assistant_markdown);
-          if (md) addResponse({ type: "message", role: "agent", text: `**Trip review (advisor)**\n\n${md}` });
+          if (md) addResponse({ type: "message", role: "agent", text: `**Trip review (travel agent)**\n\n${md}` });
           for (const pr of rev.suggested_prompts || []) {
             if (typeof pr === "string" && pr.trim()) addResponse({ type: "tip", text: `Try asking: ${pr}` });
           }

@@ -75,9 +75,9 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     cardIsWaiting && !input.trim()
       ? liveCaption || "Working…"
       : mode === "panel"
-        ? "Ask naturally — LLM picks planner vs quick advisor; /trip forces the planner."
+        ? "Ask naturally — LLM picks planner vs travel agent; /trip forces the planner."
         : mode === "footer"
-          ? "Ask or describe changes — LLM routes planner vs advisor; /trip forces the planner."
+          ? "Ask or describe changes — LLM routes planner vs travel agent; /trip forces the planner."
           : "Ask about this place — routing uses a small LLM; /trip forces the full planner.";
 
   useEffect(() => {

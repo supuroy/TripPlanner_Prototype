@@ -1,6 +1,17 @@
 """Unit tests for Cursor SSE retry helpers (no live HTTP)."""
 
-from src.integrations.cursor_agent_client import assistant_text_from_run_json, _sse_retry_sleep_seconds
+from src.integrations.cursor_agent_client import (
+    _is_recoverable_cursor_stream_sse_message,
+    assistant_text_from_run_json,
+    _sse_retry_sleep_seconds,
+)
+
+
+def test_recoverable_stream_sse_message_no_longer_available() -> None:
+    assert _is_recoverable_cursor_stream_sse_message("Run stream is no longer available")
+    assert _is_recoverable_cursor_stream_sse_message("STREAM ENDED")
+    assert not _is_recoverable_cursor_stream_sse_message("Invalid API key")
+    assert not _is_recoverable_cursor_stream_sse_message("")
 
 
 def test_sse_retry_sleep_bounded_exponential() -> None:

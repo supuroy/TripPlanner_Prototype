@@ -7,7 +7,7 @@ import { useTrip, ProfilePill, SuggestedAction, RESERVE_DESTINATIONS, type DestC
 import { motion, AnimatePresence } from "motion/react";
 import {
   Pencil, Check, X, AlertTriangle, Lightbulb, CheckCircle, Info,
-  Play, Loader2, Zap,
+  Play, Loader2, Zap, Sparkles,
 } from "lucide-react";
 
 function profilesDiffer(a: ProfilePill[], b: ProfilePill[]): boolean {
@@ -993,8 +993,8 @@ export function ProfilePanel() {
         {hasPending && (
           <div className="mb-2 rounded-lg border border-amber-400/25 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-100/90 leading-snug">
             You have unsaved traveler settings. Press <span className="font-medium text-white">Update trip</span> to save
-            them—existing itineraries and booking results stay until you ask the planner to refresh or follow an advisor
-            suggestion.
+            them—existing itineraries and booking results stay until you ask the planner to refresh or follow a travel
+            agent suggestion.
           </div>
         )}
         {hasPending && (
@@ -1041,8 +1041,8 @@ export function ProfilePanel() {
             className="mt-1"
           >
             <div className="flex items-center gap-2 mb-2">
-              <Lightbulb className="w-3 h-3 text-indigo-400" />
-              <span className="text-[11px] text-white/30 uppercase tracking-widest">Advisor</span>
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-400" aria-hidden />
+              <span className="text-[11px] font-medium text-white/45 tracking-wide">Travel agent</span>
             </div>
             <div className="flex flex-col gap-2">
               <AnimatePresence>

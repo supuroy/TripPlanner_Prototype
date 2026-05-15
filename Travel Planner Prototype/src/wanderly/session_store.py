@@ -8,6 +8,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from src.wanderly.itinerary_debug_log import itinerary_file_log_enabled, log_itinerary_build
+
 _lock = threading.RLock()
 _sessions: dict[str, dict[str, Any]] = {}
 
@@ -32,6 +34,61 @@ def _cursor_agent_ids_file() -> Path:
         p = root / ".cache" / "cursor_agent_ids.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def _replace_path_with_retries(src: Path, dst: Path) -> None:
+    """``os.replace``-style move of ``src`` onto ``dst`` with retries for transient Windows locks.
+
+    OneDrive, antivirus, and editors often hold a brief exclusive lock on the destination JSON;
+    ``[WinError 5] Access is denied`` on ``.tmp`` → ``.json`` replace is common under those conditions.
+    """
+    last_err: OSError | None = None
+    max_attempts = int((os.environ.get("WANDERLY_SNAPSHOT_REPLACE_RETRIES") or "18").strip() or "18")
+    max_attempts = max(3, min(max_attempts, 60))
+    base = float((os.environ.get("WANDERLY_SNAPSHOT_REPLACE_DELAY_S") or "0.04").strip() or "0.04")
+    base = max(0.01, min(base, 0.5))
+    for attempt in range(max_attempts):
+        try:
+            src.replace(dst)
+            return
+        except PermissionError as e:
+            last_err = e
+        except OSError as e:
+            if getattr(e, "winerror", None) == 5 or getattr(e, "errno", None) in (13, 1):
+                last_err = e
+            else:
+                raise
+        if attempt < max_attempts - 1:
+            time.sleep(base * (attempt + 1))
+    # Last resort: non-atomic overwrite (may succeed when rename is blocked but the file is writable).
+    try:
+        payload = src.read_text(encoding="utf-8")
+        dst.write_text(payload, encoding="utf-8")
+    except OSError as e2:
+        if last_err is not None:
+            raise last_err from e2
+        raise
+    finally:
+        try:
+            if src.is_file():
+                src.unlink()
+        except OSError:
+            pass
+
+
+def _write_text_file_atomically(path: Path, text: str) -> None:
+    """Write UTF-8 text to ``path`` via a unique temp file + replace (Windows-lock tolerant)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:10]}.tmp"
+    tmp.write_text(text, encoding="utf-8")
+    try:
+        _replace_path_with_retries(tmp, path)
+    finally:
+        try:
+            if tmp.is_file():
+                tmp.unlink()
+        except OSError:
+            pass
 
 
 def _parse_cursor_agent_file_payload(raw: object) -> dict[str, dict[str, str]]:
@@ -80,11 +137,9 @@ def _write_cursor_agent_file_unlocked(store: dict[str, dict[str, str]]) -> None:
     if not _cursor_agent_ids_persist_enabled():
         return
     path = _cursor_agent_ids_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
     doc = {"v": 1, "by_session": store}
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    text = json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+    _write_text_file_atomically(path, text)
 
 
 def reset_cursor_agent_file_cache_for_tests() -> None:
@@ -137,11 +192,9 @@ def _write_all_session_snapshots_to_disk(store: dict[str, dict[str, Any]]) -> No
     if not _session_snapshot_persist_enabled():
         return
     path = _wanderly_session_snapshots_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
     doc = {"v": 1, "by_session": store}
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=True, default=str) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    text = json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=True, default=str) + "\n"
+    _write_text_file_atomically(path, text)
 
 
 def _session_snapshot_entry_from_session_unlocked(s: dict[str, Any]) -> dict[str, Any]:
@@ -253,6 +306,7 @@ def patch_session_destination_itinerary(
     booking_search_hints: dict[str, Any] | None = None,
     needs_commercial_flight: bool | None = None,
     transport_plan: dict[str, Any] | None = None,
+    booking_hooks: dict[str, Any] | None = None,
 ) -> None:
     """Merge a completed lazy itinerary into stored session rows and persist (survives tab close)."""
     sid = (session_id or "").strip()
@@ -286,6 +340,8 @@ def patch_session_destination_itinerary(
                 row["needs_commercial_flight"] = needs_commercial_flight
             if isinstance(transport_plan, dict) and transport_plan.get("primary_mode"):
                 row["transport_plan"] = transport_plan
+            if isinstance(booking_hooks, dict) and isinstance(booking_hooks.get("transport"), dict):
+                row["booking_hooks"] = booking_hooks
             out_list.append(row)
         return out_list if hit else None
 
@@ -307,6 +363,14 @@ def patch_session_destination_itinerary(
                 changed = True
 
     if changed:
+        dl_in = sum(1 for x in itinerary if isinstance(x, dict) and x.get("day_logistics"))
+        if itinerary_file_log_enabled():
+            tp0 = transport_plan if isinstance(transport_plan, dict) else None
+            log_itinerary_build(
+                f"path=wanderly.patch_itinerary sid={sid[:12]!r} dest_id={did!r} rows={len(itinerary)} "
+                f"incoming_days_with_day_logistics={dl_in} "
+                f"incoming_has_transport_plan={bool(tp0 and str(tp0.get('primary_mode') or '').strip())}"
+            )
         persist_wanderly_session_snapshot(sid)
         clear_booking_prepare_caches(sid, did)
 

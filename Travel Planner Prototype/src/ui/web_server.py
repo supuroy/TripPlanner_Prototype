@@ -594,12 +594,13 @@ def run_web_server(
                             set_last_profile_pills(sid, pills_clean)
                     s["ui_destinations"] = dests
                     trip_disk = (payload.get("trip_id") or "").strip()
-                    if not trip_disk:
-                        trip_disk = (trip_disk_store.lookup_trip_id_for_session(sid) or "").strip()
-                    saved_disk = False
+                    looked = (trip_disk_store.lookup_trip_id_for_session(sid) or "").strip()
                     if trip_disk:
-                        trip_disk_store.persist_trip(trip_disk, sid, get_session)
-                        saved_disk = True
+                        if not trip_disk_store.manifest_contains_trip_id(trip_disk) and looked:
+                            trip_disk = looked
+                    else:
+                        trip_disk = looked
+                    saved_disk = bool(trip_disk) and trip_disk_store.persist_trip(trip_disk, sid, get_session)
                     persist_wanderly_session_snapshot(sid)
                     self._send_json(
                         {"ok": True, "saved_to_disk": saved_disk, "trip_id": trip_disk or None},
@@ -738,6 +739,7 @@ def run_web_server(
                         bsh = itin_out.get("booking_search_hints")
                         ncf = itin_out.get("needs_commercial_flight")
                         itp = itin_out.get("transport_plan")
+                        ibh = itin_out.get("booking_hooks")
                         print(
                             f"[web] /api/wanderly/build_itinerary ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -765,6 +767,8 @@ def run_web_server(
                             resp_body["needs_commercial_flight"] = ncf
                         if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip():
                             resp_body["transport_plan"] = itp
+                        if isinstance(ibh, dict) and isinstance(ibh.get("transport"), dict):
+                            resp_body["booking_hooks"] = ibh
                         if rows:
                             patch_session_destination_itinerary(
                                 sid,
@@ -774,6 +778,7 @@ def run_web_server(
                                 booking_search_hints=bsh if isinstance(bsh, dict) else None,
                                 needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                                 transport_plan=itp if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip() else None,
+                                booking_hooks=ibh if isinstance(ibh, dict) and isinstance(ibh.get("transport"), dict) else None,
                             )
                         self._send_json(resp_body, status=200)
                     except Exception as exc:
@@ -854,6 +859,7 @@ def run_web_server(
                         bsh = itin_out.get("booking_search_hints")
                         ncf = itin_out.get("needs_commercial_flight")
                         itp = itin_out.get("transport_plan")
+                        ibh = itin_out.get("booking_hooks")
                         print(
                             f"[web] /api/wanderly/build_itinerary_stream ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -882,6 +888,8 @@ def run_web_server(
                             done_payload["needs_commercial_flight"] = ncf
                         if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip():
                             done_payload["transport_plan"] = itp
+                        if isinstance(ibh, dict) and isinstance(ibh.get("transport"), dict):
+                            done_payload["booking_hooks"] = ibh
                         emit_itin(done_payload)
                         if rows:
                             patch_session_destination_itinerary(
@@ -892,6 +900,7 @@ def run_web_server(
                                 booking_search_hints=bsh if isinstance(bsh, dict) else None,
                                 needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                                 transport_plan=itp if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip() else None,
+                                booking_hooks=ibh if isinstance(ibh, dict) and isinstance(ibh.get("transport"), dict) else None,
                             )
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         _trace_itin_web(
@@ -1218,8 +1227,14 @@ def run_web_server(
                         pills_bs = [x for x in pills_raw_bs if isinstance(x, dict)]
                     else:
                         pills_bs = snapshot_profile_pills(sid_bs)
+                    skip_raw = payload.get("skip_parallel_prefetch")
+                    skip_parallel_prefetch = skip_raw is True or (
+                        isinstance(skip_raw, str) and skip_raw.strip().lower() in ("1", "true", "yes")
+                    )
                     try:
-                        fp_bs = booking_prepare_request_fingerprint(dest_bs, pills_bs, dh_bs)
+                        fp_bs = booking_prepare_request_fingerprint(
+                            dest_bs, pills_bs, dh_bs, skip_parallel_prefetch=skip_parallel_prefetch
+                        )
                         with _booking_prepare_lock(sid_bs, did_bs):
                             cached_bs = get_booking_prepare_response_cache(sid_bs, did_bs, fp_bs)
                             if cached_bs is not None:
@@ -1239,7 +1254,11 @@ def run_web_server(
                             t_prep = _time_mod.perf_counter()
                             clear_booking_prepare_caches(sid_bs, did_bs)
                             out_bs = build_booking_criteria(
-                                dest_bs, pills_bs, date_hints=dh_bs, session_id=sid_bs
+                                dest_bs,
+                                pills_bs,
+                                date_hints=dh_bs,
+                                session_id=sid_bs,
+                                skip_parallel_prefetch=skip_parallel_prefetch,
                             )
                             set_booking_prepare_response_cache(
                                 sid_bs, did_bs, fp_bs, _copy_mod.deepcopy(out_bs)
@@ -1293,6 +1312,14 @@ def run_web_server(
                         pills_st = snapshot_profile_pills(sid_st)
                     fl_leg = str(payload.get("flight_leg") or "").strip().lower()
                     flight_leg_kw = fl_leg if fl_leg in ("outbound", "return") else None
+                    seg_ix_raw = payload.get("flight_segment_index")
+                    flight_seg_ix: int | None = None
+                    if seg_ix_raw is not None:
+                        try:
+                            flight_seg_ix = int(seg_ix_raw)
+                        except (TypeError, ValueError):
+                            self._send_json({"error": "flight_segment_index must be an integer."}, status=400)
+                            return
                     try:
                         result_st = run_booking_search_step(
                             dest_st,
@@ -1302,6 +1329,7 @@ def run_web_server(
                             date_hints=dh_st,
                             session_id=sid_st,
                             flight_leg=flight_leg_kw,
+                            flight_segment_index=flight_seg_ix,
                         )
                         if isinstance(result_st, dict) and result_st.get("search_url"):
                             print(

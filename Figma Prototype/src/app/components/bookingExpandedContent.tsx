@@ -2,7 +2,8 @@
  * Expanded-card booking experience (summary strips, flip back-face, timeline, cost).
  * Spec: TRAVEL_BOOKING_IMPLEMENTATION.md
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { flushSync } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Plane,
@@ -24,6 +25,11 @@ import {
   syncUi,
   type BookingDateHints,
 } from "../../api/wanderly";
+import {
+  commercialFlightSegmentsFromDest,
+  transportPlanSummary,
+  type PlannedFlightSegment,
+} from "../lib/bookingFlightPlan";
 
 export function parsePriceDigits(s: string | undefined): number {
   const n = parseInt(String(s ?? "").replace(/[^\d]/g, ""), 10);
@@ -316,7 +322,7 @@ export function DetailedHotelCard({
               </span>
             ) : null}
           </div>
-          <p className="text-[11px] text-white/45">{hotel.area}</p>
+          <p className="text-[11px] text-white/45">{dedupeMiddleDotSegments(hotel.area)}</p>
           <p className="mt-1 flex items-center gap-1 text-[11px] text-white/40">
             <Calendar className="h-3 w-3 shrink-0" aria-hidden />
             {hotel.nights} nights × {hotel.price}
@@ -349,7 +355,7 @@ export function DetailedHotelCard({
   );
 }
 
-function FlightLoadSkeleton({ label = "Searching flights…" }: { label?: string }) {
+export function FlightLoadSkeleton({ label = "Searching flights…" }: { label?: string }) {
   return (
     <div className="animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
       <div className="mb-3 flex items-center gap-3">
@@ -364,7 +370,7 @@ function FlightLoadSkeleton({ label = "Searching flights…" }: { label?: string
   );
 }
 
-function HotelLoadSkeleton({ label }: { label: string }) {
+export function HotelLoadSkeleton({ label }: { label: string }) {
   return (
     <div className="animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
       <div className="mb-3 flex items-center gap-3">
@@ -439,6 +445,35 @@ function isoShort(iso: string | null | undefined): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** ``Sep 19–Sep 21`` / ``Sep 19-Sep 21`` chunks we append after `` · `` in ``buildPlannedHotelRows``. */
+const HOTEL_AREA_DATE_SPAN = /^[A-Za-z]{3,9}\s+\d{1,2}\s*[\u2013\-]\s*[A-Za-z]{3,9}\s+\d{1,2}$/;
+
+/** Collapse ``foo · bar · bar`` → ``foo · bar`` (bad joins / retries). */
+function dedupeMiddleDotSegments(s: string): string {
+  const t = (s || "").trim();
+  if (!t) return t;
+  const parts = t.split(/\s*·\s*/).map((p) => p.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const p of parts) {
+    if (out.length && out[out.length - 1] === p) continue;
+    out.push(p);
+  }
+  return out.join(" · ");
+}
+
+/**
+ * Before appending check-in/out hints, drop prior ``Mon DD–Mon DD`` tokens. Otherwise a second
+ * ``booking_search_prepare`` can lift ``dest.hotels`` from the session (``card_multi_fitted``) whose
+ * ``area`` already contains our suffix — and we would stack ``· Sep … · Sep …`` indefinitely.
+ */
+function hotelAreaStripDateSpansForPlaceholderBase(raw: string | undefined, idx: number): string {
+  const parts = (raw || "").split(/\s*·\s*/).map((p) => p.trim()).filter(Boolean);
+  const baseParts = parts.filter((p) => !HOTEL_AREA_DATE_SPAN.test(p));
+  const joined = dedupeMiddleDotSegments(baseParts.join(" · ").trim());
+  if (joined) return joined;
+  return `Planned stay ${idx + 1}`;
+}
+
 function buildPlannedHotelRows(
   sourceHotels: HotelOption[] | undefined,
   startIso: string | null | undefined,
@@ -447,13 +482,13 @@ function buildPlannedHotelRows(
   let cursor = startIso ? new Date(`${startIso.slice(0, 10)}T12:00:00`) : null;
   return rows.map((h, idx) => {
     const nights = Math.max(1, h.nights || 1);
-    let area = h.area || "Planned stay";
+    let area = hotelAreaStripDateSpansForPlaceholderBase(h.area, idx);
     if (cursor && !Number.isNaN(cursor.getTime())) {
       const checkInIso = toIso(cursor);
       const checkOut = new Date(cursor);
       checkOut.setDate(checkOut.getDate() + nights);
       const checkOutIso = toIso(checkOut);
-      area = `${area} · ${isoShort(checkInIso)}-${isoShort(checkOutIso)}`;
+      area = dedupeMiddleDotSegments(`${area} · ${isoShort(checkInIso)}-${isoShort(checkOutIso)}`);
       cursor = checkOut;
     }
     return {
@@ -464,6 +499,84 @@ function buildPlannedHotelRows(
       best: true,
       isPlaceholder: true,
     };
+  });
+}
+
+/** True when this slot holds a merged OTA row (not the prepare skeleton). */
+function hotelRowIsPersistedSearchMerge(h: HotelOption | undefined): h is HotelOption {
+  if (!h || typeof h !== "object") return false;
+  if (h.isPlaceholder === true) return false;
+  if (String(h.listing_url || "").trim()) return true;
+  if (h.isPlaceholder === false) return true;
+  return false;
+}
+
+/**
+ * ``buildPlannedHotelRows`` replaces every stay with placeholders. When searching stay
+ * ``activeSearchIndex`` (>= 0), only that row should reset; other rows keep prior merges so UI
+ * and ``sync_ui`` do not wipe already-found hotels. Use ``activeSearchIndex === -1`` to keep
+ * every persisted row (e.g. full booking pipeline prepare after partial single-stay searches).
+ */
+function mergePlaceholderHotelsKeepPersisted(
+  freshPlaceholders: HotelOption[],
+  prevHotels: HotelOption[] | undefined,
+  activeSearchIndex: number,
+): HotelOption[] {
+  const prev = Array.isArray(prevHotels) ? prevHotels : [];
+  return freshPlaceholders.map((ph, i) => {
+    if (activeSearchIndex >= 0 && i === activeSearchIndex) return ph;
+    const existing = prev[i];
+    if (hotelRowIsPersistedSearchMerge(existing)) return existing;
+    return ph;
+  });
+}
+
+function buildStructuredFlightPlaceholders(
+  segments: PlannedFlightSegment[],
+  prep: { start_date?: string | null; end_date?: string | null },
+  dateHintsPayload: BookingDateHints,
+): FlightOption[] {
+  const startIso = prep.start_date || dateHintsPayload.start_iso || "";
+  const endIso = prep.end_date || dateHintsPayload.end_iso || "";
+  return segments.map((seg) => {
+    const dateBit =
+      (seg.role || "").toLowerCase() === "return" && endIso
+        ? isoShort(endIso)
+        : startIso
+          ? isoShort(startIso)
+          : "";
+    const routeSuffix = dateBit ? ` · ${dateBit}` : "";
+    return {
+      airline: "Searching Expedia flights…",
+      route: `${seg.fromLabel} → ${seg.toLabel}${routeSuffix}`,
+      duration: "Checking routes…",
+      price: "Searching Expedia…",
+      best: true,
+      leg: (seg.role === "return" ? "return" : "outbound") as FlightOption["leg"],
+      isPlaceholder: true,
+    };
+  });
+}
+
+function flightRowIsPersistedSearchMerge(f: FlightOption | undefined): f is FlightOption {
+  if (!f || typeof f !== "object") return false;
+  if (f.isPlaceholder === true) return false;
+  if (String(f.search_url || "").trim()) return true;
+  if (f.isPlaceholder === false) return true;
+  return false;
+}
+
+function mergePlaceholderFlightsKeepPersisted(
+  freshPlaceholders: FlightOption[],
+  prevFlights: FlightOption[] | undefined,
+  activeSearchIndex: number,
+): FlightOption[] {
+  const prev = Array.isArray(prevFlights) ? prevFlights : [];
+  return freshPlaceholders.map((ph, i) => {
+    if (activeSearchIndex >= 0 && i === activeSearchIndex) return ph;
+    const existing = prev[i];
+    if (flightRowIsPersistedSearchMerge(existing)) return existing;
+    return ph;
   });
 }
 
@@ -578,6 +691,380 @@ export function computeBookingDateHints(profile: ProfilePill[], itineraryDayCoun
   return defaultSearchHints(itineraryDayCount);
 }
 
+export type RunSingleHotelSearchResult =
+  | { ok: true; hotel: HotelOption; hotelIndex: number }
+  | { ok: false; error: string };
+
+function resolveHotelPlanIndexAfterPrepare(
+  prep: {
+    hotel_count?: number;
+    hotels_for_session?: Array<Record<string, unknown>> | null;
+  },
+  clickedIndex: number,
+  clickedTitle: string,
+): { index: number; error?: string } {
+  const plan = prep.hotels_for_session;
+  const n =
+    typeof prep.hotel_count === "number" && prep.hotel_count >= 0
+      ? prep.hotel_count
+      : Array.isArray(plan)
+        ? plan.length
+        : 0;
+  if (!n || !Array.isArray(plan) || plan.length === 0) {
+    return { index: -1, error: "No lodging plan on the server for this card yet." };
+  }
+  const norm = (s: string) => s.trim().toLowerCase();
+  const title = norm(clickedTitle);
+  if (clickedIndex >= 0 && clickedIndex < plan.length) {
+    const row = plan[clickedIndex] as { area?: string; label?: string; name?: string };
+    const area = norm(String(row.area || row.label || row.name || ""));
+    if (!title || !area || area.includes(title) || title.includes(area)) {
+      return { index: clickedIndex };
+    }
+  }
+  for (let i = 0; i < plan.length; i++) {
+    const row = plan[i] as { area?: string; label?: string };
+    const area = norm(String(row.area || row.label || ""));
+    if (area && title && (area.includes(title) || title.includes(area))) {
+      return { index: i };
+    }
+  }
+  if (clickedIndex >= 0 && clickedIndex < plan.length) return { index: clickedIndex };
+  return { index: -1, error: "Could not match this stay to the server lodging plan." };
+}
+
+/**
+ * Run Expedia hotel search + LLM parse for one planned stay (same server path as the full booking timeline).
+ * Refreshes placeholder hotel rows for the card, then fills in ``hotelIndex``.
+ */
+export async function runSingleHotelBookingSearch(args: {
+  sessionId: string;
+  wanderlyTripId?: string;
+  /** With ``wanderlyTripId``, sent as ``trip_meta`` so ``sync_ui`` can bind the manifest row reliably. */
+  tripName?: string;
+  profile: ProfilePill[];
+  dest: DestCard;
+  /** Row index from trip-wide stays UI (aligned with ``tripWideStaysFromDest`` order). */
+  hotelPlanIndex: number;
+  /** Stay label for fuzzy match against ``hotels_for_session`` when order drifts. */
+  stayTitle: string;
+  setDestinations: Dispatch<SetStateAction<DestCard[]>>;
+  beginTripDiskSave: () => void;
+  completeTripDiskSave: (dests: DestCard[], opts?: { savedToDisk?: boolean }) => void;
+  failTripDiskSave: () => void;
+}): Promise<RunSingleHotelSearchResult> {
+  const {
+    sessionId,
+    wanderlyTripId,
+    tripName,
+    profile,
+    dest,
+    hotelPlanIndex,
+    stayTitle,
+    setDestinations,
+    beginTripDiskSave,
+    completeTripDiskSave,
+    failTripDiskSave,
+  } = args;
+
+  const tidSync = wanderlyTripId?.trim();
+  const tnameSync = tripName?.trim();
+  const syncUiTripOpts = {
+    tripId: tidSync || undefined,
+    ...(tidSync && tnameSync ? { tripMeta: { trip_id: tidSync, trip_name: tnameSync } } : {}),
+    profilePills: profile,
+  };
+
+  const itineraryDayCount = Math.max(1, dest.itinerary?.length ?? 1);
+  const dateHints = computeBookingDateHints(profile, itineraryDayCount);
+  const dateHintsPayload = {
+    ...dateHints,
+    adults: adultsFromProfileForBooking(profile),
+  };
+  const pillsPayload = profilePillsForBookingApi(profile);
+
+  try {
+    const prep = await bookingSearchPrepare({
+      session_id: sessionId,
+      destination_id: dest.id,
+      date_hints: dateHintsPayload,
+      profile_pills: pillsPayload,
+      skip_parallel_prefetch: true,
+    });
+
+    const { index: resolvedIndex, error: resolveErr } = resolveHotelPlanIndexAfterPrepare(
+      prep,
+      hotelPlanIndex,
+      stayTitle,
+    );
+    if (resolvedIndex < 0) {
+      return { ok: false, error: resolveErr || "Invalid hotel plan index." };
+    }
+
+    const planHotels = prep.hotels_for_session;
+    const nStays =
+      typeof prep.hotel_count === "number" && prep.hotel_count >= 0
+        ? prep.hotel_count
+        : Array.isArray(planHotels)
+          ? planHotels.length
+          : 0;
+    if (!nStays || !Array.isArray(planHotels) || !planHotels.length) {
+      return { ok: false, error: "No stays to search for this destination." };
+    }
+
+    const placeholderHotels = buildPlannedHotelRows(
+      planHotels.slice(0, nStays) as unknown as HotelOption[],
+      prep.start_date || dateHintsPayload.start_iso,
+    );
+
+    const withPlaceholders = (prev: DestCard[]): DestCard[] =>
+      prev.map((d) => {
+        if (d.id !== dest.id) return d;
+        const mergedHotels = mergePlaceholderHotelsKeepPersisted(
+          placeholderHotels,
+          d.hotels,
+          resolvedIndex,
+        );
+        return { ...d, hotels: mergedHotels, liveBookingEstimates: true };
+      });
+
+    let committed: DestCard[] = [];
+    setDestinations((prev) => {
+      committed = withPlaceholders(prev);
+      return committed;
+    });
+    beginTripDiskSave();
+    try {
+      const r = await syncUi(sessionId, committed as unknown[], syncUiTripOpts);
+      completeTripDiskSave(committed, { savedToDisk: Boolean(r.saved_to_disk) });
+    } catch {
+      failTripDiskSave();
+    }
+
+    const hr = await bookingSearchStep({
+      session_id: sessionId,
+      destination_id: dest.id,
+      step: "hotel",
+      hotel_index: resolvedIndex,
+      date_hints: dateHintsPayload,
+      profile_pills: pillsPayload,
+    });
+
+    if (!hr.ok || !hr.hotel) {
+      return { ok: false, error: hr.error || "Hotel search did not return a result." };
+    }
+
+    let mergedForDisk: DestCard[] = [];
+    flushSync(() => {
+      setDestinations((prev) => {
+        mergedForDisk = prev.map((d) => {
+          if (d.id !== dest.id) return d;
+          const nextHotels = [...(d.hotels || [])];
+          const ix = resolvedIndex;
+          if (ix < 0 || ix >= nextHotels.length) return d;
+          nextHotels[ix] = {
+            ...nextHotels[ix],
+            ...hr.hotel!,
+            best: true,
+            listing_url: hr.hotel!.listing_url || nextHotels[ix].listing_url,
+            isPlaceholder: false,
+          };
+          return { ...d, hotels: nextHotels, liveBookingEstimates: true };
+        });
+        return mergedForDisk;
+      });
+    });
+
+    beginTripDiskSave();
+    try {
+      const r2 = await syncUi(sessionId, mergedForDisk as unknown[], syncUiTripOpts);
+      completeTripDiskSave(mergedForDisk, { savedToDisk: Boolean(r2.saved_to_disk) });
+    } catch {
+      failTripDiskSave();
+    }
+
+    return { ok: true, hotel: hr.hotel, hotelIndex: resolvedIndex };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
+export type RunSingleFlightSearchResult =
+  | { ok: true; flight: FlightOption; flightSegmentIndex: number }
+  | { ok: false; error: string };
+
+/**
+ * Run Expedia flight search + parse for one **commercial** segment (inbound, within-trip air, return)
+ * from ``booking_hooks`` / ``transport_plan`` — same server path as structured rows in the full booking timeline.
+ * Does not walk day-level hops; use ``commercialFlightSegmentsFromDest`` for the row list.
+ */
+export async function runSingleFlightBookingSearch(args: {
+  sessionId: string;
+  wanderlyTripId?: string;
+  tripName?: string;
+  profile: ProfilePill[];
+  dest: DestCard;
+  flightSegmentIndex: number;
+  setDestinations: Dispatch<SetStateAction<DestCard[]>>;
+  beginTripDiskSave: () => void;
+  completeTripDiskSave: (dests: DestCard[], opts?: { savedToDisk?: boolean }) => void;
+  failTripDiskSave: () => void;
+}): Promise<RunSingleFlightSearchResult> {
+  const {
+    sessionId,
+    wanderlyTripId,
+    tripName,
+    profile,
+    dest,
+    flightSegmentIndex,
+    setDestinations,
+    beginTripDiskSave,
+    completeTripDiskSave,
+    failTripDiskSave,
+  } = args;
+
+  const segments = commercialFlightSegmentsFromDest(dest, profile);
+  if (!segments.length) {
+    return {
+      ok: false,
+      error:
+        "No commercial flight segments on this card yet. Only long-haul / intercity legs from the transport plan can be searched here (not short surface hops).",
+    };
+  }
+  const resolvedIndex = flightSegmentIndex;
+  if (resolvedIndex < 0 || resolvedIndex >= segments.length) {
+    return { ok: false, error: "Invalid flight segment index." };
+  }
+
+  const tidSync = wanderlyTripId?.trim();
+  const tnameSync = tripName?.trim();
+  const syncUiTripOpts = {
+    tripId: tidSync || undefined,
+    ...(tidSync && tnameSync ? { tripMeta: { trip_id: tidSync, trip_name: tnameSync } } : {}),
+    profilePills: profile,
+  };
+
+  const itineraryDayCount = Math.max(1, dest.itinerary?.length ?? 1);
+  const dateHints = computeBookingDateHints(profile, itineraryDayCount);
+  const dateHintsPayload = {
+    ...dateHints,
+    adults: adultsFromProfileForBooking(profile),
+  };
+  const pillsPayload = profilePillsForBookingApi(profile);
+
+  try {
+    const prep = await bookingSearchPrepare({
+      session_id: sessionId,
+      destination_id: dest.id,
+      date_hints: dateHintsPayload,
+      profile_pills: pillsPayload,
+      skip_parallel_prefetch: true,
+    });
+
+    if (prep.include_flight_search === false) {
+      return {
+        ok: false,
+        error:
+          "Commercial flight search is disabled for this itinerary (ground / ferry / road-only routing).",
+      };
+    }
+
+    const placeholderFlights = buildStructuredFlightPlaceholders(segments, prep, dateHintsPayload);
+
+    const withFlightPlaceholders = (prev: DestCard[]): DestCard[] =>
+      prev.map((d) => {
+        if (d.id !== dest.id) return d;
+        const mergedFlights = mergePlaceholderFlightsKeepPersisted(
+          placeholderFlights,
+          d.flights,
+          resolvedIndex,
+        );
+        return { ...d, flights: mergedFlights, liveBookingEstimates: true };
+      });
+
+    let committed: DestCard[] = [];
+    setDestinations((prev) => {
+      committed = withFlightPlaceholders(prev);
+      return committed;
+    });
+    beginTripDiskSave();
+    try {
+      const r = await syncUi(sessionId, committed as unknown[], syncUiTripOpts);
+      completeTripDiskSave(committed, { savedToDisk: Boolean(r.saved_to_disk) });
+    } catch {
+      failTripDiskSave();
+    }
+
+    const fr = await bookingSearchStep({
+      session_id: sessionId,
+      destination_id: dest.id,
+      step: "flight",
+      flight_segment_index: resolvedIndex,
+      date_hints: dateHintsPayload,
+      profile_pills: pillsPayload,
+    });
+
+    if (fr.skipped) {
+      return {
+        ok: false,
+        error: "Flight search was skipped for this trip (ground-only itinerary).",
+      };
+    }
+    if (!fr.ok || !fr.flight) {
+      return { ok: false, error: fr.error || "Flight search did not return a result." };
+    }
+
+    const segLeg =
+      segments[resolvedIndex]?.role === "return"
+        ? ("return" as const)
+        : segments[resolvedIndex]?.role === "within_trip"
+          ? ("outbound" as const)
+          : resolvedIndex === 0
+            ? ("outbound" as const)
+            : ("return" as const);
+
+    let mergedForDisk: DestCard[] = [];
+    flushSync(() => {
+      setDestinations((prev) => {
+        mergedForDisk = prev.map((d) => {
+          if (d.id !== dest.id) return d;
+          let nextFlights = [...(d.flights || [])];
+          if (nextFlights.length < placeholderFlights.length) {
+            nextFlights = mergePlaceholderFlightsKeepPersisted(placeholderFlights, nextFlights, -1);
+          }
+          const ix = resolvedIndex;
+          if (ix < 0 || ix >= nextFlights.length) return d;
+          nextFlights[ix] = {
+            ...nextFlights[ix],
+            ...fr.flight!,
+            best: true,
+            leg: fr.flight!.leg ?? segLeg,
+            search_url: fr.flight!.search_url || nextFlights[ix].search_url,
+            round_trip: fr.flight!.round_trip ?? nextFlights[ix].round_trip,
+            isPlaceholder: false,
+          };
+          return { ...d, flights: nextFlights, liveBookingEstimates: true };
+        });
+        return mergedForDisk;
+      });
+    });
+
+    beginTripDiskSave();
+    try {
+      const r2 = await syncUi(sessionId, mergedForDisk as unknown[], syncUiTripOpts);
+      completeTripDiskSave(mergedForDisk, { savedToDisk: Boolean(r2.saved_to_disk) });
+    } catch {
+      failTripDiskSave();
+    }
+
+    return { ok: true, flight: fr.flight, flightSegmentIndex: resolvedIndex };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
 export function BookingCostBreakdown({
   dest,
   paxCount = 2,
@@ -631,8 +1118,8 @@ export function BookingCostBreakdown({
       </div>
       <p className="mt-2 text-[10px] leading-snug text-white/30">
         {variant === "summary"
-          ? "Flip to booking details for step-by-step searches and Expedia links."
-          : "Book flights and hotels individually from the timeline"}
+          ? "Use the logistics button (route icon) on the destination card for the full trip logistics view. Live Expedia search is not in this build."
+          : "Use the card flip for day-by-day logistics; per-step booking links return in a later iteration."}
       </p>
     </div>
   );
@@ -822,6 +1309,30 @@ export function BookingTimelineFace({
       );
     };
 
+    const mergeFlightAtIndex = (index: number, flight: FlightOption, leg: FlightOption["leg"]) => {
+      if (gen !== livePipelineGen.current) return;
+      const row = { ...flight, best: true, leg, isPlaceholder: false };
+      setDestinations((prev) =>
+        prev.map((d) => {
+          if (d.id !== dest.id) return d;
+          const nextFlights = [...(d.flights || [])];
+          while (nextFlights.length <= index) {
+            nextFlights.push({
+              airline: "Searching Expedia flights…",
+              route: "…",
+              duration: "…",
+              price: "…",
+              best: true,
+              leg: "outbound",
+              isPlaceholder: true,
+            });
+          }
+          nextFlights[index] = row;
+          return { ...d, flights: nextFlights, liveBookingEstimates: true };
+        }),
+      );
+    };
+
     const mergeHotel = (index: number, hotel: HotelOption) => {
       if (gen !== livePipelineGen.current) return;
       setDestinations((prev) =>
@@ -878,7 +1389,9 @@ export function BookingTimelineFace({
         const skipFlights = prep.include_flight_search === false;
         setLiveSkipFlights(skipFlights);
         const multiDayStay = !!(prep.start_date && prep.end_date && prep.start_date < prep.end_date);
-        const wantsReturnFlightSearch = !skipFlights && multiDayStay;
+        const structuredSegments = commercialFlightSegmentsFromDest(dest, profile);
+        const useStructuredFlights = !skipFlights && structuredSegments.length > 0;
+        const wantsReturnFlightSearch = !skipFlights && !useStructuredFlights && multiDayStay;
         setReturnFlightPhase(wantsReturnFlightSearch ? "pending" : "na");
 
         const planHotels = prep.hotels_for_session;
@@ -892,6 +1405,17 @@ export function BookingTimelineFace({
         const toLabel = [dest.name, dest.country].filter(Boolean).join(", ") || dest.name || "Destination";
         const outboundDate = prep.start_date || dateHintsPayload.start_iso || "";
         const returnDate = prep.end_date || dateHintsPayload.end_iso || "";
+        const segmentPlaceholders: FlightOption[] = useStructuredFlights
+          ? structuredSegments.map((seg) => ({
+              airline: "Searching Expedia flights…",
+              route: `${seg.fromLabel} → ${seg.toLabel}${outboundDate ? ` · ${isoShort(outboundDate)}` : ""}`,
+              duration: "Checking routes…",
+              price: "Searching Expedia…",
+              best: true,
+              leg: seg.role === "return" ? ("return" as const) : ("outbound" as const),
+              isPlaceholder: true,
+            }))
+          : [];
         const outboundPlaceholder: FlightOption = {
           airline: "Searching Expedia flights…",
           route: `${fromLabel} → ${toLabel}${outboundDate ? ` · ${isoShort(outboundDate)}` : ""}`,
@@ -924,13 +1448,18 @@ export function BookingTimelineFace({
         setDestinations((prev) => {
           const next = prev.map((d) => {
             if (d.id !== dest.id) return d;
+            const mergedHotels = mergePlaceholderHotelsKeepPersisted(placeholderHotels, d.hotels, -1);
             if (skipFlights) {
-              return { ...d, hotels: placeholderHotels, flights: [] };
+              return { ...d, hotels: mergedHotels, flights: [] };
             }
             return {
               ...d,
-              hotels: placeholderHotels,
-              flights: returnPlaceholder ? [outboundPlaceholder, returnPlaceholder] : [outboundPlaceholder],
+              hotels: mergedHotels,
+              flights: useStructuredFlights
+                ? segmentPlaceholders
+                : returnPlaceholder
+                  ? [outboundPlaceholder, returnPlaceholder]
+                  : [outboundPlaceholder],
             };
           });
           beginTripDiskSave();
@@ -956,42 +1485,81 @@ export function BookingTimelineFace({
 
         let fr: Awaited<ReturnType<typeof bookingSearchStep>> | null = null;
         if (!skipFlights) {
-          setBookingStatus("Searching outbound flights…");
-          setFlightPhase("loading");
-          fr = await bookingSearchStep({
-            session_id: sessionId,
-            destination_id: dest.id,
-            step: "flight",
-            flight_leg: "outbound",
-            date_hints: dateHintsPayload,
-            profile_pills: pillsPayload,
-          });
-          if (cancelled || gen !== livePipelineGen.current) return;
-          console.info("[wanderly:booking_search_step]", {
-            destination_id: dest.id,
-            step: "flight",
-            ok: fr.ok,
-            search_url: fr.search_url,
-            error: fr.error,
-            flight: fr.flight,
-            debug_parse: fr.debug_parse,
-          });
-          if (fr.ok && fr.flight) {
-            mergeOutboundFlight({
-              ...fr.flight,
-              leg: fr.flight_leg === "return" ? "return" : fr.flight.leg ?? "outbound",
-            });
-            if (gen !== livePipelineGen.current) return;
-            setFlightPhase("done");
-            setFlightStepError(null);
+          if (useStructuredFlights) {
+            for (let si = 0; si < structuredSegments.length; si++) {
+              if (cancelled || gen !== livePipelineGen.current) return;
+              setBookingStatus(
+                structuredSegments.length > 1
+                  ? `Searching flight ${si + 1} of ${structuredSegments.length}…`
+                  : "Searching flights…",
+              );
+              setFlightPhase(si === 0 ? "loading" : flightPhase);
+              const segFr = await bookingSearchStep({
+                session_id: sessionId,
+                destination_id: dest.id,
+                step: "flight",
+                flight_segment_index: si,
+                date_hints: dateHintsPayload,
+                profile_pills: pillsPayload,
+              });
+              fr = segFr;
+              if (cancelled || gen !== livePipelineGen.current) return;
+              const segLeg =
+                structuredSegments[si]?.role === "return"
+                  ? ("return" as const)
+                  : structuredSegments[si]?.role === "within_trip"
+                    ? ("outbound" as const)
+                    : si === 0
+                      ? ("outbound" as const)
+                      : ("return" as const);
+              if (segFr.ok && segFr.flight) {
+                mergeFlightAtIndex(si, segFr.flight, segLeg);
+                setFlightStepError(null);
+              } else if (!segFr.ok) {
+                setFlightPhase("error");
+                setFlightStepError(segFr.error || "Flight search did not return a result.");
+                break;
+              }
+            }
+            if (gen === livePipelineGen.current) setFlightPhase("done");
           } else {
-            if (gen !== livePipelineGen.current) return;
-            setFlightPhase("error");
-            setFlightStepError(fr.error || "Flight search did not return a result.");
-          }
+            setBookingStatus("Searching outbound flights…");
+            setFlightPhase("loading");
+            fr = await bookingSearchStep({
+              session_id: sessionId,
+              destination_id: dest.id,
+              step: "flight",
+              flight_leg: "outbound",
+              date_hints: dateHintsPayload,
+              profile_pills: pillsPayload,
+            });
+            if (cancelled || gen !== livePipelineGen.current) return;
+            console.info("[wanderly:booking_search_step]", {
+              destination_id: dest.id,
+              step: "flight",
+              ok: fr.ok,
+              search_url: fr.search_url,
+              error: fr.error,
+              flight: fr.flight,
+              debug_parse: fr.debug_parse,
+            });
+            if (fr.ok && fr.flight) {
+              mergeOutboundFlight({
+                ...fr.flight,
+                leg: fr.flight_leg === "return" ? "return" : fr.flight.leg ?? "outbound",
+              });
+              if (gen !== livePipelineGen.current) return;
+              setFlightPhase("done");
+              setFlightStepError(null);
+            } else {
+              if (gen !== livePipelineGen.current) return;
+              setFlightPhase("error");
+              setFlightStepError(fr.error || "Flight search did not return a result.");
+            }
 
-          if (multiDayStay && !fr.ok) {
-            setReturnFlightPhase("na");
+            if (multiDayStay && !fr.ok) {
+              setReturnFlightPhase("na");
+            }
           }
         } else {
           setFlightPhase("done");
@@ -1051,7 +1619,7 @@ export function BookingTimelineFace({
           }
         }
 
-        if (!skipFlights && multiDayStay && fr && fr.ok && fr.flight) {
+        if (!skipFlights && !useStructuredFlights && multiDayStay && fr && fr.ok && fr.flight) {
           setReturnFlightPhase("loading");
           setBookingStatus("Searching return flights…");
           const rr = await bookingSearchStep({
@@ -1108,6 +1676,19 @@ export function BookingTimelineFace({
     };
   }, [runMode, sessionId, dest.id, profileSig, dateHintsKey, setDestinations]);
 
+  const structuredFlightSegments = useMemo(
+    () => commercialFlightSegmentsFromDest(dest, profile),
+    [dest.id, dest.transport_plan, dest.booking_hooks, profileSig],
+  );
+  const multiSegmentFlights = structuredFlightSegments.length > 1;
+  const extraSegmentFlights = useMemo(
+    () => (multiSegmentFlights ? flights.slice(1, -1) : []),
+    [flights, multiSegmentFlights],
+  );
+  const groundTransportNote = useMemo(() => {
+    if (!liveSkipFlights) return null;
+    return transportPlanSummary(dest);
+  }, [liveSkipFlights, dest.transport_plan, dest.booking_hooks]);
   const outboundFlight = useMemo(
     () => flights.find((f) => f.leg !== "return") ?? flights[0],
     [flights],
@@ -1157,7 +1738,7 @@ export function BookingTimelineFace({
   const showReturnFlightError = runMode === "live" && returnFlightPhase === "error" && Boolean(returnFlightError);
 
   const showReturnTimeline =
-    (runMode === "live" && returnFlightPhase !== "na") || Boolean(returnFlight);
+    !multiSegmentFlights && ((runMode === "live" && returnFlightPhase !== "na") || Boolean(returnFlight));
 
   const returnSearchSettled =
     returnFlightPhase === "na" || returnFlightPhase === "done" || returnFlightPhase === "error";
@@ -1309,6 +1890,18 @@ export function BookingTimelineFace({
             </div>
           ) : null}
 
+          {groundTransportNote ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-3"
+            >
+              <p className="text-[10px] uppercase tracking-wider text-white/35">Ground transport</p>
+              <p className="mt-1 text-[12px] leading-snug text-white/70">{groundTransportNote}</p>
+              <p className="mt-1 text-[11px] text-white/45">No commercial flight search for this trip.</p>
+            </motion.div>
+          ) : null}
+
           {/* Flight event */}
           {showFlightSection && (
             <div className="relative">
@@ -1356,6 +1949,29 @@ export function BookingTimelineFace({
             </div>
           )}
 
+          {extraSegmentFlights.map((segFlight, si) => (
+            <div key={`seg-${si + 1}`} className="relative">
+              <motion.div
+                initial={{ opacity: 0, rotateY: -12 }}
+                animate={{ opacity: 1, rotateY: 0 }}
+                transition={{ duration: 0.35 }}
+              >
+                <motion.div className="absolute -left-8 top-1 flex h-10 w-10 items-center justify-center rounded-full border border-blue-500/40 bg-blue-500/20">
+                  <Plane className="h-3.5 w-3.5 text-blue-300" aria-hidden />
+                </motion.div>
+                <p className="text-[11px] uppercase tracking-wider text-white/35">
+                  {structuredFlightSegments[si + 1]?.role === "within_trip" ? "Connect" : "Flight"}
+                </p>
+                <motion.div className="mt-2">
+                  <DetailedFlightCard
+                    flight={segFlight}
+                    onClick={() => console.info("[booking] flight select segment", segFlight.airline)}
+                  />
+                </motion.div>
+              </motion.div>
+            </div>
+          ))}
+
           {/* Map pin: arrival before stays */}
           {hotels.length > 0 && outboundFlightResolved && (
             <div className="relative">
@@ -1372,7 +1988,7 @@ export function BookingTimelineFace({
                 <div className="absolute -left-8 top-1 flex h-10 w-10 items-center justify-center rounded-full border border-purple-500/40 bg-purple-500/20">
                   <Hotel className="h-3.5 w-3.5 text-purple-200" aria-hidden />
                 </div>
-                <p className="text-[11px] uppercase tracking-wider text-white/35">Stay · {h.area}</p>
+                <p className="text-[11px] uppercase tracking-wider text-white/35">Stay · {dedupeMiddleDotSegments(h.area)}</p>
                 <div className="mt-2">
                   <AnimatePresence mode="wait">
                     {showHotelSkeleton(idx) ? (

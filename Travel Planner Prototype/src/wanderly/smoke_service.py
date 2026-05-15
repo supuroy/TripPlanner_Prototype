@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 import threading
@@ -21,6 +22,7 @@ from src.wanderly.cursor_advisor import (
     run_profile_listener_cursor,
 )
 from src.wanderly.itinerary_debug_log import itinerary_file_log_enabled, log_itinerary_build
+from src.wanderly.itinerary_lazy import _normalize_needs_commercial_flight, ensure_transport_plan_after_extract
 from src.wanderly.refinement_cursor import refinement_model_id
 from src.wanderly.schemas import SmokeDestDTO, SmokeProfilePillDTO, WanderlyWorkspaceDTO, coerce_profile_pill
 from src.wanderly.session_store import (
@@ -41,6 +43,46 @@ def _refine_model_persist_kwargs(session_id: str, *, trace_path: str) -> tuple[s
     if rmid:
         return rmid, cursor_run_persist_kwargs(session_id, rmid, trace_path=trace_path)
     return None, cursor_run_persist_kwargs(session_id, None, trace_path=trace_path)
+
+
+_ITIN_PRIMARY_REFINE_ASKS_ITIN = re.compile(
+    r"\b(update|refresh|rebuild|regenerate|rewrite|redo|revise)\b[\s\S]{0,220}\b"
+    r"(itineraries?|itinerary|day-by-day|day\s+plans?|schedule|cards?|shortlist|destination\s+cards?)\b",
+    re.I,
+)
+_ITIN_PRIMARY_REFINE_ASKS_ITIN_ALT = re.compile(
+    r"\b(itineraries?|itinerary|day-by-day)\b[\s\S]{0,220}\b"
+    r"(update|refresh|rebuild|regenerate|rewrite|redo|revise|for\s+each|all|every)\b",
+    re.I,
+)
+
+
+def itinerary_primary_refine_message(message: str) -> bool:
+    """
+    True when the traveler is mainly asking to refresh day plans / cards without editing profile
+    (mirrors Figma ``isItineraryPrimaryRefineMessage``).
+    """
+    m = (message or "").strip()
+    if not m:
+        return False
+    ml = m.lower()
+    asks_itin = bool(
+        _ITIN_PRIMARY_REFINE_ASKS_ITIN.search(ml) or _ITIN_PRIMARY_REFINE_ASKS_ITIN_ALT.search(ml)
+    )
+    if not asks_itin:
+        return False
+    asks_profile = bool(
+        re.search(
+            r"\b(set|change|update|edit)\s+(my\s+)?(budget|duration|when|dates|origin|airport|travelers?|vibe|pace)\b",
+            ml,
+            re.I,
+        )
+        or re.search(r"\b(budget|duration)\s+(to|at)\s+", ml, re.I)
+        or re.search(r"\b(update|edit)\s+(my\s+)?(travel|traveler)\s+profile\b", ml, re.I)
+        or re.search(r"\b(profile\s+pills?|sidebar\s+profile)\b", ml, re.I)
+    )
+    return not asks_profile
+
 
 _JSON_INSTRUCTIONS = """
 You are Wanderly's planner. Reply with ONE JSON object only (no markdown fences, no prose outside JSON).
@@ -64,6 +106,7 @@ Rules:
 - Home airport / "from Seattle" / "SEA" → set key "from".
 - **from** values must be plain city / metro / airport text Expedia-style search would accept (e.g. ``Seattle, WA``, ``SEA``). Do **not** emit prose like ``Seattle-based``, ``…-based``, or ``… based`` — those break live flight URL building.
 - Infer from the user message; placeholders if unknown.
+- Do **not** rewrite traveler ``profile_pills`` for editorial polish when the user did not state new facts; keep wording stable across turns.
 - No live fares or availability claims.
 """.strip()
 
@@ -83,11 +126,21 @@ Rules:
 - For new suggestions, assign new lowercase-slug ids; when editing an existing row, keep its id.
 - Always return the full profile_pills array for the six keys when, who, from, vibe, budget, duration (not a partial list; placeholders ok; a fast companion pass may refine).
 - Do **not** emit a ``tags`` pill; fold constraints into the appropriate one of the six fields or assistant_markdown.
-- Update profile_pills whenever the user states new trip facts (dates, budget, party, vibe, home airport / "flying from …").
+- Context JSON includes **sidebar_profile_pills** (the live sidebar before this turn). **Start from those values.** Only change a pill when the user refinement message states a **material** new fact for that slot; otherwise keep each pill **value identical** (character-for-character), especially **vibe** — no paraphrase, punctuation tweaks, synonym swaps, or "cleaner" rewrites when the meaning is unchanged.
+- **Material change** = new or different facts that affect planning: travel dates or trip length, budget level, party / kids / pets, home airport / "flying from …", accessibility or other hard new constraints, or the traveler clearly stating **different** vibe/pace intent in this message.
+- **Not material** = rewording that does not add/remove constraints. For itinerary-only asks (refresh/rebuild/regenerate day plans or cards without new profile facts), every ``profile_pills`` value must match **sidebar_profile_pills** exactly.
 - When you set **from**, use only concrete place or airport codes (never ``*-based`` or narrative "based in …" phrasing — flight search uses this string verbatim).
 - If the user only **compares**, **contrasts**, or **chooses between** places (no request to change days, hotels, flights, or itineraries), return **every non-dismissed** row from workspace_destinations (same ids). You may refresh hook/score text. Do **not** drop unpinned destinations from the shortlist.
 - If the user asks to **redo / rebuild / regenerate** one destination's plan, still return **the full non-dismissed shortlist** (same ids): update only the rows they mentioned; omit ``itinerary`` on other rows so the UI keeps existing day-by-day content.
 - You may omit per-destination "itinerary" in JSON; the UI keeps existing day-by-day plans unless the user asks to change them.
+- When you **do** emit ``itinerary`` for a destination, each day object may include **day_logistics** (parallel to human ``items``): a compact booking slice the server stores verbatim.
+  - **day_logistics.flight:** use JSON **null** when that day has no commercial airline leg; otherwise ``{"segments":[{"from_search_label","to_search_label","role"}]}`` with Expedia-style city+country strings. **Every** flight segment must use **only** ``from_search_label`` and ``to_search_label`` — **never** ``from_label`` / ``to_label`` on airline legs (those keys are **only** for ``surface_legs``); wrong keys cause the server to drop all legs. Never use the same city as both endpoints unless it is a genuine same-city positioning hop.
+  - **day_logistics.lodging:** use **null** when there is no new overnight stay that night; otherwise include **destination_search_label**, optional **area_hint**, **check_in** / **check_out** as **YYYY-MM-DD** when trip dates are known from profile/context, **rooms** (1–9), **guests** ``{adults, children, infants_in_seat}`` and matching **traveler_party** ``{total, adults, children, infants_in_seat}`` (total = sum) aligned to the **Who** pill, **pet_friendly** **true** whenever Who/vibe mentions a dog/cat/pet (**false** only when the profile clearly excludes pets), **room_preferences** (short strings), and **booking_factors** (0–10 short OTA-relevant tags inferred from context: accessibility, late arrival, EV parking, connecting rooms, ferry timing risk, etc.).
+  - **day_logistics.surface_legs:** optional list of ``{kind: drive|ferry|train|walk|other, from_label?, to_label?, operator_hint?}`` for that calendar day (e.g. named ferry endpoints).
+- When you emit or refresh ``itinerary`` for a destination, you MUST also emit (or preserve) that row's top-level **transport_plan**, **needs_commercial_flight**, and **booking_search_hints** so they match the same story:
+  - **transport_plan** must cover **home / hub → this destination → home** using ``profile_pills`` **from** + the card's ``country`` / ``name``. If **from** is a US airport or city and the destination is overseas, do **not** use ``ground_only`` with empty ``commercial_flight_segments`` unless the profile explicitly describes an all-surface journey. Each entry in ``commercial_flight_segments`` must use **only** ``from_search_label``, ``to_search_label``, and ``role`` (same as lazy itinerary — **never** ``from_label`` / ``to_label`` on flights). Include **inbound** + **return** (and **within_trip** domestic connectors as needed) with Expedia-style labels.
+  - Set ``day_logistics.flight`` on days with real airline legs (especially first/last long-haul days) so day rows align with ``commercial_flight_segments``.
+  - When any commercial segment exists, include **booking_search_hints** with ``flight_to_label`` and ``flight_return_from_label``.
 - **Never remove a non-dismissed destination by omitting its id** from ``destinations``. Travelers remove cards only via the UI (dismiss). If they ask to drop a place in chat, still list that id until the product confirms removal — the server will merge safely.
 
 Structured context (JSON) follows:
@@ -228,6 +281,113 @@ def _minimal_dest_card(d: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Rich fields the planner model may emit on each destination; ``SmokeDestDTO`` only validates core
+# card fields, so we copy these from the raw JSON onto the session card (see ``_normalize_parsed``).
+_MODEL_DESTINATION_OVERLAY_KEYS: tuple[str, ...] = (
+    "itinerary",
+    "budget_guidance",
+    "booking_search_hints",
+    "needs_commercial_flight",
+    "transport_plan",
+    "booking_hooks",
+    "itinerary_dirty",
+    "commerce",
+    "warnings",
+    "vibe",
+)
+
+
+def _overlay_model_destination_rich_fields(raw: dict[str, Any], validated_core: dict[str, Any]) -> dict[str, Any]:
+    """Start from placeholder shell, then layer fields the model actually returned."""
+    card = _minimal_dest_card(validated_core)
+    for key in _MODEL_DESTINATION_OVERLAY_KEYS:
+        if key not in raw:
+            continue
+        val = raw[key]
+        if val is None:
+            continue
+        if isinstance(val, (dict, list)) and len(val) == 0 and key != "itinerary":
+            continue
+        card[key] = copy.deepcopy(val)
+    return card
+
+
+def _enrich_workspace_destinations_transport(dto: WanderlyWorkspaceDTO) -> WanderlyWorkspaceDTO:
+    """
+    Ensure ``transport_plan`` / ``needs_commercial_flight`` / flight hints align with itinerary
+    (same guarantees as the lazy-itinerary path) after smoke or refine commits destinations.
+    """
+    dests = dto.destinations
+    if not isinstance(dests, list) or not dests:
+        return dto
+    pills = [p.model_dump() for p in dto.profile_pills]
+    out: list[dict[str, Any]] = []
+    for row in dests:
+        if not isinstance(row, dict):
+            out.append(row)
+            continue
+        r = dict(row)
+        it = r.get("itinerary")
+        if not isinstance(it, list) or not it:
+            out.append(r)
+            continue
+        rows = [dict(x) if isinstance(x, dict) else x for x in it]
+        dict_rows = [x for x in rows if isinstance(x, dict)]
+        if not dict_rows:
+            out.append(r)
+            continue
+        ncf_in = _normalize_needs_commercial_flight(r.get("needs_commercial_flight"))
+        tp, ncf, hints = ensure_transport_plan_after_extract(
+            transport_plan=r.get("transport_plan") if isinstance(r.get("transport_plan"), dict) else None,
+            needs_commercial_flight=ncf_in,
+            booking_search_hints=r.get("booking_search_hints") if isinstance(r.get("booking_search_hints"), dict) else None,
+            budget_guidance=r.get("budget_guidance") if isinstance(r.get("budget_guidance"), dict) else None,
+            itinerary_rows=dict_rows,
+            destination=r,
+            profile_pills=pills,
+            raw_wrapper=None,
+        )
+        if isinstance(tp, dict) and tp.get("primary_mode"):
+            r["transport_plan"] = tp
+        if isinstance(ncf, bool):
+            r["needs_commercial_flight"] = ncf
+        if hints is not None:
+            r["booking_search_hints"] = hints
+        else:
+            r.pop("booking_search_hints", None)
+        out.append(r)
+    return dto.model_copy(update={"destinations": out})
+
+
+def _log_workspace_destinations_logistics(destinations: object, session_id: str, phase: str) -> None:
+    """After smoke/refine: one log line per card — ``day_logistics`` + ``transport_plan`` presence."""
+    if not itinerary_file_log_enabled():
+        return
+    sid = (session_id or "")[:12]
+    if not isinstance(destinations, list):
+        log_itinerary_build(
+            f"path=wanderly.{phase} sid={sid!r} destinations_type={type(destinations).__name__}"
+        )
+        return
+    for d in destinations:
+        if not isinstance(d, dict):
+            continue
+        did = str(d.get("id") or "")
+        it = d.get("itinerary") or []
+        n = len(it) if isinstance(it, list) else 0
+        dl = (
+            sum(1 for r in it if isinstance(r, dict) and r.get("day_logistics"))
+            if isinstance(it, list)
+            else 0
+        )
+        tp = d.get("transport_plan")
+        tp_ok = isinstance(tp, dict) and bool(str(tp.get("primary_mode") or "").strip())
+        log_itinerary_build(
+            f"path=wanderly.{phase} sid={sid!r} dest_id={did!r} itinerary_days={n} "
+            f"days_with_day_logistics={dl} has_transport_plan={tp_ok}"
+        )
+
+
 def _vibe_tokens_for_refine(raw: object, *, max_n: int = 8, max_len: int = 48) -> list[str]:
     if not isinstance(raw, list):
         return []
@@ -343,8 +503,13 @@ def _refine_prompt_context_json(session_id: str) -> tuple[str, list[dict[str, An
     prior = snapshot_destinations_for_model(session_id)
     chat = chat_context_snippet(session_id, max_messages=6)
     slim = _slim_destinations_for_refine_prompt(prior)
+    sidebar_pills = snapshot_profile_pills(session_id)
     slim_ctx = json.dumps(
-        {"prior_chat": chat, "workspace_destinations": slim},
+        {
+            "prior_chat": chat,
+            "workspace_destinations": slim,
+            "sidebar_profile_pills": sidebar_pills[:24],
+        },
         ensure_ascii=True,
         separators=(",", ":"),
     )
@@ -554,14 +719,14 @@ def _normalize_parsed(raw: dict[str, Any]) -> WanderlyWorkspaceDTO:
             continue
         try:
             dto = SmokeDestDTO.model_validate(d)
-            dests.append(dto.model_dump())
+            dests.append(_overlay_model_destination_rich_fields(d, dto.model_dump()))
         except ValidationError:
             continue
     if not md and dests:
         md = "Here are some directions that could work based on what you shared."
     if not md and not dests:
         md = "Could not extract structured destinations from the model; try a shorter request."
-    full_dests = [_minimal_dest_card(x) for x in dests]
+    full_dests = dests
     return WanderlyWorkspaceDTO(
         assistant_markdown=md,
         profile_pills=pills,
@@ -588,6 +753,8 @@ def _complete_smoke_turn(session_id: str, user_message: str, raw_text: str) -> d
     else:
         dto = _normalize_parsed(parsed)
     dto = _merge_profile_with_inference(dto, user_message)
+    dto = _enrich_workspace_destinations_transport(dto)
+    _log_workspace_destinations_logistics(dto.destinations, session_id, "smoke_turn.commit")
     append_chat(session_id, "user", user_message)
     append_chat(session_id, "assistant", dto.assistant_markdown)
     set_last_destinations(session_id, dto.destinations)
@@ -666,6 +833,7 @@ def _complete_refine_turn(
     prior_dests: list[dict[str, Any]],
     *,
     allow_shortlist_shrink: bool,
+    profile_pills_freeze: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     parsed = _extract_json_object(raw_text)
     restored_omitted: list[str] = []
@@ -685,6 +853,18 @@ def _complete_refine_turn(
             agent_status_hint="Could not parse JSON; showing raw markdown only.",
         )
     dto = _merge_profile_with_inference(dto, user_message)
+    dto = _enrich_workspace_destinations_transport(dto)
+    if profile_pills_freeze and itinerary_primary_refine_message(user_message):
+        frozen: list[SmokeProfilePillDTO] = []
+        for p in profile_pills_freeze:
+            if not isinstance(p, dict):
+                continue
+            cp = coerce_profile_pill(p)
+            if cp is not None:
+                frozen.append(cp)
+        if frozen:
+            dto = dto.model_copy(update={"profile_pills": frozen})
+    _log_workspace_destinations_logistics(dto.destinations, session_id, "refine_turn.commit")
     append_chat(session_id, "user", user_message)
     append_chat(session_id, "assistant", dto.assistant_markdown)
     set_last_destinations(session_id, dto.destinations)
@@ -702,8 +882,10 @@ def run_refine_turn(
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
-    context, prior_dests = _refine_prompt_context_json(session_id)
     um = (user_message or "").strip()
+    pills_freeze = snapshot_profile_pills(session_id)
+    freeze_profile = itinerary_primary_refine_message(um)
+    context, prior_dests = _refine_prompt_context_json(session_id)
     prompt = (
         _REFINE_INSTRUCTIONS
         + "\n"
@@ -721,9 +903,16 @@ def run_refine_turn(
             **persist,
         )
     out = _complete_refine_turn(
-        session_id, um, raw_text, prior_dests, allow_shortlist_shrink=confirm_workspace_drop
+        session_id,
+        um,
+        raw_text,
+        prior_dests,
+        allow_shortlist_shrink=confirm_workspace_drop,
+        profile_pills_freeze=pills_freeze if freeze_profile else None,
     )
-    listener = _run_profile_listener_after_planner(session_id, um)
+    listener = (
+        None if freeze_profile else _run_profile_listener_after_planner(session_id, um)
+    )
     return _merge_advisor_listener_tuple(session_id, out, listener)
 
 
@@ -736,8 +925,10 @@ def run_refine_turn_streaming(
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
-    context, prior_dests = _refine_prompt_context_json(session_id)
     um = (user_message or "").strip()
+    pills_freeze = snapshot_profile_pills(session_id)
+    freeze_profile = itinerary_primary_refine_message(um)
+    context, prior_dests = _refine_prompt_context_json(session_id)
     prompt = (
         _REFINE_INSTRUCTIONS
         + "\n"
@@ -765,7 +956,12 @@ def run_refine_turn_streaming(
     if emit:
         safe_emit({"type": "phase", "message": "Parsing JSON and merging pins…"})
     out = _complete_refine_turn(
-        session_id, um, raw_text, prior_dests, allow_shortlist_shrink=confirm_workspace_drop
+        session_id,
+        um,
+        raw_text,
+        prior_dests,
+        allow_shortlist_shrink=confirm_workspace_drop,
+        profile_pills_freeze=pills_freeze if freeze_profile else None,
     )
     if emit and out.get("shortlist_drop_blocked"):
         safe_emit(
@@ -776,7 +972,9 @@ def run_refine_turn_streaming(
         )
     if emit:
         safe_emit({"type": "phase", "message": "Sidebar advisor (profile)…"})
-    listener = _run_profile_listener_after_planner(session_id, um)
+    listener = (
+        None if freeze_profile else _run_profile_listener_after_planner(session_id, um)
+    )
     if emit and listener and listener[0]:
         safe_emit(
             {

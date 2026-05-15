@@ -296,6 +296,36 @@ export function normalizeProfilePillValueForCompare(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+/** Word tokens for fuzzy compare on long free-text pills (vibe churn from the planner). */
+function tokenSetForSoftPillCompare(raw: string): Set<string> {
+  const s = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  const words = s.split(/\s+/).filter((w) => w.length >= 2);
+  return new Set(words);
+}
+
+/**
+ * True when two pill values are close enough that we should not prompt the traveler to "confirm profile"
+ * (e.g. LLM swapped "with scenic waterfront nights" for ": scenic stops" while keeping the same trip story).
+ */
+export function softTravelerPillRoughlySame(key: string, a: string, b: string): boolean {
+  if (key !== "vibe") return false;
+  const A = tokenSetForSoftPillCompare(a);
+  const B = tokenSetForSoftPillCompare(b);
+  if (A.size === 0 && B.size === 0) return true;
+  let inter = 0;
+  for (const w of A) {
+    if (B.has(w)) inter++;
+  }
+  const union = A.size + B.size - inter;
+  if (union === 0) return true;
+  return inter / union >= 0.55;
+}
+
 /** True when the sidebar has no real traveler constraints yet (first prompt / empty session). */
 export function isBlankTravelerProfile(pills: ProfilePill[]): boolean {
   if (!pills.length) return true;
@@ -322,7 +352,9 @@ export function profilePillsMeaningfullyDiffer(a: ProfilePill[], b: ProfilePill[
   for (const k of keys) {
     const va = a.find((p) => p.key === k)?.value ?? "";
     const vb = b.find((p) => p.key === k)?.value ?? "";
-    if (normalizeProfilePillValueForCompare(va) !== normalizeProfilePillValueForCompare(vb)) return true;
+    if (normalizeProfilePillValueForCompare(va) === normalizeProfilePillValueForCompare(vb)) continue;
+    if (softTravelerPillRoughlySame(k, va, vb)) continue;
+    return true;
   }
   return false;
 }

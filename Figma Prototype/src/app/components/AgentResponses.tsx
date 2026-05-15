@@ -1,5 +1,5 @@
 import { useTrip, type AgentResponse } from "./TripStore";
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Bot, User, Lightbulb, AlertTriangle, CheckCircle, Info, X, Play, RotateCcw, Loader2 } from "lucide-react";
 import { renderInlineBold } from "../lib/markdownBold";
@@ -332,6 +332,48 @@ function ResponseCard({ response }: { response: AgentResponse }) {
   );
 }
 
+const WANDERLY_PROFILE_PROPOSAL_RELATED = "wanderly_profile_proposal";
+
+function PendingProfileProposalBanner({
+  onConfirm,
+  onDismiss,
+}: {
+  onConfirm: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-4"
+      role="region"
+      aria-label="Pending traveler profile changes from the planner"
+    >
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-amber-200/90">Confirm traveler profile</p>
+      <p className="mb-3 text-[12px] leading-relaxed text-white/65">
+        The planner suggested different profile values than your sidebar. Destination cards already used your current profile.
+        Apply only if you agree with the planner&apos;s version.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => onConfirm()}
+          className="rounded-lg bg-amber-500/90 px-3 py-2 text-[12px] font-medium text-zinc-950 hover:bg-amber-400"
+        >
+          Apply suggested profile
+        </button>
+        <button
+          type="button"
+          onClick={() => onDismiss()}
+          className="rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-[12px] text-white/80 hover:bg-white/[0.07]"
+        >
+          Keep my profile
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 export function AgentResponses() {
   const {
     responses,
@@ -353,11 +395,20 @@ export function AgentResponses() {
         behavior: "smooth",
       });
     }
-  }, [responses.length]);
+  }, [responses.length, pendingAgentProfileProposal]);
   
   // Filter out dismissed responses
   const activeResponses = responses.filter(r => !r.dismissed);
-  
+
+  let profileProposalAnchorId: string | null = null;
+  for (let i = activeResponses.length - 1; i >= 0; i--) {
+    const r = activeResponses[i];
+    if (r?.relatedTo === WANDERLY_PROFILE_PROPOSAL_RELATED) {
+      profileProposalAnchorId = r.id;
+      break;
+    }
+  }
+
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto bg-[#0a0a0f]/50 px-4 py-4 sm:px-6 sm:py-6">
       {activeResponses.length === 0 && isWorking ? (
@@ -390,42 +441,33 @@ export function AgentResponses() {
         </div>
       ) : (
         <>
-          {pendingAgentProfileProposal && (
-            <div
-              className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-4"
-              role="region"
-              aria-label="Pending traveler profile changes from the planner"
-            >
-              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-amber-200/90">
-                Confirm traveler profile
-              </p>
-              <p className="mb-3 text-[12px] leading-relaxed text-white/65">
-                The planner suggested different profile values than your sidebar. Destination cards already used your
-                current profile. Apply only if you agree with the planner&apos;s version.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => confirmAgentProfileProposal()}
-                  className="rounded-lg bg-amber-500/90 px-3 py-2 text-[12px] font-medium text-zinc-950 hover:bg-amber-400"
-                >
-                  Apply suggested profile
-                </button>
-                <button
-                  type="button"
-                  onClick={() => dismissAgentProfileProposal()}
-                  className="rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-[12px] text-white/80 hover:bg-white/[0.07]"
-                >
-                  Keep my profile
-                </button>
-              </div>
-            </div>
-          )}
           <AnimatePresence>
-            {activeResponses.map((response) => (
-              <ResponseCard key={response.id} response={response} />
-            ))}
+            {activeResponses.flatMap((response) => {
+              const nodes: ReactNode[] = [
+                <ResponseCard key={response.id} response={response} />,
+              ];
+              if (
+                pendingAgentProfileProposal &&
+                profileProposalAnchorId != null &&
+                profileProposalAnchorId === response.id
+              ) {
+                nodes.push(
+                  <PendingProfileProposalBanner
+                    key={`${response.id}-profile-proposal-cta`}
+                    onConfirm={confirmAgentProfileProposal}
+                    onDismiss={dismissAgentProfileProposal}
+                  />,
+                );
+              }
+              return nodes;
+            })}
           </AnimatePresence>
+          {pendingAgentProfileProposal && profileProposalAnchorId == null ? (
+            <PendingProfileProposalBanner
+              onConfirm={confirmAgentProfileProposal}
+              onDismiss={dismissAgentProfileProposal}
+            />
+          ) : null}
           {isWorking && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}

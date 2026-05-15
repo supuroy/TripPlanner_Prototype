@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from src.wanderly.ota_booking_search import (
+    _merge_itinerary_lodging_pet_into_hotel_search_intent,
     _merge_profile_budget_into_hotel_search_intent,
     _nightly_hotel_price_min_max_usd,
     _parse_trip_budget_usd_bounds_from_profile_pills,
@@ -40,6 +41,24 @@ def test_merge_caps_loose_llm_max() -> None:
     h = out.get("hotel") or {}
     assert h.get("price_max_usd", 9999) < 500
     assert h.get("price_min_usd", 0) < h.get("price_max_usd", 9999)
+
+
+def test_merge_itinerary_pet_into_hotel_intent() -> None:
+    dest = {
+        "id": "x",
+        "itinerary": [
+            {
+                "day": 1,
+                "day_logistics": {
+                    "flight": None,
+                    "lodging": {"destination_search_label": "Nanaimo, BC, Canada", "pet_friendly": True},
+                    "surface_legs": [{"kind": "walk", "from_label": "A", "to_label": "B"}],
+                },
+            }
+        ],
+    }
+    out = _merge_itinerary_lodging_pet_into_hotel_search_intent(dest, {"hotel": {"sort": "RECOMMENDED"}})
+    assert "PETS" in (out.get("hotel") or {}).get("amenities", [])
 
 
 if __name__ == "__main__":

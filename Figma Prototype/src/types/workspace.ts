@@ -37,8 +37,76 @@ export interface WanderlyTransportPlan {
     from_search_label?: string;
     to_search_label?: string;
     day_hint?: number;
+    day_offset?: number;
   }>;
-  lodging_moves?: Array<{ day_range?: string; area?: string; note?: string }>;
+  lodging_moves?: Array<{ day_range?: string; area?: string; note?: string; nights?: number }>;
+}
+
+/** One commercial leg for Expedia-style URL builders (day scope). */
+export interface DayLogisticsFlightSegment {
+  from_search_label?: string;
+  to_search_label?: string;
+  role?: "inbound" | "within_trip" | "return";
+}
+
+/** Omit or set segments empty at authoring time; server normalizes to null when empty. */
+export interface DayLogisticsFlight {
+  segments: DayLogisticsFlightSegment[];
+}
+
+export interface DayLogisticsGuests {
+  adults?: number;
+  children?: number;
+  infants_in_seat?: number;
+}
+
+export interface DayLogisticsTravelerParty {
+  /** adults + children + infants_in_seat */
+  total?: number;
+  adults?: number;
+  children?: number;
+  infants_in_seat?: number;
+}
+
+/** Hotel search slice for this calendar day (check-in night). */
+export interface DayLogisticsLodging {
+  destination_search_label?: string;
+  area_hint?: string;
+  /** ISO YYYY-MM-DD when known from traveler context */
+  check_in?: string;
+  check_out?: string;
+  rooms?: number;
+  guests?: DayLogisticsGuests;
+  /** Explicit headcount mirror for OTA party fields (server fills from guests when omitted). */
+  traveler_party?: DayLogisticsTravelerParty;
+  /** When true, hotel search should apply pet-friendly filters; false means explicitly no pet filter. */
+  pet_friendly?: boolean;
+  room_preferences?: string[];
+  /** Short tags for search/ranking (accessibility, late arrival, EV, ferry risk, …). */
+  booking_factors?: string[];
+}
+
+export interface DayLogisticsSurfaceLeg {
+  kind: "drive" | "ferry" | "train" | "walk" | "other";
+  from_label?: string;
+  to_label?: string;
+  operator_hint?: string;
+}
+
+/**
+ * Machine-readable logistics for one itinerary day (parallel to prose bullets).
+ * Flight is null when no airline segment that day; lodging null when no overnight stay.
+ */
+export interface DayLogistics {
+  flight: DayLogisticsFlight | null;
+  lodging: DayLogisticsLodging | null;
+  surface_legs?: DayLogisticsSurfaceLeg[];
+}
+
+export interface WanderlyBookingHooks {
+  version?: number;
+  transport?: WanderlyTransportPlan;
+  search_preferences?: Record<string, unknown>;
 }
 
 export interface WanderlyTripMeta {

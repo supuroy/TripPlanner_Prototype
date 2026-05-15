@@ -117,6 +117,7 @@ export function enqueueBackgroundItineraryBuild(args: {
             res.booking_search_hints ?? null,
             typeof res.needs_commercial_flight === "boolean" ? res.needs_commercial_flight : null,
             res.transport_plan ?? null,
+            res.booking_hooks ?? null,
           );
         });
         queueMicrotask(() => {

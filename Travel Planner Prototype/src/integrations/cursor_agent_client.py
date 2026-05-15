@@ -72,6 +72,25 @@ def _httpx_err_snip(e: httpx.HTTPStatusError) -> str:
 _RETRYABLE_SSE_STATUS = frozenset({404, 425, 409, 503})
 
 
+def _is_recoverable_cursor_stream_sse_message(message: str) -> bool:
+    """
+    Cursor may emit ``event: error`` on the run SSE stream when the live stream handle expires
+    while the run is still finishing. The client UI treats ``stream_error`` as fatal; suppress
+    these so the server can poll ``GET …/runs/{id}`` or retry with a fresh agent.
+    """
+    m = (message or "").strip().lower()
+    if not m:
+        return False
+    needles = (
+        "no longer available",
+        "stream is no longer",
+        "run stream",
+        "already consumed",
+        "stream ended",
+    )
+    return any(n in m for n in needles)
+
+
 def _sse_retry_sleep_seconds(attempt: int) -> float:
     """Bounded exponential backoff (same spirit as ``POST …/runs`` 409 retries)."""
     return min(12.0, 1.25 * (2 ** max(0, attempt)))
@@ -792,67 +811,105 @@ def run_prompt_collect_assistant_text_streaming(
         if emit:
             emit(obj)
 
-    with _cursor_lane_run_lock(cursor_run_lock_key):
-        _emit({"type": "phase", "message": "Understanding what you want from this trip…"})
-        agent_id, run_id = _begin_cloud_agent_run(
-            client,
-            prompt_text,
-            model_id_override=model_id_override,
-            existing_agent_id=existing_agent_id,
-            persistent_instruction_prefix=persistent_instruction_prefix,
-            on_new_agent=on_new_agent,
-            on_agent_cleared=on_agent_cleared,
-            cursor_trace_path=tp,
-        )
-        _emit({"type": "phase", "message": "Exploring destinations and tradeoffs for you…"})
-        time.sleep(1.0)
-        _emit({"type": "phase", "message": "Generating structured recommendations…"})
-        last_err: Exception | None = None
-        for attempt in range(8):
-            try:
-                _emit({"type": "phase", "message": "Listening to the model as it works…"})
-                text = consume_sse_assistant_streaming(client, agent_id, run_id, emit=emit)
-                if not (text or "").strip():
-                    _emit({"type": "phase", "message": "Almost there — wrapping up…"})
-                return _assistant_text_or_retry_sse(client, agent_id, run_id, text)
-            except httpx.HTTPStatusError as e:
-                last_err = e
-                sc = e.response.status_code if e.response is not None else 0
-                _trace_cursor(
-                    f"sse_http_error mode=streaming run_tail={run_id[-8:]!r} status={sc} attempt={attempt + 1} "
-                    f"body_snip={_httpx_err_snip(e)!r}",
-                    path=tp,
-                )
-                if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
-                    _emit(
-                        {
-                            "type": "phase",
-                            "message": "Still connecting — trying again in a moment…",
-                        }
+    eff_existing = (existing_agent_id or "").strip() or None
+
+    for outer_pass in range(2):
+        sse_state: dict[str, bool] = {"suppressed_recoverable": False}
+
+        def _cursor_stream_emit(ev: dict[str, Any]) -> None:
+            if ev.get("type") == "stream_error":
+                raw = str(ev.get("message") or "")
+                if _is_recoverable_cursor_stream_sse_message(raw):
+                    sse_state["suppressed_recoverable"] = True
+                    _trace_cursor(
+                        "suppressed_recoverable_stream_error "
+                        f"msg={raw[:160]!r} outer_pass={outer_pass}",
+                        path=tp,
                     )
-                    time.sleep(_sse_retry_sleep_seconds(attempt))
-                    continue
-                raise
-            except Exception as e:
-                _trace_cursor(
-                    f"sse_transport_error mode=streaming run_tail={run_id[-8:]!r} "
-                    f"type={type(e).__name__} message={str(e)[:180]!r}",
-                    path=tp,
-                )
-                raise
-        if last_err:
-            if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
-                sc = last_err.response.status_code
-                if sc in _RETRYABLE_SSE_STATUS:
-                    polled = poll_run_for_assistant_text(client, agent_id, run_id)
-                    if polled.strip():
-                        _trace_cursor(
-                            f"sse_retries_exhausted_poll_ok mode=streaming sc={sc} run_tail={str(run_id)[-8:]!r}",
-                            path=tp,
+                    return
+            _emit(ev)
+
+        with _cursor_lane_run_lock(cursor_run_lock_key):
+            _emit({"type": "phase", "message": "Understanding what you want from this trip…"})
+            agent_id, run_id = _begin_cloud_agent_run(
+                client,
+                prompt_text,
+                model_id_override=model_id_override,
+                existing_agent_id=eff_existing,
+                persistent_instruction_prefix=persistent_instruction_prefix,
+                on_new_agent=on_new_agent,
+                on_agent_cleared=on_agent_cleared,
+                cursor_trace_path=tp,
+            )
+            _emit({"type": "phase", "message": "Exploring destinations and tradeoffs for you…"})
+            time.sleep(1.0)
+            _emit({"type": "phase", "message": "Generating structured recommendations…"})
+            last_err: Exception | None = None
+            final_text = ""
+            for attempt in range(8):
+                try:
+                    _emit({"type": "phase", "message": "Listening to the model as it works…"})
+                    text = consume_sse_assistant_streaming(
+                        client, agent_id, run_id, emit=_cursor_stream_emit
+                    )
+                    if not (text or "").strip():
+                        _emit({"type": "phase", "message": "Almost there — wrapping up…"})
+                    final_text = _assistant_text_or_retry_sse(client, agent_id, run_id, text)
+                    break
+                except httpx.HTTPStatusError as e:
+                    last_err = e
+                    sc = e.response.status_code if e.response is not None else 0
+                    _trace_cursor(
+                        f"sse_http_error mode=streaming run_tail={run_id[-8:]!r} status={sc} attempt={attempt + 1} "
+                        f"body_snip={_httpx_err_snip(e)!r}",
+                        path=tp,
+                    )
+                    if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
+                        _emit(
+                            {
+                                "type": "phase",
+                                "message": "Still connecting — trying again in a moment…",
+                            }
                         )
-                        return polled
-            raise last_err
-        return ""
+                        time.sleep(_sse_retry_sleep_seconds(attempt))
+                        continue
+                    raise
+                except Exception as e:
+                    _trace_cursor(
+                        f"sse_transport_error mode=streaming run_tail={run_id[-8:]!r} "
+                        f"type={type(e).__name__} message={str(e)[:180]!r}",
+                        path=tp,
+                    )
+                    raise
+            if last_err:
+                if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
+                    sc = last_err.response.status_code
+                    if sc in _RETRYABLE_SSE_STATUS:
+                        polled = poll_run_for_assistant_text(client, agent_id, run_id)
+                        if polled.strip():
+                            _trace_cursor(
+                                f"sse_retries_exhausted_poll_ok mode=streaming sc={sc} run_tail={str(run_id)[-8:]!r}",
+                                path=tp,
+                            )
+                            return polled
+                raise last_err
+            if (final_text or "").strip():
+                return final_text
+
+        want_retry = sse_state["suppressed_recoverable"] or bool(eff_existing)
+        if outer_pass == 0 and on_agent_cleared is not None and want_retry:
+            on_agent_cleared()
+            eff_existing = None
+            _emit(
+                {
+                    "type": "phase",
+                    "message": "The AI session refreshed — retrying your request…",
+                }
+            )
+            continue
+        return final_text
+
+    return ""
 
 
 def run_auth_only_impl(client: httpx.Client) -> None:

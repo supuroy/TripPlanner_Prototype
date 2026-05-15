@@ -2,6 +2,7 @@ import { apiFetch, apiPostSseJson } from "./client";
 import { isPlaceholderProfilePills } from "../app/lib/wanderlyProfilePills";
 import type {
   ItineraryBudgetGuidance,
+  WanderlyBookingHooks,
   WanderlyProfilePillDTO,
   WanderlyTransportPlan,
   WanderlyTripMeta,
@@ -340,6 +341,7 @@ export async function buildItinerary(
     booking_search_hints?: BookingSearchHints | null;
     needs_commercial_flight?: boolean;
     transport_plan?: WanderlyTransportPlan | null;
+    booking_hooks?: WanderlyBookingHooks | null;
   }>(
     "/api/wanderly/build_itinerary",
     {
@@ -367,6 +369,7 @@ export async function buildItineraryStream(
   booking_search_hints?: BookingSearchHints | null;
   needs_commercial_flight?: boolean;
   transport_plan?: WanderlyTransportPlan | null;
+  booking_hooks?: WanderlyBookingHooks | null;
 }> {
   const body: Record<string, unknown> = {
     session_id: sessionId,
@@ -386,6 +389,7 @@ export async function buildItineraryStream(
         booking_search_hints?: BookingSearchHints | null;
         needs_commercial_flight?: boolean;
         transport_plan?: WanderlyTransportPlan | null;
+        booking_hooks?: WanderlyBookingHooks | null;
       }
     | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -404,7 +408,7 @@ export async function buildItineraryStream(
             const bgRaw = (obj as { budget_guidance?: unknown }).budget_guidance;
             const bhRaw = (obj as { booking_search_hints?: unknown }).booking_search_hints;
             const ncfRaw = (obj as { needs_commercial_flight?: unknown }).needs_commercial_flight;
-            const tpRaw = (obj as { transport_plan?: unknown }).transport_plan;
+            const hooksRaw = (obj as { booking_hooks?: unknown }).booking_hooks;
             let budget_guidance: ItineraryBudgetGuidance | undefined;
             if (bgRaw && typeof bgRaw === "object" && !Array.isArray(bgRaw)) {
               budget_guidance = bgRaw as ItineraryBudgetGuidance;
@@ -417,6 +421,7 @@ export async function buildItineraryStream(
             if (typeof ncfRaw === "boolean") {
               needs_commercial_flight = ncfRaw;
             }
+            const tpRaw = (obj as { transport_plan?: unknown }).transport_plan;
             let transport_plan: WanderlyTransportPlan | undefined;
             if (
               tpRaw &&
@@ -426,6 +431,10 @@ export async function buildItineraryStream(
             ) {
               transport_plan = tpRaw as WanderlyTransportPlan;
             }
+            let booking_hooks: WanderlyBookingHooks | undefined;
+            if (hooksRaw && typeof hooksRaw === "object" && !Array.isArray(hooksRaw)) {
+              booking_hooks = hooksRaw as WanderlyBookingHooks;
+            }
             result = {
               session_id: String(obj.session_id),
               destination_id: String(obj.destination_id),
@@ -434,6 +443,7 @@ export async function buildItineraryStream(
               booking_search_hints,
               needs_commercial_flight,
               transport_plan,
+              booking_hooks,
             };
           }
         },
@@ -548,8 +558,10 @@ export type BookingSearchStepResponse = {
   search_url?: string;
   /** True when flight search used catalog round-trip (out + return on last trip day). */
   round_trip?: boolean;
-  /** ``outbound`` (default) or ``return`` — separate one-way searches for each leg. */
+  /** ``outbound`` (default) or ``return`` — legacy two-leg trips without structured segments. */
   flight_leg?: "outbound" | "return";
+  /** Index into ``commercial_flight_segments`` when itinerary hooks list multiple airline legs. */
+  flight_segment_index?: number;
   /** Present when server has BOOKING_SEARCH_API_DEBUG=1 — field source map for parse iteration. */
   debug_parse?: Record<string, unknown>;
 };
@@ -561,6 +573,11 @@ export async function bookingSearchPrepare(
     date_hints?: BookingDateHints;
     /** When set, overrides server session snapshot (sidebar profile for adults / LLM context). */
     profile_pills?: WanderlyProfilePillDTO[];
+    /**
+     * When true, prepare still builds criteria + hotels_for_session but does **not** launch parallel
+     * HTML prefetch for every flight/hotel URL (used for single-stay search from the logistics UI).
+     */
+    skip_parallel_prefetch?: boolean;
   },
   options?: { signal?: AbortSignal },
 ) {
@@ -570,6 +587,7 @@ export async function bookingSearchPrepare(
     date_hints: args.date_hints,
   };
   if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
+  if (args.skip_parallel_prefetch) body.skip_parallel_prefetch = true;
   return apiFetch<BookingSearchPrepareResponse>("/api/wanderly/booking_search_prepare", {
     method: "POST",
     body: JSON.stringify(body),
@@ -585,6 +603,7 @@ export async function bookingSearchStep(args: {
   date_hints?: BookingDateHints;
   profile_pills?: WanderlyProfilePillDTO[];
   flight_leg?: "outbound" | "return";
+  flight_segment_index?: number;
 }) {
   const body: Record<string, unknown> = {
     session_id: args.session_id,
@@ -594,7 +613,10 @@ export async function bookingSearchStep(args: {
   };
   if (args.step === "hotel" && args.hotel_index != null) body.hotel_index = args.hotel_index;
   if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
-  if (args.step === "flight" && args.flight_leg) body.flight_leg = args.flight_leg;
+  if (args.step === "flight") {
+    if (args.flight_leg) body.flight_leg = args.flight_leg;
+    if (args.flight_segment_index != null) body.flight_segment_index = args.flight_segment_index;
+  }
   return apiFetch<BookingSearchStepResponse>("/api/wanderly/booking_search_step", {
     method: "POST",
     body: JSON.stringify(body),
