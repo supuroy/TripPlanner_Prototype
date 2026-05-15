@@ -150,6 +150,8 @@ function SavedTripsBar() {
   const current = savedTrips.find((t) => t.trip_id.trim() === wanderlyTripId.trim());
   /** Manifest row id (authoritative); avoids rename 404 when UI state id drifts from disk. */
   const tripIdForRename = (current?.trip_id ?? wanderlyTripId).trim();
+  const selectTripValue =
+    wanderlyTripId && savedTrips.some((t) => t.trip_id === wanderlyTripId) ? wanderlyTripId : undefined;
 
   if (savedTrips.length === 0) return null;
 
@@ -204,7 +206,7 @@ function SavedTripsBar() {
       ) : null}
       <span className="hidden text-white/40 sm:inline">Trips</span>
       <Select
-        value={wanderlyTripId}
+        value={selectTripValue}
         onValueChange={(id) => {
           if (!id || id === wanderlyTripId) return;
           setBusy(true);
@@ -327,7 +329,8 @@ function Workspace() {
     return () => clearInterval(id);
   }, [enrichmentPending, sessionId, setDestinations, setEnrichmentPending]);
 
-  const hasSidebar = hasStarted && profile.length > 0;
+  /** Show profile rail whenever the workspace is active — do not hide it when ``profile_pills`` is temporarily empty. */
+  const hasSidebar = hasStarted;
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0a0a0f] text-white">

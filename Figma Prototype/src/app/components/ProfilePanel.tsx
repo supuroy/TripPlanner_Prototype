@@ -960,7 +960,27 @@ export function ProfilePanel() {
     .sort((a, b) => b.ts - a.ts)
     .slice(0, 5);
 
-  if (profile.length === 0) return null;
+  if (profile.length === 0) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-4"
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <motion.div
+            className="w-1.5 h-1.5 rounded-full bg-indigo-400"
+            animate={{ opacity: [0.35, 1, 0.35] }}
+            transition={{ duration: 1.4, repeat: Infinity }}
+          />
+          <span className="text-[11px] text-white/30 uppercase tracking-widest">Traveler Profile</span>
+        </div>
+        <p className="text-[12px] leading-relaxed text-white/40">
+          Loading traveler profile from your saved trip…
+        </p>
+      </motion.div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">

@@ -1,4 +1,5 @@
 import { apiFetch, apiPostSseJson } from "./client";
+import { isPlaceholderProfilePills } from "../app/lib/wanderlyProfilePills";
 import type {
   ItineraryBudgetGuidance,
   WanderlyProfilePillDTO,
@@ -280,7 +281,7 @@ export async function syncUi(
       trip_name: String(opts.tripMeta.trip_name || "").trim().slice(0, 200),
     };
   }
-  if (opts?.profilePills != null && Array.isArray(opts.profilePills)) {
+  if (opts?.profilePills != null && Array.isArray(opts.profilePills) && !isPlaceholderProfilePills(opts.profilePills)) {
     body.profile_pills = opts.profilePills;
   }
   return apiFetch<SyncUiResponse>("/api/wanderly/sync_ui", {

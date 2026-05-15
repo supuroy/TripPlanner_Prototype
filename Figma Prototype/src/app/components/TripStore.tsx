@@ -9,7 +9,9 @@ import {
   syncUi,
   renameWanderlyTrip,
   deleteWanderlyTrip,
+  fetchWorkspace,
 } from "../../api/wanderly";
+import { isPlaceholderProfilePills } from "../lib/wanderlyProfilePills";
 import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
@@ -616,13 +618,16 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
 
   const applyWanderlyToCanvas = useCallback((w: WanderlyWorkspaceDTO, opts?: { replaceAll?: boolean }) => {
     const replaceAll = Boolean(opts?.replaceAll);
+    const raw = w.destinations;
+    const next = Array.isArray(raw) ? raw : [];
+
     if (replaceAll) {
-      setProfile(Array.isArray(w.profile_pills) ? (w.profile_pills as ProfilePill[]) : []);
+      const pills: ProfilePill[] = Array.isArray(w.profile_pills) ? (w.profile_pills as ProfilePill[]) : [];
+      setProfile(pills);
     } else if (Array.isArray(w.profile_pills) && w.profile_pills.length > 0) {
       setProfile(w.profile_pills as ProfilePill[]);
     }
-    const raw = w.destinations;
-    const next = Array.isArray(raw) ? raw : [];
+
     if (next.length === 0) {
       setDestinations([]);
       return;
@@ -672,60 +677,121 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setTripDiskPersist((prev) => ({ ...prev, status: "dirty", saveError: true }));
   }, []);
 
+  const readBootstrapHints = useCallback(() => {
+    let hintS = "";
+    let hintT = "";
+    try {
+      hintS =
+        sessionStorage.getItem("wanderly_session_id") ||
+        localStorage.getItem("wanderly_session_id") ||
+        "";
+      hintT = sessionStorage.getItem("wanderly_trip_id") || "";
+    } catch {
+      /* storage unavailable */
+    }
+    return { hintS: hintS.trim(), hintT: hintT.trim() };
+  }, []);
+
+  const refreshProfileFromWorkspace = useCallback(async (sid: string) => {
+    const id = sid.trim();
+    if (!id) return;
+    try {
+      const { wanderly } = await fetchWorkspace(id);
+      const pills = Array.isArray(wanderly.profile_pills) ? (wanderly.profile_pills as ProfilePill[]) : [];
+      if (pills.length > 0 && !isPlaceholderProfilePills(pills)) {
+        setProfile(pills);
+      }
+    } catch {
+      /* transient */
+    }
+  }, []);
+
+  const applyTripsBootstrapPayload = useCallback(
+    (res: {
+      session_id: string;
+      trip_id: string;
+      trips: WanderlyTripSummary[];
+      wanderly: WanderlyWorkspaceDTO;
+    }) => {
+      try {
+        sessionStorage.setItem("wanderly_session_id", res.session_id);
+        sessionStorage.setItem("wanderly_trip_id", res.trip_id);
+        localStorage.setItem("wanderly_session_id", res.session_id);
+      } catch {
+        /* */
+      }
+      setSessionId(res.session_id);
+      setWanderlyTripId(res.trip_id);
+      setSavedTrips(Array.isArray(res.trips) ? res.trips : []);
+      const nm = res.trips.find((t) => t.trip_id === res.trip_id)?.trip_name?.trim();
+      if (nm) setTripNameState(nm);
+      applyWanderlyToCanvas(res.wanderly, { replaceAll: true });
+      const hasDest = Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
+      if (hasDest) setHasStarted(true);
+      const srvDest = (res.wanderly.destinations || []) as DestCard[];
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const merged = destinationsRef.current;
+          markTripDiskBaselineFromDestinations(srvDest.length > 0 ? srvDest : merged);
+        });
+      });
+      void refreshProfileFromWorkspace(res.session_id);
+    },
+    [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations, refreshProfileFromWorkspace],
+  );
+
   /** True only after a successful bootstrap — avoids Strict Mode double-mount skipping the real run. */
   const wanderlyBootstrapOkRef = useRef(false);
+  const bootstrapInFlightRef = useRef(false);
+
+  const runBootstrap = useCallback(async () => {
+    if (bootstrapInFlightRef.current) return false;
+    bootstrapInFlightRef.current = true;
+    try {
+      const { hintS, hintT } = readBootstrapHints();
+      const res = await bootstrapWanderlyTrips({
+        session_id: hintS || undefined,
+        trip_id: hintT || undefined,
+      });
+      if (!res.trip_id || !Array.isArray(res.trips)) {
+        return false;
+      }
+      applyTripsBootstrapPayload(res);
+      wanderlyBootstrapOkRef.current = true;
+      return true;
+    } catch {
+      wanderlyBootstrapOkRef.current = false;
+      return false;
+    } finally {
+      bootstrapInFlightRef.current = false;
+    }
+  }, [applyTripsBootstrapPayload, readBootstrapHints]);
+
   useEffect(() => {
     if (wanderlyBootstrapOkRef.current) return;
     let cancelled = false;
     void (async () => {
-      try {
-        let hintS = "";
-        let hintT = "";
-        try {
-          hintS = sessionStorage.getItem("wanderly_session_id") || "";
-          hintT = sessionStorage.getItem("wanderly_trip_id") || "";
-        } catch {
-          /* sessionStorage unavailable */
-        }
-        const res = await bootstrapWanderlyTrips({
-          session_id: hintS || undefined,
-          trip_id: hintT || undefined,
-        });
-        if (cancelled) return;
-        try {
-          sessionStorage.setItem("wanderly_session_id", res.session_id);
-          sessionStorage.setItem("wanderly_trip_id", res.trip_id);
-        } catch {
-          /* */
-        }
-        if (res.session_id !== hintS) setSessionId(res.session_id);
-        setWanderlyTripId(res.trip_id);
-        setSavedTrips(res.trips);
-        const nm = res.trips.find((t) => t.trip_id === res.trip_id)?.trip_name?.trim();
-        if (nm) setTripNameState(nm);
-        applyWanderlyToCanvas(res.wanderly, { replaceAll: true });
-        const hasDest =
-          Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
-        if (hasDest) setHasStarted(true);
-        wanderlyBootstrapOkRef.current = true;
-        const srvDest = (res.wanderly.destinations || []) as DestCard[];
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (cancelled) return;
-            const merged = destinationsRef.current;
-            markTripDiskBaselineFromDestinations(srvDest.length > 0 ? srvDest : merged);
-          });
-        });
-      } catch {
-        /* allow retry on next mount or after server comes up */
-      } finally {
-        if (!cancelled) setWanderlyWorkspaceBootstrapped(true);
+      const ok = await runBootstrap();
+      if (cancelled) return;
+      if (!ok) {
+        wanderlyBootstrapOkRef.current = false;
       }
+      setWanderlyWorkspaceBootstrapped(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations]);
+  }, [runBootstrap]);
+
+  /** Retry bootstrap when the first attempt failed (e.g. server still starting). */
+  useEffect(() => {
+    if (!wanderlyWorkspaceBootstrapped || wanderlyBootstrapOkRef.current) return;
+    if (savedTrips.length > 0) return;
+    const t = window.setTimeout(() => {
+      void runBootstrap();
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [wanderlyWorkspaceBootstrapped, savedTrips.length, runBootstrap]);
 
   const switchToSavedTrip = useCallback(
     async (tripId: string) => {
@@ -753,6 +819,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         applyWanderlyToCanvas(res.wanderly, { replaceAll: true });
         const hasDest = Array.isArray(res.wanderly.destinations) && res.wanderly.destinations.length > 0;
         setHasStarted(hasDest);
+        void refreshProfileFromWorkspace(res.session_id);
         const srvDest = (res.wanderly.destinations || []) as DestCard[];
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -767,7 +834,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         setTripSwitchTransitioning(false);
       }
     },
-    [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations, wanderlyTripId],
+    [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations, wanderlyTripId, refreshProfileFromWorkspace],
   );
 
   const createEmptyTrip = useCallback(

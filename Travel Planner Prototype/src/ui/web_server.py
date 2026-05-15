@@ -120,6 +120,20 @@ def _truthy_flag(val: Any) -> bool:
     return s in ("1", "true", "yes", "on")
 
 
+def _is_placeholder_profile_pills(pills: list[dict[str, Any]]) -> bool:
+    """Client UI template — must not overwrite substantive trip-file pills via sync_ui."""
+    if not pills:
+        return True
+    by_key = {str(p.get("key") or ""): str(p.get("value") or "").strip() for p in pills if isinstance(p, dict)}
+    return (
+        by_key.get("when", "") in ("", "Not specified")
+        and by_key.get("who", "") in ("", "Travelers")
+        and by_key.get("from", "") in ("", "Not specified")
+        and by_key.get("budget", "") in ("", "Flexible")
+        and by_key.get("duration", "") in ("", "Not specified")
+    )
+
+
 _itinerary_build_locks: dict[str, threading.Lock] = {}
 _itinerary_build_locks_guard = threading.Lock()
 
@@ -575,7 +589,9 @@ def run_web_server(
                             s["trip_meta"] = {"trip_id": tid, "trip_name": tname}
                     pills_in = payload.get("profile_pills")
                     if isinstance(pills_in, list):
-                        set_last_profile_pills(sid, [x for x in pills_in if isinstance(x, dict)])
+                        pills_clean = [x for x in pills_in if isinstance(x, dict)]
+                        if pills_clean and not _is_placeholder_profile_pills(pills_clean):
+                            set_last_profile_pills(sid, pills_clean)
                     s["ui_destinations"] = dests
                     trip_disk = (payload.get("trip_id") or "").strip()
                     if not trip_disk:
