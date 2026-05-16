@@ -2,7 +2,7 @@
  * Expanded-card booking experience (summary strips, flip back-face, timeline, cost).
  * Spec: TRAVEL_BOOKING_IMPLEMENTATION.md
  */
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { flushSync } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -14,7 +14,20 @@ import {
   CheckCircle2,
   Calendar,
   Luggage,
+  ChevronDown,
 } from "lucide-react";
+import {
+  flightWithSelectedRank,
+  mergeFlightFromSearch,
+  otherRankedFlightPicks,
+  resolveDisplayedFlight,
+} from "../lib/flightRankedPicks";
+import {
+  hotelGuestRatingDisplay,
+  hotelWithSelectedRank,
+  otherRankedPicks,
+  resolveDisplayedHotel,
+} from "../lib/hotelRankedPicks";
 import type { DestCard, FlightOption, HotelOption, ActivityOption, ProfilePill } from "./TripStore";
 import { useTrip } from "./TripStore";
 import type { WanderlyProfilePillDTO } from "../../types/workspace";
@@ -197,12 +210,19 @@ export function DetailedFlightCard({
   flight,
   isSelected,
   onClick,
+  onSelectRank,
 }: {
   flight: FlightOption;
   isSelected?: boolean;
   onClick?: () => void;
+  onSelectRank?: (rank: number) => void;
 }) {
-  const searchHref = (flight.search_url || "").trim();
+  const [altOpen, setAltOpen] = useState(false);
+  const displayed = resolveDisplayedFlight(flight);
+  const searchHref = (displayed.search_url || flight.search_url || "").trim();
+  const others = otherRankedFlightPicks(flight);
+  const showAlternatives = others.length > 0 && !flight.isPlaceholder;
+  const stopsLabel = (displayed.stops || "").trim();
   return (
     <>
     <button
@@ -220,35 +240,43 @@ export function DetailedFlightCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[13px] font-medium text-white/90">{flight.airline}</p>
+            <p className="text-[13px] font-medium text-white/90">{displayed.airline}</p>
             {flight.isPlaceholder ? (
               <span className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] text-white/70">
                 Planned
               </span>
             ) : null}
-            {flight.leg === "return" ? (
+            {displayed.leg === "return" ? (
               <span className="rounded border border-violet-500/25 bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-200/90">
                 Return
               </span>
-            ) : flight.leg === "outbound" ? (
+            ) : displayed.leg === "outbound" ? (
               <span className="rounded border border-sky-500/25 bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-200/90">
                 Outbound
               </span>
             ) : null}
-            {flight.best ? (
-              <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/30 bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">
+            {displayed.best ? (
+              <span
+                className="inline-flex items-center gap-0.5 rounded border border-amber-500/30 bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200"
+                title={
+                  flight.selected_rank && flight.selected_rank > 1
+                    ? `Your pick (#${flight.selected_rank})`
+                    : "Top recommendation"
+                }
+              >
                 <Star className="h-2.5 w-2.5" />
                 Best value
               </span>
             ) : null}
           </div>
-          <p className="mt-0.5 text-[12px] text-white/50">{flight.route}</p>
+          <p className="mt-0.5 text-[12px] text-white/50">{displayed.route}</p>
+          {stopsLabel ? <p className="mt-1 text-[11px] text-white/42">{stopsLabel}</p> : null}
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="flex items-center gap-1 text-[11px] text-white/40">
               <Clock className="h-3 w-3" aria-hidden />
-              {flight.duration}
+              {displayed.duration}
             </span>
-            <span className="text-[16px] font-medium tabular-nums text-white/90">{flight.price}</span>
+            <span className="text-[16px] font-medium tabular-nums text-white/90">{displayed.price}</span>
           </div>
         </div>
       </div>
@@ -259,6 +287,48 @@ export function DetailedFlightCard({
         </span>
       </div>
     </button>
+    {showAlternatives ? (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setAltOpen((o) => !o)}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[11px] text-white/55 transition-colors hover:border-white/[0.14] hover:bg-white/[0.05] hover:text-white/75"
+          aria-expanded={altOpen}
+        >
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 transition-transform ${altOpen ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+          {altOpen ? "Hide other options" : `Other options (${others.length})`}
+        </button>
+        {altOpen ? (
+          <ul className="mt-2 space-y-1.5" role="listbox" aria-label="Other flight options">
+            {others.map((pick) => (
+              <li key={pick.rank}>
+                <button
+                  type="button"
+                  role="option"
+                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-left transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/10"
+                  onClick={() => {
+                    onSelectRank?.(pick.rank);
+                    setAltOpen(false);
+                  }}
+                >
+                  <p className="text-[12px] font-medium text-white/85">
+                    #{pick.rank} · {pick.airline}
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-white/45">
+                    {pick.price}
+                    {pick.stops ? ` · ${pick.stops}` : ""}
+                    {pick.duration ? ` · ${pick.duration}` : ""}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    ) : null}
     {searchHref ? (
       <a
         href={searchHref}
@@ -270,7 +340,7 @@ export function DetailedFlightCard({
         Open flight search on Expedia
       </a>
     ) : null}
-    {flight.round_trip ? (
+    {displayed.round_trip ? (
       <p className="mt-1.5 text-center text-[10px] leading-snug text-white/38">
         Round trip: return leg is included in this Expedia search (return date = last day of your trip window).
       </p>
@@ -283,14 +353,21 @@ export function DetailedHotelCard({
   hotel,
   isSelected,
   onClick,
+  onSelectRank,
 }: {
   hotel: HotelOption;
   isSelected?: boolean;
   onClick?: () => void;
+  onSelectRank?: (rank: number) => void;
 }) {
-  const listingHref = (hotel.listing_url || "").trim();
-  const per = parsePriceDigits(hotel.price);
-  const total = per * (hotel.nights || 0);
+  const [altOpen, setAltOpen] = useState(false);
+  const displayed = resolveDisplayedHotel(hotel);
+  const listingHref = (displayed.listing_url || "").trim();
+  const per = parsePriceDigits(displayed.price);
+  const total = per * (displayed.nights || 0);
+  const others = otherRankedPicks(hotel);
+  const showAlternatives = others.length > 0 && !hotel.isPlaceholder;
+  const rating = hotelGuestRatingDisplay(displayed);
   return (
     <>
     <button
@@ -304,28 +381,46 @@ export function DetailedHotelCard({
     >
       <div className="flex gap-3">
         <ImageWithFallback
-          src={hotel.image}
-          alt={hotel.name}
+          src={displayed.image}
+          alt={displayed.name}
           className="h-20 w-20 shrink-0 rounded-lg object-cover"
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="text-[13px] font-medium text-white/90">{hotel.name}</p>
-            {hotel.isPlaceholder ? (
+            <p className="text-[13px] font-medium text-white/90">{displayed.name}</p>
+            {displayed.isPlaceholder ? (
               <span className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] text-white/70">
                 Planned
               </span>
             ) : null}
-            {hotel.best ? (
-              <span className="rounded border border-amber-500/30 bg-amber-500/20 p-1 text-amber-300">
+            {displayed.best ? (
+              <span
+                className="rounded border border-amber-500/30 bg-amber-500/20 p-1 text-amber-300"
+                title={
+                  hotel.selected_rank && hotel.selected_rank > 1
+                    ? `Your pick (#${hotel.selected_rank})`
+                    : "Top recommendation"
+                }
+              >
                 <Star className="h-3 w-3" aria-hidden />
               </span>
             ) : null}
           </div>
-          <p className="text-[11px] text-white/45">{dedupeMiddleDotSegments(hotel.area)}</p>
+          <p className="text-[11px] text-white/45">{dedupeMiddleDotSegments(displayed.area)}</p>
+          {rating && !displayed.isPlaceholder ? (
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span className="inline-flex items-center gap-0.5 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 font-medium tabular-nums text-emerald-200/95">
+                <Star className="h-2.5 w-2.5 fill-emerald-400/40 text-emerald-300/90" aria-hidden />
+                {rating.scoreText}
+              </span>
+              {rating.detailText ? (
+                <span className="text-white/42">{rating.detailText}</span>
+              ) : null}
+            </p>
+          ) : null}
           <p className="mt-1 flex items-center gap-1 text-[11px] text-white/40">
             <Calendar className="h-3 w-3 shrink-0" aria-hidden />
-            {hotel.nights} nights × {hotel.price}
+            {displayed.nights} nights × {displayed.price}
           </p>
           <div className="mt-2 flex items-center justify-between border-t border-white/[0.06] pt-2">
             <span className="text-[11px] text-white/35">Total stay</span>
@@ -340,6 +435,51 @@ export function DetailedHotelCard({
         </span>
       </div>
     </button>
+    {showAlternatives ? (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setAltOpen((o) => !o)}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[11px] text-white/55 transition-colors hover:border-white/[0.14] hover:bg-white/[0.05] hover:text-white/75"
+          aria-expanded={altOpen}
+        >
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 transition-transform ${altOpen ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+          {altOpen ? "Hide other options" : `Other options (${others.length})`}
+        </button>
+        {altOpen ? (
+          <ul className="mt-2 space-y-1.5" role="listbox" aria-label="Other hotel options">
+            {others.map((pick) => {
+              const altTotal = parsePriceDigits(pick.price) * (pick.nights || displayed.nights || 0);
+              return (
+                <li key={pick.rank}>
+                  <button
+                    type="button"
+                    role="option"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-left transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/10"
+                    onClick={() => {
+                      onSelectRank?.(pick.rank);
+                      setAltOpen(false);
+                    }}
+                  >
+                    <p className="text-[12px] font-medium text-white/85">
+                      #{pick.rank} · {pick.name}
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-white/45">
+                      {pick.nights || displayed.nights} nights × {pick.price}
+                      {altTotal > 0 ? ` · ~$${altTotal.toLocaleString()} total` : ""}
+                      {pick.guest_rating != null ? ` · ${pick.guest_rating} rating` : ""}
+                    </p>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </div>
+    ) : null}
     {listingHref ? (
       <a
         href={listingHref}
@@ -867,6 +1007,8 @@ export async function runSingleHotelBookingSearch(args: {
             ...hr.hotel!,
             best: true,
             listing_url: hr.hotel!.listing_url || nextHotels[ix].listing_url,
+            ranked_picks: hr.hotel!.ranked_picks ?? nextHotels[ix].ranked_picks,
+            selected_rank: hr.hotel!.selected_rank ?? nextHotels[ix].selected_rank ?? 1,
             isPlaceholder: false,
           };
           return { ...d, hotels: nextHotels, liveBookingEstimates: true };
@@ -1035,15 +1177,13 @@ export async function runSingleFlightBookingSearch(args: {
           }
           const ix = resolvedIndex;
           if (ix < 0 || ix >= nextFlights.length) return d;
-          nextFlights[ix] = {
-            ...nextFlights[ix],
+          nextFlights[ix] = mergeFlightFromSearch(nextFlights[ix], {
             ...fr.flight!,
-            best: true,
             leg: fr.flight!.leg ?? segLeg,
             search_url: fr.flight!.search_url || nextFlights[ix].search_url,
             round_trip: fr.flight!.round_trip ?? nextFlights[ix].round_trip,
             isPlaceholder: false,
-          };
+          });
           return { ...d, flights: nextFlights, liveBookingEstimates: true };
         });
         return mergedForDisk;
@@ -1118,7 +1258,7 @@ export function BookingCostBreakdown({
       </div>
       <p className="mt-2 text-[10px] leading-snug text-white/30">
         {variant === "summary"
-          ? "Use the logistics button (route icon) on the destination card for the full trip logistics view. Live Expedia search is not in this build."
+          ? "Use the logistics button (route icon) on the destination card for the full trip logistics view."
           : "Use the card flip for day-by-day logistics; per-step booking links return in a later iteration."}
       </p>
     </div>
@@ -1227,6 +1367,74 @@ export function BookingTimelineFace({
   /** Bumps on each live-pipeline mount so Strict Mode / prop churn does not merge stale step results. */
   const livePipelineGen = useRef(0);
 
+  const selectHotelRank = useCallback(
+    (stayIndex: number, rank: number) => {
+      setDestinations((prev) => {
+        const next = prev.map((d) => {
+          if (d.id !== dest.id) return d;
+          const nextHotels = [...(d.hotels || [])];
+          if (stayIndex < 0 || stayIndex >= nextHotels.length) return d;
+          nextHotels[stayIndex] = hotelWithSelectedRank(nextHotels[stayIndex], rank);
+          return { ...d, hotels: nextHotels };
+        });
+        if (sessionId) {
+          beginTripDiskSave();
+          void syncUi(sessionId, next as unknown[], {
+            tripId: wanderlyTripId || undefined,
+            profilePills: profile,
+          })
+            .then((r) => completeTripDiskSave(next as DestCard[], { savedToDisk: Boolean(r.saved_to_disk) }))
+            .catch(() => failTripDiskSave());
+        }
+        return next;
+      });
+    },
+    [
+      dest.id,
+      sessionId,
+      wanderlyTripId,
+      profile,
+      setDestinations,
+      beginTripDiskSave,
+      completeTripDiskSave,
+      failTripDiskSave,
+    ],
+  );
+
+  const selectFlightRank = useCallback(
+    (flightIndex: number, rank: number) => {
+      setDestinations((prev) => {
+        const next = prev.map((d) => {
+          if (d.id !== dest.id) return d;
+          const nextFlights = [...(d.flights || [])];
+          if (flightIndex < 0 || flightIndex >= nextFlights.length) return d;
+          nextFlights[flightIndex] = flightWithSelectedRank(nextFlights[flightIndex], rank);
+          return { ...d, flights: nextFlights };
+        });
+        if (sessionId) {
+          beginTripDiskSave();
+          void syncUi(sessionId, next as unknown[], {
+            tripId: wanderlyTripId || undefined,
+            profilePills: profile,
+          })
+            .then((r) => completeTripDiskSave(next as DestCard[], { savedToDisk: Boolean(r.saved_to_disk) }))
+            .catch(() => failTripDiskSave());
+        }
+        return next;
+      });
+    },
+    [
+      dest.id,
+      sessionId,
+      wanderlyTripId,
+      profile,
+      setDestinations,
+      beginTripDiskSave,
+      completeTripDiskSave,
+      failTripDiskSave,
+    ],
+  );
+
   /* ── Cached: instant + mark hydration ── */
   useEffect(() => {
     if (runMode !== "cached") return;
@@ -1282,15 +1490,24 @@ export function BookingTimelineFace({
 
     const mergeOutboundFlight = (flight: FlightOption) => {
       if (gen !== livePipelineGen.current) return;
-      const row = { ...flight, best: true, leg: flight.leg ?? ("outbound" as const), isPlaceholder: false };
+      const incoming = { ...flight, leg: flight.leg ?? ("outbound" as const), isPlaceholder: false };
       setDestinations((prev) =>
         prev.map((d) => {
           if (d.id !== dest.id) return d;
           const nextFlights = [...(d.flights || [])];
+          const placeholder: FlightOption = {
+            airline: "",
+            route: "",
+            duration: "",
+            price: "",
+            best: true,
+            leg: "outbound",
+            isPlaceholder: true,
+          };
           if (nextFlights.length) {
-            nextFlights[0] = row;
+            nextFlights[0] = mergeFlightFromSearch(nextFlights[0], incoming);
           } else {
-            nextFlights.push(row);
+            nextFlights.push(mergeFlightFromSearch(placeholder, incoming));
           }
           return { ...d, flights: nextFlights, liveBookingEstimates: true };
         }),
@@ -1299,11 +1516,22 @@ export function BookingTimelineFace({
 
     const mergeReturnFlight = (flight: FlightOption) => {
       if (gen !== livePipelineGen.current) return;
-      const row = { ...flight, best: true, leg: "return" as const, isPlaceholder: false };
+      const incoming = { ...flight, leg: "return" as const, isPlaceholder: false };
       setDestinations((prev) =>
         prev.map((d) => {
           if (d.id !== dest.id) return d;
           const withoutRet = [...(d.flights || [])].filter((f) => f.leg !== "return");
+          const prevReturn = (d.flights || []).find((f) => f.leg === "return");
+          const placeholder: FlightOption = {
+            airline: "",
+            route: "",
+            duration: "",
+            price: "",
+            best: true,
+            leg: "return",
+            isPlaceholder: true,
+          };
+          const row = mergeFlightFromSearch(prevReturn ?? placeholder, incoming);
           return { ...d, flights: [...withoutRet, row], liveBookingEstimates: true };
         }),
       );
@@ -1311,7 +1539,7 @@ export function BookingTimelineFace({
 
     const mergeFlightAtIndex = (index: number, flight: FlightOption, leg: FlightOption["leg"]) => {
       if (gen !== livePipelineGen.current) return;
-      const row = { ...flight, best: true, leg, isPlaceholder: false };
+      const incoming = { ...flight, leg, isPlaceholder: false };
       setDestinations((prev) =>
         prev.map((d) => {
           if (d.id !== dest.id) return d;
@@ -1327,7 +1555,7 @@ export function BookingTimelineFace({
               isPlaceholder: true,
             });
           }
-          nextFlights[index] = row;
+          nextFlights[index] = mergeFlightFromSearch(nextFlights[index], incoming);
           return { ...d, flights: nextFlights, liveBookingEstimates: true };
         }),
       );
@@ -1340,11 +1568,14 @@ export function BookingTimelineFace({
           if (d.id !== dest.id) return d;
           const nextHotels = [...(d.hotels || [])];
           if (index < 0 || index >= nextHotels.length) return { ...d, liveBookingEstimates: true };
+          const prevRank = nextHotels[index].selected_rank;
           nextHotels[index] = {
             ...nextHotels[index],
             ...hotel,
             best: true,
             listing_url: hotel.listing_url || nextHotels[index].listing_url,
+            ranked_picks: hotel.ranked_picks ?? nextHotels[index].ranked_picks,
+            selected_rank: hotel.selected_rank ?? prevRank ?? 1,
             isPlaceholder: false,
           };
           return { ...d, hotels: nextHotels, liveBookingEstimates: true };
@@ -1694,6 +1925,11 @@ export function BookingTimelineFace({
     [flights],
   );
   const returnFlight = useMemo(() => flights.find((f) => f.leg === "return"), [flights]);
+  const outboundFlightIndex = useMemo(() => {
+    const ix = flights.findIndex((f) => f.leg !== "return");
+    return ix >= 0 ? ix : 0;
+  }, [flights]);
+  const returnFlightIndex = useMemo(() => flights.findIndex((f) => f.leg === "return"), [flights]);
 
   const outboundFlightResolved =
     runMode !== "live" ||
@@ -1937,6 +2173,7 @@ export function BookingTimelineFace({
                       <DetailedFlightCard
                         flight={outboundFlight}
                         onClick={() => console.info("[booking] flight select outbound", outboundFlight.airline)}
+                        onSelectRank={(rank) => selectFlightRank(outboundFlightIndex, rank)}
                       />
                     </motion.div>
                   ) : runMode === "live" && !outboundFlight && (flightPhase === "error" || prepareError) ? (
@@ -1966,6 +2203,7 @@ export function BookingTimelineFace({
                   <DetailedFlightCard
                     flight={segFlight}
                     onClick={() => console.info("[booking] flight select segment", segFlight.airline)}
+                    onSelectRank={(rank) => selectFlightRank(si + 1, rank)}
                   />
                 </motion.div>
               </motion.div>
@@ -2013,6 +2251,7 @@ export function BookingTimelineFace({
                         <DetailedHotelCard
                           hotel={h}
                           onClick={() => console.info("[booking] hotel select", h.name)}
+                          onSelectRank={(rank) => selectHotelRank(idx, rank)}
                         />
                       </motion.div>
                     ) : null}
@@ -2050,6 +2289,11 @@ export function BookingTimelineFace({
                       <DetailedFlightCard
                         flight={returnFlight}
                         onClick={() => console.info("[booking] flight select return", returnFlight.airline)}
+                        onSelectRank={
+                          returnFlightIndex >= 0
+                            ? (rank) => selectFlightRank(returnFlightIndex, rank)
+                            : undefined
+                        }
                       />
                     </motion.div>
                   ) : showReturnFlightError ? (
@@ -2072,6 +2316,11 @@ export function BookingTimelineFace({
                       <DetailedFlightCard
                         flight={returnFlight}
                         onClick={() => console.info("[booking] flight select return", returnFlight.airline)}
+                        onSelectRank={
+                          returnFlightIndex >= 0
+                            ? (rank) => selectFlightRank(returnFlightIndex, rank)
+                            : undefined
+                        }
                       />
                     </motion.div>
                   ) : null}

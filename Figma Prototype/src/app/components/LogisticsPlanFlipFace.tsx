@@ -32,6 +32,9 @@ import {
   HotelLoadSkeleton,
   FlightLoadSkeleton,
 } from "./bookingExpandedContent";
+import { hotelWithSelectedRank } from "../lib/hotelRankedPicks";
+import { flightWithSelectedRank, resolveDisplayedFlight } from "../lib/flightRankedPicks";
+import { syncUi } from "../../api/wanderly";
 import {
   commercialFlightSegmentsFromDest,
   transportPlanSummary,
@@ -199,6 +202,98 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
     ],
   );
 
+  const handleHotelRankSelect = useCallback(
+    (rowIndex: number, rank: number) => {
+      const base = hotelSearchResults[rowIndex] ?? persistedHotelPickForStayRow(dest, rowIndex);
+      if (!base?.ranked_picks?.length) return;
+      const updated = hotelWithSelectedRank(base, rank);
+      setHotelSearchResults((prev) => ({ ...prev, [rowIndex]: updated }));
+      setDestinations((prev) => {
+        const next = prev.map((d) => {
+          if (d.id !== dest.id) return d;
+          const nextHotels = [...(d.hotels || [])];
+          if (rowIndex < 0 || rowIndex >= nextHotels.length) return d;
+          nextHotels[rowIndex] = { ...nextHotels[rowIndex], ...updated, best: true };
+          return { ...d, hotels: nextHotels };
+        });
+        const sid = sessionId.trim();
+        if (sid) {
+          beginTripDiskSave();
+          void syncUi(sid, next as unknown[], {
+            tripId: wanderlyTripId?.trim() || undefined,
+            profilePills: profile.map((p) => ({
+              key: p.key,
+              label: p.label,
+              value: p.value,
+              icon: p.icon,
+              editable: p.editable !== false,
+            })),
+          })
+            .then((r) => completeTripDiskSave(next as DestCard[], { savedToDisk: Boolean(r.saved_to_disk) }))
+            .catch(() => failTripDiskSave());
+        }
+        return next;
+      });
+    },
+    [
+      dest,
+      hotelSearchResults,
+      sessionId,
+      wanderlyTripId,
+      profile,
+      setDestinations,
+      beginTripDiskSave,
+      completeTripDiskSave,
+      failTripDiskSave,
+    ],
+  );
+
+  const handleFlightRankSelect = useCallback(
+    (segmentIndex: number, rank: number) => {
+      const base = flightSearchResults[segmentIndex] ?? persistedFlightPickForSegment(dest, segmentIndex);
+      if (!base?.ranked_picks?.length) return;
+      const updated = flightWithSelectedRank(base, rank);
+      setFlightSearchResults((prev) => ({ ...prev, [segmentIndex]: updated }));
+      setDestinations((prev) => {
+        const next = prev.map((d) => {
+          if (d.id !== dest.id) return d;
+          const nextFlights = [...(d.flights || [])];
+          if (segmentIndex < 0 || segmentIndex >= nextFlights.length) return d;
+          nextFlights[segmentIndex] = { ...nextFlights[segmentIndex], ...updated, best: true };
+          return { ...d, flights: nextFlights };
+        });
+        const sid = sessionId.trim();
+        if (sid) {
+          beginTripDiskSave();
+          void syncUi(sid, next as unknown[], {
+            tripId: wanderlyTripId?.trim() || undefined,
+            profilePills: profile.map((p) => ({
+              key: p.key,
+              label: p.label,
+              value: p.value,
+              icon: p.icon,
+              editable: p.editable !== false,
+            })),
+          })
+            .then((r) => completeTripDiskSave(next as DestCard[], { savedToDisk: Boolean(r.saved_to_disk) }))
+            .catch(() => failTripDiskSave());
+        }
+        return next;
+      });
+    },
+    [
+      dest,
+      flightSearchResults,
+      sessionId,
+      wanderlyTripId,
+      profile,
+      setDestinations,
+      beginTripDiskSave,
+      completeTripDiskSave,
+      failTripDiskSave,
+    ],
+  );
+
   const handleFlightSearch = useCallback(
     async (segmentIndex: number, routeSummary: string) => {
       if (otaSearchLockRef.current) return;
@@ -294,6 +389,7 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
                 const pill = rolePill(s.role);
                 const routeSummary = `${s.fromLabel} → ${s.toLabel}`;
                 const picked = flightSearchResults[i] ?? persistedFlightPickForSegment(dest, i);
+                const displayedFlight = picked ? resolveDisplayedFlight(picked) : null;
                 const detailsOpen = picked ? flightDetailsExpanded[i] !== false : true;
                 const hasPickedFlight = Boolean(picked);
                 return (
@@ -322,7 +418,7 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
                         </p>
                         {hasPickedFlight && !detailsOpen ? (
                           <p className="mt-1.5 truncate text-[10px] leading-snug text-white/42">
-                            Selected: {picked.airline} · {picked.price}
+                            Selected: {displayedFlight?.airline} · {displayedFlight?.price}
                           </p>
                         ) : null}
                       </div>
@@ -383,7 +479,11 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
                     ) : null}
                     {hasPickedFlight && detailsOpen ? (
                       <div className="mt-2">
-                        <DetailedFlightCard flight={picked} onClick={() => undefined} />
+                        <DetailedFlightCard
+                          flight={picked}
+                          onClick={() => undefined}
+                          onSelectRank={(rank) => handleFlightRankSelect(i, rank)}
+                        />
                       </div>
                     ) : null}
                   </li>
@@ -492,7 +592,11 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
                   ) : null}
                   {hasPickedHotel && detailsOpen ? (
                     <div className="mt-2">
-                      <DetailedHotelCard hotel={picked} onClick={() => undefined} />
+                      <DetailedHotelCard
+                        hotel={picked}
+                        onClick={() => undefined}
+                        onSelectRank={(rank) => handleHotelRankSelect(i, rank)}
+                      />
                     </div>
                   ) : null}
                 </li>

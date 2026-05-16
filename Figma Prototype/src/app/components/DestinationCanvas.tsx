@@ -5,6 +5,7 @@ import {
   useRef,
   useCallback,
   Fragment,
+  Suspense,
   type ReactNode,
 } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -34,27 +35,25 @@ import {
   ChevronDown,
   ChevronUp,
   Route,
-  RotateCcw,
 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTrip } from "./TripStore";
 import type { DestCard, ItinDay } from "./TripStore";
 import { syncUi, buildItineraryStream } from "../../api/wanderly";
-import { clearBookingPipelineCompletedFor } from "../lib/bookingProgressIds";
-import { resetDestinationBookingState } from "../lib/resetDestinationBooking";
 import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { buildLogisticsBreadcrumb, type LogisticsCrumb } from "../lib/logisticsBreadcrumb";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
 import { streamEventToCaption } from "../lib/streamCaption";
 import { ConversationPanel } from "./ConversationPanel";
+import { bookingPaxFromProfile, liveBookingExtractLooksActionable } from "../lib/bookingCardGuards";
 import {
-  BookingCostBreakdown,
-  bookingPaxFromProfile,
-  destHasPersistentBookingSummary,
-  liveBookingExtractLooksActionable,
-} from "./bookingExpandedContent";
-import { LogisticsPlanFlipFace } from "./LogisticsPlanFlipFace";
+  BookingCostBreakdownLazy,
+  LogisticsPlanFlipFaceLazy,
+  prefetchBookingCostBreakdown,
+  prefetchLogisticsFlipFace,
+} from "../lib/lazyDestinationChunks";
+import { LogisticsFlipSkeleton } from "./LogisticsFlipSkeleton";
 
 /** Auto-advance hero slideshow when multiple URLs (enrich / planner). */
 const HERO_SLIDE_MS = 4200;
@@ -749,25 +748,17 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     );
   }, [dest.itinerary]);
 
-  const refreshBookingSummary = useCallback(() => {
-    clearBookingPipelineCompletedFor(dest.id);
-    setBookingFace(false);
-    setDestinations((prev) => {
-      const next = prev.map((d) => (d.id === dest.id ? resetDestinationBookingState(d) : d));
-      if (sessionId) {
-        queueMicrotask(() => {
-          void syncUi(sessionId, next as unknown[], { profilePills: profile }).catch(() => {});
-        });
-      }
-      return next;
-    });
-    addResponse({
-      type: "tip",
-      text: `Cleared saved flight and hotel results for ${dest.name}.`,
-    });
-  }, [dest.id, dest.name, sessionId, setDestinations, addResponse, profile]);
-
   const hasLogisticsFlip = (dest.itinerary?.length ?? 0) > 0;
+  const showLiveCostBreakdown = liveBookingExtractLooksActionable(dest);
+
+  useEffect(() => {
+    if (showLiveCostBreakdown) prefetchBookingCostBreakdown();
+  }, [showLiveCostBreakdown]);
+
+  const onLogisticsFlipIntent = useCallback(() => {
+    if (!hasLogisticsFlip) return;
+    prefetchLogisticsFlipFace();
+  }, [hasLogisticsFlip]);
   const flipTooltip = !hasLogisticsFlip
     ? "Trip logistics open after the day-by-day plan loads"
     : bookingFace
@@ -858,9 +849,12 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
               title={flipTooltip}
               aria-label={flipTooltip}
               disabled={!hasLogisticsFlip}
+              onMouseEnter={onLogisticsFlipIntent}
+              onFocus={onLogisticsFlipIntent}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!hasLogisticsFlip) return;
+                prefetchLogisticsFlipFace();
                 setBookingFace((v) => !v);
               }}
               whileTap={hasLogisticsFlip ? { scale: 0.88 } : undefined}
@@ -940,9 +934,12 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                   title={flipTooltip}
                   aria-label={flipTooltip}
                   disabled={!hasLogisticsFlip}
+                  onMouseEnter={onLogisticsFlipIntent}
+                  onFocus={onLogisticsFlipIntent}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (!hasLogisticsFlip) return;
+                    prefetchLogisticsFlipFace();
                     setBookingFace((v) => !v);
                   }}
                   whileTap={hasLogisticsFlip ? { scale: 0.88 } : undefined}
@@ -1125,12 +1122,21 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                         <ActivityStrip dest={dest} />
                       </div>
                       <div>
-                        {liveBookingExtractLooksActionable(dest) ? (
-                          <BookingCostBreakdown
-                            dest={dest}
-                            paxCount={bookingPaxFromProfile(profile)}
-                            variant="summary"
-                          />
+                        {showLiveCostBreakdown ? (
+                          <Suspense
+                            fallback={
+                              <div
+                                className="mt-1 min-h-[8.5rem] animate-pulse rounded-xl border border-indigo-500/15 bg-indigo-500/[0.06]"
+                                aria-hidden
+                              />
+                            }
+                          >
+                            <BookingCostBreakdownLazy
+                              dest={dest}
+                              paxCount={bookingPaxFromProfile(profile)}
+                              variant="summary"
+                            />
+                          </Suspense>
                         ) : (
                           <>
                             <motion.div
@@ -1166,21 +1172,10 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                           </>
                         )}
 
-                        {destHasPersistentBookingSummary(dest) ? (
-                          <button
-                            type="button"
-                            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 py-3 text-[13px] font-medium text-amber-100/95 transition-colors hover:bg-amber-500/20 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
-                            onClick={refreshBookingSummary}
-                          >
-                            <RotateCcw className="h-4 w-4 shrink-0" aria-hidden />
-                            Reset saved flight / hotel results
-                          </button>
-                        ) : null}
                         {hasLogisticsFlip ? (
                           <p className="mt-3 text-[11px] leading-relaxed text-white/35">
                             Tap the <span className="text-white/55">logistics</span> button (route icon) on the photo
-                            to see flights, stays, ground moves, and each day in detail. Live Expedia price search is not
-                            in this build yet.
+                            to see flights, stays, ground moves, and each day in detail.
                           </p>
                         ) : (
                           <p className="mt-3 text-[11px] leading-relaxed text-white/30">
@@ -1192,7 +1187,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                     </div>
                   </div>
 
-                  {/* Back face: planner logistics timeline (no live OTA pipeline in this build). */}
+                  {/* Back face: trip logistics (flights, stays, ground, day-by-day). */}
                   <div
                     className="col-start-1 row-start-1 w-full min-w-0 [backface-visibility:hidden]"
                     style={{
@@ -1202,7 +1197,9 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                     }}
                   >
                     {bookingFace ? (
-                      <LogisticsPlanFlipFace key={`logistics-${dest.id}`} dest={dest} profile={profile} />
+                      <Suspense fallback={<LogisticsFlipSkeleton />}>
+                        <LogisticsPlanFlipFaceLazy key={`logistics-${dest.id}`} dest={dest} profile={profile} />
+                      </Suspense>
                     ) : (
                       <div className="min-h-[200px]" aria-hidden />
                     )}
@@ -1517,12 +1514,8 @@ export function DestinationCanvas() {
     setDestinations,
     phase,
     refineUnlockCardNavigation,
-    beginTripDiskSave,
-    completeTripDiskSave,
-    failTripDiskSave,
   } = useTrip();
   const [comparisonStartIndex, setComparisonStartIndex] = useState(0);
-  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
    * Lock switching cards during smoke/stream, or refine unless orchestrator allows browsing (**refineUnlockCardNavigation**).
@@ -1534,23 +1527,6 @@ export function DestinationCanvas() {
       (phase === "refining" && !refineUnlockCardNavigation),
     [phase, refineUnlockCardNavigation],
   );
-
-  useEffect(() => {
-    if (!sessionId || destinations.length === 0) return;
-    if (syncTimer.current) clearTimeout(syncTimer.current);
-    syncTimer.current = setTimeout(() => {
-      beginTripDiskSave();
-      void syncUi(sessionId, destinations, {
-        tripId: wanderlyTripId || undefined,
-        profilePills: profile,
-      })
-        .then((r) => completeTripDiskSave(destinations, { savedToDisk: Boolean(r.saved_to_disk) }))
-        .catch(() => failTripDiskSave());
-    }, 450);
-    return () => {
-      if (syncTimer.current) clearTimeout(syncTimer.current);
-    };
-  }, [destinations, profile, sessionId, wanderlyTripId, beginTripDiskSave, completeTripDiskSave, failTripDiskSave]);
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
 

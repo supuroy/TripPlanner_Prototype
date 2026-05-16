@@ -24,6 +24,7 @@ from src.integrations.cursor_agent_client import (
     run_prompt_collect_assistant_text,
 )
 from src.wanderly.cursor_advisor import structured_followup_model_id
+from src.wanderly.flight_listing_score import flight_rule_pick_enabled
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
 
 
@@ -194,8 +195,9 @@ Task:
 - Each listing: airline, optional airline_logo_url if an http(s) URL appears in the excerpt, departure_time,
   arrival_time, route (city/airport line), duration, stops (e.g. Nonstop / 1 stop), price_display, optional price_notes.
 - Set `best_index` to the 0-based index of the listing that best **matches the traveler profile and criteria**
-  (budget-conscious: avoid the most expensive unless clearly better value; prefer reasonable nonstop options for families;
-  avoid obvious error fares like $0). If the profile is sparse, prefer lowest credible per-traveler price among nonstops.
+  (budget-conscious: avoid the most expensive unless clearly better value; prefer **fewer stops** and **shorter duration**
+  when prices are similar; prefer reasonable nonstop options for families; avoid obvious error fares like $0).
+  If the profile is sparse, prefer lowest credible per-traveler price among nonstops with the shortest duration you can read.
 - `best_rationale`: one short sentence tying the choice to profile/criteria when possible.
 - `confidence`: 0.0–1.0
 - IMPORTANT fallback when no complete fare rows are visible in this snapshot:
@@ -231,7 +233,7 @@ Listings (JSON array):
 
 Rules:
 - Optimize for fit to **budget**, **who**, **vibe**, and **schedule hints** in the profile/criteria (not price alone).
-- Among similar fits, prefer lower total **price_display** and fewer stops.
+- Among similar fits, prefer lower **price_display**, **fewer stops**, and **shorter duration**.
 - Return ONE JSON object: {{"best_index": <int>, "rationale": "<one short sentence>"}}
 No markdown fences, no other keys.
 """
@@ -291,6 +293,8 @@ def run_flight_listing_llm_parse(
     profile_pills: list[dict[str, Any]] | None = None,
     criteria_lines: list[str] | None = None,
     session_id: str | None = None,
+    scoring_price_usd: tuple[int, int] | None = None,
+    scoring_band_source: str = "",
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any]]:
     """
     Returns ``(flight_option, profile, meta)`` where ``flight_option`` is None on failure (caller falls back).
@@ -357,9 +361,45 @@ def run_flight_listing_llm_parse(
         meta["llm_soft_fallback"] = "empty_listings"
 
     idx = parsed.best_index if parsed.best_index < len(parsed.listings) else 0
-    listings_dump = [r.model_dump(exclude_none=True) for r in parsed.listings[:16]]
+    from src.wanderly.flight_listing_extract import enrich_flight_listings_from_html
 
-    if flight_advisor_rank_enabled():
+    listings_dump = enrich_flight_listings_from_html(
+        [r.model_dump(exclude_none=True) for r in parsed.listings[:16]],
+        html,
+    )
+    meta["rule_pick_rows"] = []
+    meta["scoring_band_source"] = (scoring_band_source or "").strip()[:80]
+    sp = scoring_price_usd
+    if sp is not None and len(sp) == 2 and isinstance(sp[0], int) and isinstance(sp[1], int):
+        meta["scoring_price_lo_hi"] = [int(sp[0]), int(sp[1])]
+
+    rule_used = False
+    band_ok = sp is not None and len(sp) == 2 and sp[1] >= sp[0] > 0
+    if flight_rule_pick_enabled() and listings_dump:
+        from src.wanderly.flight_listing_score import pick_flight_listing_index
+
+        r_idx, r_dbg = pick_flight_listing_index(
+            listings_dump,
+            price_lo=int(sp[0]) if band_ok else None,
+            price_hi=int(sp[1]) if band_ok else None,
+            route_hint=route_hint,
+        )
+        meta["rule_pick_rows"] = list((r_dbg or {}).get("rows") or [])
+        if r_idx is not None:
+            idx = int(r_idx)
+            rule_used = True
+            meta["rule_pick"] = True
+            meta["rule_pick_dbg"] = {
+                "picked_index": r_idx,
+                "pick_mode": r_dbg.get("pick_mode"),
+                "price_lo": r_dbg.get("price_lo"),
+                "price_hi": r_dbg.get("price_hi"),
+            }
+        else:
+            meta["rule_pick"] = False
+            meta["rule_pick_skip"] = str((r_dbg or {}).get("reason") or "unknown")
+
+    if (not rule_used) and flight_advisor_rank_enabled():
         r_idx, r_rat = advisor_rank_flight_best_index(
             listings_dump,
             profile_pills=profile_pills,
@@ -372,38 +412,47 @@ def run_flight_listing_llm_parse(
             meta["advisor_rationale"] = r_rat
             parsed.best_rationale = r_rat or parsed.best_rationale
 
-    best = parsed.listings[idx]
+    best_row = listings_dump[idx] if idx < len(listings_dump) else parsed.listings[idx].model_dump(exclude_none=True)
+    best = parsed.listings[idx] if idx < len(parsed.listings) else parsed.listings[0]
 
     def _nz_price(s: str) -> bool:
         d = re.sub(r"[^\d]", "", s or "")
         return bool(d) and int(d) > 0
 
-    price_disp = (best.price_display or "").strip() or "See Expedia"
-    if not _nz_price(price_disp):
-        for j, row in enumerate(parsed.listings):
-            if _nz_price(row.price_display or ""):
-                best = row
+    price_disp = str(best_row.get("price_display") or best.price_display or "").strip() or "See Expedia"
+    if (not rule_used) and (not _nz_price(price_disp)):
+        for j, row in enumerate(listings_dump):
+            if _nz_price(str(row.get("price_display") or "")):
+                best_row = row
                 idx = j
-                price_disp = (row.price_display or "").strip()
+                price_disp = str(row.get("price_display") or "").strip()
                 break
 
+    if rule_used:
+        meta["pick_method"] = "rule_pick"
+        meta["pick_summary"] = (
+            f"rule_pick: index={idx} among {len(listings_dump)} rows; "
+            f"band={meta.get('scoring_price_lo_hi')!r}; mode={meta.get('rule_pick_dbg', {}).get('pick_mode')!r}."
+        )
+
     fo: dict[str, Any] = {
-        "airline": (best.airline or "—")[:120],
-        "route": (best.route or route_hint or "—")[:180],
-        "duration": (best.duration or "—")[:40],
+        "airline": str(best_row.get("airline") or best.airline or "—")[:120],
+        "route": str(best_row.get("route") or best.route or route_hint or "—")[:180],
+        "duration": str(best_row.get("duration") or best.duration or "—")[:40],
         "price": price_disp[:32],
         "best": True,
-        "stops": (best.stops or "")[:80],
-        "departure_time": (best.departure_time or "")[:24],
-        "arrival_time": (best.arrival_time or "")[:24],
+        "stops": str(best_row.get("stops") or best.stops or "")[:80],
+        "departure_time": str(best_row.get("departure_time") or best.departure_time or "")[:24],
+        "arrival_time": str(best_row.get("arrival_time") or best.arrival_time or "")[:24],
         "llm_best_index": idx,
         "llm_best_rationale": (parsed.best_rationale or "")[:400],
         "llm_confidence": float(parsed.confidence or 0.0),
         "listings_parsed": len(parsed.listings),
         "listings": listings_dump[:12],
     }
-    if best.airline_logo_url and str(best.airline_logo_url).startswith("http"):
-        fo["airline_logo_url"] = str(best.airline_logo_url).strip()[:800]
+    logo = str(best_row.get("airline_logo_url") or getattr(best, "airline_logo_url", "") or "")
+    if logo.startswith("http"):
+        fo["airline_logo_url"] = logo.strip()[:800]
 
     profile: dict[str, Any] = {
         "airline": {"source": "cursor_llm_flight_listings"},
@@ -417,6 +466,26 @@ def run_flight_listing_llm_parse(
         profile["airline_logo_url"] = {"source": "cursor_llm_flight_listings"}
 
     meta["llm_ok"] = True
-    meta["listings"] = [row.model_dump() for row in parsed.listings[:12]]
+    meta["listings"] = listings_dump[:12]
     meta["best_index"] = idx
+
+    try:
+        from src.wanderly.flight_listing_alternatives import (
+            attach_ranked_picks_to_flight_option,
+            build_llm_ranked_flight_picks,
+            ordered_listing_indices_from_rule_rows,
+        )
+
+        rule_rows = meta.get("rule_pick_rows") if isinstance(meta.get("rule_pick_rows"), list) else []
+        if rule_rows:
+            pick_ix = ordered_listing_indices_from_rule_rows(rule_rows, winner_index=idx)
+        else:
+            pick_ix = [idx] + [j for j in range(len(listings_dump)) if j != idx]
+        ranked = build_llm_ranked_flight_picks(listings_dump, pick_ix, rule_rows=rule_rows)
+        if ranked:
+            fo = attach_ranked_picks_to_flight_option(fo, ranked, selected_rank=1)
+            meta["ranked_picks_count"] = len(ranked)
+    except ImportError:
+        pass
+
     return fo, profile, meta

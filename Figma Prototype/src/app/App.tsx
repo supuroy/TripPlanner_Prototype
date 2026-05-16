@@ -160,8 +160,8 @@ function SavedTripsBar() {
   const chipBtn = `${chip} text-white/55 hover:bg-white/[0.07] hover:text-white/85`;
 
   return (
-    <div className="flex max-w-full flex-col items-center gap-1 text-[12px] text-white/40">
-      <div className="flex w-full min-w-0 max-w-full flex-nowrap items-center justify-center gap-x-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="flex max-w-full flex-col items-start gap-1 text-[12px] text-white/40">
+      <div className="flex w-full min-w-0 max-w-full flex-nowrap items-center justify-start gap-x-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {wanderlyTripId ? (
         <>
           <label className="sr-only" htmlFor="wanderly-trip-name-input">
@@ -176,7 +176,7 @@ function SavedTripsBar() {
               setTripName(e.target.value);
             }}
             disabled={busy || !wanderlyWorkspaceBootstrapped}
-            className={`min-w-0 max-w-[min(220px,40vw)] shrink ${chip} text-white/80 outline-none placeholder:text-white/25 hover:bg-white/[0.05]`}
+            className={`min-w-[11rem] max-w-[min(320px,52vw)] shrink-0 sm:min-w-[14rem] sm:max-w-md ${chip} text-white/80 outline-none placeholder:text-white/25 hover:bg-white/[0.05]`}
             placeholder="Name this trip"
             aria-label="Trip name"
             maxLength={120}
@@ -275,7 +275,7 @@ function SavedTripsBar() {
       ) : null}
       </div>
       {renameError ? (
-        <span className="w-full max-w-full px-1 text-center text-[10px] text-amber-200/90" role="alert">
+        <span className="w-full max-w-full px-1 text-left text-[10px] text-amber-200/90" role="alert">
           {renameError}
         </span>
       ) : null}
@@ -344,18 +344,16 @@ function Workspace() {
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-[#0a0a0f] text-white">
       {/* Header */}
       <header className="shrink-0 z-30 border-b border-white/[0.04] bg-[#0a0a0f]/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1400px] flex-col gap-2 px-4 py-3 sm:px-6">
-          {/* Top row: full width for trip name + trip switcher; no planner status here. */}
-          <div className="flex min-w-0 flex-row items-center gap-2 sm:gap-3">
-            <div className="flex shrink-0 flex-col gap-1.5">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                  <Compass className="w-3.5 h-3.5 text-white" />
-                </div>
-                <span className="text-[15px] text-white/70">Wanderly</span>
+        <div className="mx-auto flex max-w-[1400px] flex-col gap-2 px-3 py-3 sm:px-6">
+          {/* Top row: align trip controls with main column (destination cards) on lg+. */}
+          <div className="flex min-w-0 flex-row items-center gap-4 sm:gap-6">
+            <div className="flex shrink-0 items-center gap-2.5 lg:w-64">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                <Compass className="w-3.5 h-3.5 text-white" />
               </div>
+              <span className="text-[15px] text-white/70">Wanderly</span>
             </div>
-            <div className="flex min-w-0 flex-1 justify-center px-1 sm:px-2">
+            <div className="flex min-w-0 flex-1 items-center justify-start overflow-hidden">
               <SavedTripsBar />
             </div>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">

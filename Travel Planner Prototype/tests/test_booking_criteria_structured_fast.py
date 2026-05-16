@@ -42,7 +42,7 @@ def test_build_booking_criteria_skips_params_llm_when_hooks_and_moves() -> None:
                 "lodging_moves": [{"day_range": "1-5", "area": "Phuket, Thailand", "note": "beach base"}],
             },
             "search_preferences": {
-                "flight": {"stops": "nonstop", "cabin": "economy", "carry_on": "optional"},
+                "flight": {"stops": "any", "cabin": "economy", "carry_on": "optional"},
                 "hotel": {"sort": "RECOMMENDED", "guest_rating_min": 4.0},
             },
         },
@@ -83,7 +83,7 @@ def test_build_booking_criteria_skips_params_llm_when_hooks_and_moves() -> None:
     assert out.get("end_date") == "2026-07-05"
     intent = out.get("search_intent")
     assert isinstance(intent, dict)
-    assert intent.get("flight", {}).get("stops") == "nonstop"
+    assert intent.get("flight", {}).get("stops") == "any"
     assert intent.get("hotel", {}).get("sort") == "RECOMMENDED"
 
 

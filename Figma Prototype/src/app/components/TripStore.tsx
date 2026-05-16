@@ -19,6 +19,9 @@ import {
   fetchWorkspace,
 } from "../../api/wanderly";
 import { isPlaceholderProfilePills } from "../lib/wanderlyProfilePills";
+import { computeTripDestDiskSig, computeTripPersistSig } from "../lib/tripPersistSig";
+
+export { computeTripDestDiskSig } from "../lib/tripPersistSig";
 import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
@@ -111,18 +114,6 @@ export interface TripDiskPersistInfo {
   saveError?: boolean;
 }
 
-/** Compact fingerprint of cards for trip-file dirty detection (not full JSON). */
-export function computeTripDestDiskSig(destinations: DestCard[]): string {
-  const rows = destinations.map((d) => [
-    d.id,
-    Boolean(d.pinned),
-    Boolean(d.dismissed),
-    d.itinerary?.length ?? 0,
-    d.itinerary_dirty ? 1 : 0,
-  ]);
-  return JSON.stringify(rows);
-}
-
 export interface ItinDay {
   day: number;
   label: string;
@@ -136,12 +127,30 @@ export interface ItinDay {
   day_logistics?: DayLogistics | null;
 }
 
+/** One ranked flight pick (1 = top rule-pick recommendation). */
+export interface FlightRankedPick {
+  rank: number;
+  airline: string;
+  route: string;
+  duration: string;
+  price: string;
+  stops?: string;
+  departure_time?: string;
+  arrival_time?: string;
+  search_url?: string;
+  airline_logo_url?: string;
+  pick_score?: number;
+}
+
 export interface FlightOption {
   airline: string;
   route: string;
   duration: string;
   price: string;
   best?: boolean;
+  stops?: string;
+  departure_time?: string;
+  arrival_time?: string;
   /** Expedia Flights-Search URL used for this snapshot (same as API ``search_url`` on the step). */
   search_url?: string;
   /** True when URL includes return leg (``leg2``) per trip end date. */
@@ -150,6 +159,28 @@ export interface FlightOption {
   leg?: "outbound" | "return";
   /** UI-only: seeded itinerary placeholder before live result replacement. */
   isPlaceholder?: boolean;
+  /** 1-based rank within ``ranked_picks`` (persisted when user picks an alternative). */
+  selected_rank?: number;
+  /** Top picks from parse + scoring (typically 3). */
+  ranked_picks?: FlightRankedPick[];
+  airline_logo_url?: string;
+  pick_score?: number;
+}
+
+/** One ranked OTA pick (1 = top recommendation). Stored on disk with the stay row. */
+export interface HotelRankedPick {
+  rank: number;
+  name: string;
+  area: string;
+  price: string;
+  nights: number;
+  image?: string;
+  listing_url?: string;
+  guest_rating?: number;
+  review_count?: number;
+  rating_label?: string;
+  star_rating?: string;
+  pick_score?: number;
 }
 
 export interface HotelOption {
@@ -163,6 +194,14 @@ export interface HotelOption {
   listing_url?: string;
   /** UI-only: seeded itinerary placeholder before live result replacement. */
   isPlaceholder?: boolean;
+  /** 1-based rank within ``ranked_picks`` (persisted when user picks an alternative). */
+  selected_rank?: number;
+  /** Top picks from parse + scoring (typically 3); alternatives load on demand in UI. */
+  ranked_picks?: HotelRankedPick[];
+  guest_rating?: number;
+  review_count?: number;
+  rating_label?: string;
+  star_rating?: string;
 }
 
 export interface ActivityOption {
@@ -598,6 +637,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [savedTrips, setSavedTrips] = useState<WanderlyTripSummary[]>([]);
   const [tripDiskPersist, setTripDiskPersist] = useState<TripDiskPersistInfo>({ status: "unknown" });
   const lastPersistedSigRef = useRef<string | null>(null);
+  const destinationsRef = useRef<DestCard[]>([]);
+  const profileRef = useRef<ProfilePill[]>([]);
   const [tripName, setTripNameState] = useState("Untitled trip");
   const [enrichmentPending, setEnrichmentPending] = useState(false);
   const [pendingAgentProfileProposal, setPendingAgentProfileProposal] = useState<ProfilePill[] | null>(null);
@@ -663,26 +704,46 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const markTripDiskBaselineFromDestinations = useCallback((dests: DestCard[]) => {
-    lastPersistedSigRef.current = computeTripDestDiskSig(dests);
-    setTripDiskPersist({ status: "saved", savedAtMs: Date.now(), saveError: false });
+  const wanderlyTripIdRef = useRef(wanderlyTripId);
+  wanderlyTripIdRef.current = wanderlyTripId;
+  const tripNameRef = useRef(tripName);
+  tripNameRef.current = tripName;
+
+  const capturePersistSig = useCallback((dests: DestCard[]) => {
+    return computeTripPersistSig(
+      dests,
+      profileRef.current,
+      wanderlyTripIdRef.current,
+      tripNameRef.current,
+    );
   }, []);
+
+  const markTripDiskBaselineFromDestinations = useCallback(
+    (dests: DestCard[]) => {
+      lastPersistedSigRef.current = capturePersistSig(dests);
+      setTripDiskPersist({ status: "saved", savedAtMs: Date.now(), saveError: false });
+    },
+    [capturePersistSig],
+  );
 
   const beginTripDiskSave = useCallback(() => {
     setTripDiskPersist((prev) => ({ ...prev, status: "saving", saveError: false }));
   }, []);
 
-  const completeTripDiskSave = useCallback((dests: DestCard[], opts?: { savedToDisk?: boolean }) => {
+  const completeTripDiskSave = useCallback(
+    (dests: DestCard[], opts?: { savedToDisk?: boolean }) => {
     const disk = opts?.savedToDisk !== false;
     if (disk) {
-      lastPersistedSigRef.current = computeTripDestDiskSig(dests);
+      lastPersistedSigRef.current = capturePersistSig(dests);
     }
     setTripDiskPersist({
       status: disk ? "saved" : "dirty",
       savedAtMs: disk ? Date.now() : undefined,
       saveError: !disk,
     });
-  }, []);
+  },
+    [capturePersistSig],
+  );
 
   const failTripDiskSave = useCallback(() => {
     setTripDiskPersist((prev) => ({ ...prev, status: "dirty", saveError: true }));
@@ -927,14 +988,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     [applyWanderlyToCanvas, markTripDiskBaselineFromDestinations],
   );
 
-  // Use refs to avoid stale closures in pushUndo
-  const destinationsRef = useRef(destinations);
   destinationsRef.current = destinations;
-  const profileRef = useRef(profile);
   profileRef.current = profile;
 
   useLayoutEffect(() => {
-    const sig = computeTripDestDiskSig(destinations);
+    const sig = capturePersistSig(destinations);
     if (lastPersistedSigRef.current === null) {
       lastPersistedSigRef.current = sig;
       setTripDiskPersist({ status: "unknown", saveError: false });
@@ -947,7 +1005,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       }
       return { ...prev, status: "saved", saveError: false };
     });
-  }, [destinations]);
+  }, [destinations, profile, wanderlyTripId, tripName, capturePersistSig]);
 
   const setTripName = useCallback((name: string) => {
     const trimmed = name.trim().slice(0, 200);
@@ -982,24 +1040,50 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!sessionId.trim()) return;
+    const destsNow = destinationsRef.current;
+    if (destsNow.length === 0 && !wanderlyWorkspaceBootstrappedRef.current) {
+      return;
+    }
+    const sigNow = capturePersistSig(destsNow);
+    if (lastPersistedSigRef.current !== null && sigNow === lastPersistedSigRef.current) {
+      return;
+    }
     const t = window.setTimeout(() => {
-      const dests = destinationsRef.current as unknown[];
+      const dests = destinationsRef.current;
       if (dests.length === 0 && !wanderlyWorkspaceBootstrappedRef.current) {
         return;
       }
-      const tid = wanderlyTripId.trim();
-      const tname = tripName.trim() || "Untitled trip";
+      const sig = capturePersistSig(dests);
+      if (lastPersistedSigRef.current !== null && sig === lastPersistedSigRef.current) {
+        return;
+      }
+      const tid = wanderlyTripIdRef.current.trim();
+      const tname = tripNameRef.current.trim() || "Untitled trip";
       if (tid) {
         saveTripMetaForSession(sessionId, { trip_id: tid, trip_name: tname });
       }
-      void syncUi(sessionId, dests, {
+      beginTripDiskSave();
+      void syncUi(sessionId, dests as unknown[], {
         tripId: tid || undefined,
         tripMeta: tid ? { trip_id: tid, trip_name: tname } : undefined,
         profilePills: profileRef.current,
-      }).catch(() => {});
+      })
+        .then((r) => completeTripDiskSave(dests, { savedToDisk: Boolean(r.saved_to_disk) }))
+        .catch(() => failTripDiskSave());
     }, 450);
     return () => clearTimeout(t);
-  }, [sessionId, wanderlyTripId, tripName, destinations, profile, wanderlyWorkspaceBootstrapped]);
+  }, [
+    sessionId,
+    wanderlyTripId,
+    tripName,
+    destinations,
+    profile,
+    wanderlyWorkspaceBootstrapped,
+    capturePersistSig,
+    beginTripDiskSave,
+    completeTripDiskSave,
+    failTripDiskSave,
+  ]);
 
   /** If destination cards exist but ``hasStarted`` stayed false (e.g. new-trip vs planner race), show the workspace. */
   useEffect(() => {

@@ -100,6 +100,7 @@ def build_hotel_search_url(
         ("semdtl", ""),
         ("categorySearch", category_search),
         ("useRewards", "true" if use_rewards else "false"),
+        ("lodging", "HOTEL"),
     ]
     if region_id is not None and str(region_id).strip() != "":
         q.insert(1, ("regionId", str(region_id).strip()))

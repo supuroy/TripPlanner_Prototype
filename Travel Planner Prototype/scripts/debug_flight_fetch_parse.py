@@ -1,10 +1,14 @@
 """
 Standalone Expedia flight fetch+parse debugger (no UI).
 
+**Preferred:** use ``scripts/debug_flight_fetch_html.py`` for Playwright fetch + ``--parse-all``
+(heuristic + LLM tables, top-3 rule picks, markdown report). This script remains a quick smoke probe.
+
 Run from **Travel Planner Prototype** (the script lives under ``scripts/`` there):
 
   cd "…/TripPlanner_Prototype/Travel Planner Prototype"
-  python scripts/debug_flight_fetch_parse.py --url "https://www.expedia.com/Flights-Search?..."
+  python scripts/debug_flight_fetch_html.py --url "https://www.expedia.com/Flights-Search?..."
+  python scripts/debug_flight_fetch_html.py --parse-all --input-html .cache/debug_flight_fetch.html --url "…" --price-lo 350 --price-hi 500
   python scripts/debug_flight_fetch_parse.py --url "…" --llm
   python scripts/debug_flight_fetch_parse.py --trace --destination-id phuket-thailand
 

@@ -2,8 +2,9 @@
 Lab-only Expedia snapshot search: Playwright fetch + heuristic parse (hotels + flights).
 
 Flights / hotels: optional Playwright HTML → Cursor LLM listing parse (``BOOKING_SEARCH_FLIGHT_LLM_PARSE`` /
-``BOOKING_SEARCH_HOTEL_LLM_PARSE``); optional advisor-tier rerank (``BOOKING_SEARCH_*_ADVISOR_RANK``). Default flight
-URLs are **one-way** outbound (``BOOKING_SEARCH_FLIGHT_FORCE_ONEWAY``).
+``BOOKING_SEARCH_HOTEL_LLM_PARSE``); optional advisor-tier rerank (``BOOKING_SEARCH_*_ADVISOR_RANK``). Hotels
+default to **rule-based** nightly-band scoring for the winner after parse (``BOOKING_SEARCH_HOTEL_RULE_PICK``).
+Default flight URLs are **one-way** outbound (``BOOKING_SEARCH_FLIGHT_FORCE_ONEWAY``).
 
 Requires sibling ``expedia-listing-cli`` on sys.path and optional catalog JSON paths in env.
 Set BOOKING_SEARCH_ENABLED=0 to disable network/browser work from the API.
@@ -23,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse
 
 from src.integrations.cursor_agent_client import basic_client, get_api_key, load_env_from_roots, run_prompt_collect_assistant_text
 from src.wanderly.cursor_advisor import _extract_json_object, structured_followup_model_id
@@ -1387,6 +1388,71 @@ def _criteria_line_hotel_budget_from_profile(
     )
 
 
+def _resolve_hotel_scoring_nightly_band(
+    *,
+    hint_tuple: tuple[int | None, int | None] | None,
+    budget_guidance: dict[str, Any] | None,
+    profile_pills: list[dict[str, Any]],
+    calendar_nights: int,
+    adults: int,
+) -> tuple[int | None, int | None, str]:
+    """
+    Nightly USD band for **post-parse rule scoring** (not necessarily identical to URL query).
+
+    Priority: merged hotel search intent → ``budget_guidance`` lodging copy → profile trip carve-out.
+    """
+    tl = th = None
+    if hint_tuple and len(hint_tuple) == 2:
+        tl, th = hint_tuple[0], hint_tuple[1]
+    if isinstance(tl, (int, float)) and isinstance(th, (int, float)):
+        lo, hi = int(tl), int(th)
+        if hi >= lo > 0:
+            return lo, hi, "search_intent"
+
+    from src.wanderly.hotel_listing_score import nightly_band_from_budget_guidance
+
+    bg_band = nightly_band_from_budget_guidance(
+        budget_guidance if isinstance(budget_guidance, dict) else None
+    )
+    if bg_band:
+        lo, hi = bg_band
+        if hi >= lo > 0:
+            return lo, hi, "budget_guidance"
+
+    trip_lo, trip_hi = _parse_trip_budget_usd_bounds_from_profile_pills(profile_pills, adults=adults)
+    n_lo, n_hi = _nightly_hotel_price_min_max_usd(trip_lo, trip_hi, calendar_nights=calendar_nights)
+    if n_lo is not None and n_hi is not None and n_hi >= n_lo > 0:
+        return int(n_lo), int(n_hi), "profile_trip_derived"
+
+    return None, None, "none"
+
+
+def _resolve_flight_scoring_price_band(
+    *,
+    budget_guidance: dict[str, Any] | None,
+    profile_pills: list[dict[str, Any]],
+    adults: int,
+) -> tuple[int | None, int | None, str]:
+    """Per-traveler USD band for flight rule-pick (one-way headline fares)."""
+    from src.wanderly.flight_listing_score import flight_band_from_budget_guidance
+
+    bg_band = flight_band_from_budget_guidance(budget_guidance if isinstance(budget_guidance, dict) else None)
+    if bg_band:
+        lo, hi = bg_band
+        if hi >= lo > 0:
+            return lo, hi, "budget_guidance"
+
+    trip_lo, trip_hi = _parse_trip_budget_usd_bounds_from_profile_pills(profile_pills, adults=adults)
+    if trip_lo is not None and trip_hi is not None and trip_hi >= trip_lo > 0:
+        share = float(os.environ.get("BOOKING_HOTEL_BUDGET_FLIGHT_ALLOC_SHARE", "0.34") or 0.34)
+        mid = 0.5 * (float(trip_lo) + float(trip_hi)) * share / max(1, int(adults))
+        lo = max(50, int(mid * 0.72))
+        hi = max(lo + 40, int(mid * 1.35))
+        return lo, hi, "profile_trip_derived"
+
+    return None, None, "none"
+
+
 def run_booking_search_params_llm(
     *,
     dest: dict[str, Any],
@@ -1471,7 +1537,8 @@ Guidance:
 - Keep filters broad enough to return results, but aligned to profile constraints.
 - When the trip is clearly **ground-only** (road trip, driving, rental car, ferry, "no flying"), omit the ``flight``
   property entirely — hotel search still runs; do not invent flight filters for trips without air segments.
-- Use nonstop only when strongly implied; otherwise prefer max 1 stop.
+- Default flight ``stops`` to **any** (do not hard-filter to nonstop on the URL). Prefer fewer stops in ranking,
+  not in the search filter, unless the traveler explicitly asks for nonstop only.
 - For hotels, set ``price_min_usd`` / ``price_max_usd`` as **per-night USD** on Expedia when the profile
   ``budget`` pill implies a trip total: reserve ~30–40% of that total for flights/misc, spread the rest across
   ``trip_nights`` to derive nightly bounds; keep min ~60–75% of max. If the budget pill is missing or unclear,
@@ -1674,7 +1741,7 @@ Rules:
 - stays: ordered lodging bases; sum of nights MUST equal (end_iso - start_iso).days + 1 exactly.
 - area: Expedia-searchable place strings (include region/country when helpful).
 - flight + hotel: keep filters broad enough to return results; align to profile when obvious.
-- Use max_1_stop unless nonstop is strongly implied.
+- Default flight ``stops`` to **any** unless the traveler explicitly requests nonstop only.
 - **hotel.price_min_usd / hotel.price_max_usd**: set as **per-night USD** consistent with the profile ``budget``
   pill (whole-trip total). Reserve roughly 30–40% of the trip for flights + misc, divide the remainder by trip
   nights for a nightly cap; keep min roughly 60–75% of max so Expedia price filters stay usable. If the budget
@@ -2454,6 +2521,20 @@ def _strip_booking_hotel_junk_params(pairs: list[tuple[str, str]]) -> list[tuple
     return [(k, v) for k, v in pairs if k not in _BOOKING_HOTEL_QUERY_DROP_KEYS]
 
 
+def _ensure_hotel_only_lodging_pairs(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Force ``lodging=HOTEL`` so SRPs exclude VRBO/vacation rentals."""
+    out = [(k, v) for k, v in pairs if k != "lodging"]
+    insert_at = len(out)
+    for i, (k, _) in enumerate(out):
+        if k == "useRewards":
+            insert_at = i + 1
+            break
+        if k == "categorySearch":
+            insert_at = i + 1
+    out.insert(insert_at, ("lodging", "HOTEL"))
+    return out
+
+
 def _catalog_path(env_key: str, default_relative: str) -> Path | None:
     raw = (os.environ.get(env_key) or "").strip()
     if raw:
@@ -2501,6 +2582,7 @@ def _build_hotel_url(
         )
         pairs = _strip_booking_hotel_junk_params(pairs)
         pairs = _apply_hotel_search_intent_pairs(pairs, search_intent)
+        pairs = _ensure_hotel_only_lodging_pairs(pairs)
         root = (
             os.environ.get("EXPEDIA_HOTEL_SEARCH_BASE") or catalog.base_url or "https://www.expedia.com"
         ).rstrip("/")
@@ -2525,6 +2607,8 @@ def _build_hotel_url(
         typeahead_collation_id=None,
         catalog_path=None,
     )
+    fb_pairs = _ensure_hotel_only_lodging_pairs(parse_qsl(urlparse(fallback).query, keep_blank_values=True))
+    fallback = f"{fallback.split('?', 1)[0]}?{urlencode(fb_pairs)}"
     booking_search_trace(
         "hotel_url_built",
         url=fallback,
@@ -2690,7 +2774,26 @@ def _pick_flight_arrival_fragment(raw_tail: str, country_hint: str) -> str:
     return _normalize_flight_location_label(out)
 
 
-def _update_flight_filters_json(filters_raw: str, intent_flight: dict[str, Any]) -> str:
+def _flight_stops_from_intent(intent_flight: dict[str, Any] | None) -> str:
+    """Default **any** so catalog nonstop filters are not applied unless explicitly requested."""
+    if not isinstance(intent_flight, dict):
+        return "any"
+    stops = str(intent_flight.get("stops") or "any").strip().lower()
+    if stops in ("any", "nonstop", "max_1_stop"):
+        return stops
+    return "any"
+
+
+def _update_flight_options_for_stops(options_raw: str, stops: str) -> str:
+    """Relax catalog ``maxhops:1`` when we are not hard-filtering to nonstop."""
+    s = (options_raw or "").strip()
+    if not s or "maxhops:" not in s:
+        return s
+    hops = "1" if stops in ("nonstop", "max_1_stop") else "3"
+    return re.sub(r"maxhops:\d+", f"maxhops:{hops}", s, count=1)
+
+
+def _update_flight_filters_json(filters_raw: str, intent_flight: dict[str, Any] | None) -> str:
     try:
         arr = json.loads(filters_raw)
         if not isinstance(arr, list):
@@ -2710,7 +2813,7 @@ def _update_flight_filters_json(filters_raw: str, intent_flight: dict[str, Any])
             continue
         out.append(x)
 
-    stops = str(intent_flight.get("stops") or "").strip().lower()
+    stops = _flight_stops_from_intent(intent_flight if isinstance(intent_flight, dict) else None)
     if stops == "nonstop":
         out.append({"numOfStopFilterValue": {"stopInfo": {"numberOfStops": 0, "stopFilterOperation": "EQUAL"}}})
 
@@ -2736,11 +2839,14 @@ def _apply_flight_search_intent_pairs(
 ) -> list[tuple[str, str]]:
     intent_f = search_intent.get("flight") if isinstance(search_intent, dict) else None
     if not isinstance(intent_f, dict):
-        return pairs
+        intent_f = {}
+    stops = _flight_stops_from_intent(intent_f)
     out: list[tuple[str, str]] = []
     for k, v in pairs:
         if k == "filters":
             out.append((k, _update_flight_filters_json(v, intent_f)))
+        elif k == "options":
+            out.append((k, _update_flight_options_for_stops(v, stops)))
         else:
             out.append((k, v))
     return out
@@ -2806,9 +2912,40 @@ def _hotel_exclude_query_price_values(q_prices: list[str]) -> set[int]:
 
 
 def _usd_amounts_near_href(raw_html: str, href: str, *, window: int = 5000) -> list[int]:
+    chunk = _hotel_price_chunk_near_href(raw_html, href, window=window)
+    if not chunk:
+        return []
+    return _usd_integers_from_dollar_text(chunk)
+
+
+def _usd_integers_from_dollar_text(text: str) -> list[int]:
+    vals: list[int] = []
+    for m in re.finditer(r"\$\s*([\d,]+)", text):
+        d = int(m.group(1).replace(",", ""))
+        if 40 <= d < 500_000:
+            vals.append(d)
+    return vals
+
+
+_RE_USD_TOTAL_LABELED = re.compile(
+    r"\$\s*([\d,]+)\s*(?:total\b|with\s+taxes|taxes\s+and\s+fees|incl\.?\s+tax|for\s+your\s+stay)\b",
+    re.I,
+)
+_RE_USD_NIGHTLY_LABELED = re.compile(
+    r"\$\s*([\d,]+)\s*(?:/\s*night|(?:per\s*)?night(?:ly)?)\b",
+    re.I,
+)
+_RE_NIGHTLY_LEADS_USD = re.compile(
+    r"\b(?:from\s+)?nightly[:\s]*\$\s*([\d,]+)\b",
+    re.I,
+)
+
+
+def _hotel_price_chunk_near_href(raw_html: str, href: str, *, window: int = 5000) -> str:
+    """HTML slice around the first occurrence of ``href`` (property card context)."""
     href_raw = (href or "").strip()
     if not href_raw:
-        return []
+        return ""
     needles = [href_raw]
     href_abs = _absolute_expedia_href(href_raw)
     if href_abs:
@@ -2827,15 +2964,108 @@ def _usd_amounts_near_href(raw_html: str, href: str, *, window: int = 5000) -> l
             continue
         lo = max(0, ix - window)
         hi = min(len(raw_html), ix + window * 2)
-        chunk = raw_html[lo:hi]
-        vals: list[int] = []
-        for m in re.finditer(r"\$\s*([\d,]+)", chunk):
+        return raw_html[lo:hi]
+    return ""
+
+
+def _total_labeled_usd_amounts(chunk: str) -> set[int]:
+    out: set[int] = set()
+    for m in _RE_USD_TOTAL_LABELED.finditer(chunk):
+        out.add(int(m.group(1).replace(",", "")))
+    return out
+
+
+def _nightly_labeled_usd_amounts(chunk: str) -> list[int]:
+    found: list[int] = []
+    seen: set[int] = set()
+    for rx in (_RE_USD_NIGHTLY_LABELED, _RE_NIGHTLY_LEADS_USD):
+        for m in rx.finditer(chunk):
             d = int(m.group(1).replace(",", ""))
-            if 40 <= d < 500_000:
-                vals.append(d)
-        if vals:
-            return vals
-    return []
+            if 40 <= d < 50_000 and d not in seen:
+                seen.add(d)
+                found.append(d)
+    return found
+
+
+def _soft_nightly_upper_cap(tl: int, th: int) -> int:
+    """Drop obvious stay-total dollars that leak into the listing window (e.g. $1,170 vs $447 nightly)."""
+    span = max(1, th - tl)
+    return min(25_000, max(int(th * 3.0) + max(150, span // 2), 650))
+
+
+def _pick_usd_nearest_nightly_band(amounts: list[int], tl: int, th: int) -> int | None:
+    if not amounts:
+        return None
+    mid = 0.5 * (tl + th)
+    in_band = [v for v in amounts if tl <= v <= th]
+    if in_band:
+        return min(in_band, key=lambda v: abs(v - mid))
+    return min(amounts, key=lambda v: min(abs(v - tl), abs(v - th), abs(v - mid)))
+
+
+def _heuristic_listing_nightly_usd_hint(
+    raw_html: str,
+    href: str,
+    *,
+    tl: int | None,
+    th: int | None,
+    exclude: set[int],
+) -> int | None:
+    """
+    Best-effort **per-night** USD for the property at ``href`` using the local HTML card, not global SRP order.
+
+    Prefer ``$NNN nightly`` / ``/ night`` labels; otherwise filter stray totals and pick the value closest to the
+    nightly intent band when ``tl``/``th`` are set.
+    """
+    chunk = _hotel_price_chunk_near_href(raw_html, href)
+    if not chunk:
+        return None
+    totals = _total_labeled_usd_amounts(chunk)
+    nightly_lab = _nightly_labeled_usd_amounts(chunk)
+    pool = _usd_integers_from_dollar_text(chunk)
+    pool = [v for v in pool if v not in exclude and v not in totals]
+
+    if nightly_lab:
+        nl = [v for v in nightly_lab if v not in exclude]
+        if not nl:
+            return None
+        if tl is not None and th is not None and th >= tl:
+            return _pick_usd_nearest_nightly_band(nl, tl, th)
+        return sorted(nl)[len(nl) // 2]
+
+    if not pool:
+        return None
+    if tl is not None and th is not None and th >= tl:
+        cap = _soft_nightly_upper_cap(tl, th)
+        pool = [v for v in pool if v <= cap]
+        if not pool:
+            return None
+        return _pick_usd_nearest_nightly_band(pool, tl, th)
+
+    return sorted(pool)[len(pool) // 2]
+
+
+def _destination_href_slug(*, area: str = "", dest_name: str = "") -> str:
+    """``Porto Moniz, Madeira`` → ``porto-moniz`` for ``/Porto-Moniz-Hotels-…`` matching."""
+    base = (dest_name or area or "").split(",")[0].strip()
+    if not base:
+        return ""
+    slug = re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-")
+    return slug
+
+
+def _hotel_href_destination_penalty(href: str, destination_slug: str) -> int:
+    """Lower pick_score is better; negative = bonus for matching destination path."""
+    slug = (destination_slug or "").strip().lower()
+    if not slug:
+        return 0
+    h = (href or "").lower()
+    if f"/{slug}-hotels-" in h:
+        return -80_000
+    m = re.search(r"/([a-z0-9-]+)-hotels-", h)
+    if m and m.group(1) != slug:
+        return 250_000
+    return 0
 
 
 def _pick_hotel_link_for_budget(
@@ -2844,32 +3074,105 @@ def _pick_hotel_link_for_budget(
     *,
     target_lo: int | None,
     target_hi: int | None,
-) -> list[dict[str, str]]:
-    """Prefer a listing whose nearby dollar amounts fall inside the intent nightly band."""
+    price_exclude: set[int] | None = None,
+    destination_slug: str = "",
+    area_hint: str = "",
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    """
+    Reorder links by unified rule score (same as LLM ``rule_pick``): nightly band fit, guest rating, reviews.
+
+    **Higher ``score`` is better.** Only rows with a parseable nightly USD near the anchor compete for winner;
+  ties break toward lower price, then lower index.
+
+    Returns ``(reordered_links, diag)`` where ``diag`` describes every link evaluated (for logging).
+    """
+    diag: dict[str, Any] = {
+        "applied": False,
+        "target_band": None,
+        "winner_original_index": 0,
+        "rows": [],
+        "scoring_method": "unified_rule_score",
+        "best_score": None,
+        "best_pick_score": None,
+    }
+    slug = (destination_slug or "").strip().lower()
+    if slug:
+        local = [
+            r
+            for r in links
+            if f"/{slug}-hotels-" in (r.get("href") or "").lower()
+        ]
+        if local:
+            diag["destination_slug"] = slug
+            diag["destination_filter_applied"] = True
+            diag["destination_filter_before"] = len(links)
+            links = local
     if not links or target_lo is None or target_hi is None or target_hi < target_lo:
-        return links
+        return links, diag
+    tl, th = int(target_lo), int(target_hi)
+    diag["target_band"] = [tl, th]
+    px = price_exclude or set()
+    ah = (area_hint or "").strip()
+    try:
+        from src.wanderly.hotel_listing_extract import extract_guest_rating_reviews_near_href
+        from src.wanderly.hotel_listing_score import score_hotel_listing_row
+    except ImportError:
+        return links, {**diag, "reason": "scoring_import_failed"}
+
     best_i = 0
-    best_score = 10**15
-    for i, row in enumerate(links[:10]):
+    best_score_val = -1.0
+    rows_out: list[dict[str, Any]] = []
+    pool: list[tuple[int, float, int]] = []
+    for i, row in enumerate(links[:16]):
         href = (row.get("href") or "").strip()
-        if not href:
-            continue
-        vals = _usd_amounts_near_href(html, href)
-        if not vals:
-            score = 8_000_000 + i
-        else:
-            med = sorted(vals)[len(vals) // 2]
-            if target_lo <= med <= target_hi:
-                score = abs(med - (target_lo + target_hi) // 2) + i * 2
-            elif med < target_lo:
-                score = (target_lo - med) * 100 + 1_000_000 + i * 2
+        med: int | None = None
+        gr_info: dict[str, Any] = {}
+        if href:
+            gr_info = extract_guest_rating_reviews_near_href(html, href)
+            hint = _heuristic_listing_nightly_usd_hint(html, href, tl=tl, th=th, exclude=px)
+            if hint is not None:
+                med = int(hint)
             else:
-                score = (med - target_hi) * 100 + 3_000_000 + i * 2
-        if score < best_score:
-            best_score = score
-            best_i = i
+                vals = _usd_amounts_near_href(html, href)
+                med = int(sorted(vals)[len(vals) // 2]) if vals else None
+
+        listing_row: dict[str, Any] = {
+            "price_display": f"${med}" if med is not None else "",
+            "guest_rating": gr_info.get("guest_rating"),
+            "review_count": gr_info.get("review_count"),
+            "area_or_neighborhood": ah,
+            "listing_url": href,
+        }
+        score, p_usd = score_hotel_listing_row(
+            listing_row, nightly_lo=tl, nightly_hi=th, area_hint=ah
+        )
+        score_r = round(float(score), 2)
+        rows_out.append(
+            {
+                "original_index": i,
+                "median_usd_near_href": med,
+                "score": score_r,
+                "pick_score": score_r,
+                "title": _short((row.get("text") or "").strip(), 72),
+                "href": _short(href, 84),
+                "href_full": href,
+                "guest_rating": gr_info.get("guest_rating"),
+                "review_count": gr_info.get("review_count"),
+            }
+        )
+        if p_usd is not None:
+            pool.append((i, float(score), int(p_usd)))
+
+    if pool:
+        best_i, best_score_val, _ = max(pool, key=lambda t: (t[1], -t[2], -t[0]))
     chosen = links[best_i]
-    return [chosen] + [x for j, x in enumerate(links) if j != best_i and x.get("href") != chosen.get("href")]
+    new_order = [chosen] + [x for j, x in enumerate(links) if j != best_i and x.get("href") != chosen.get("href")]
+    diag["applied"] = len(links) > 1
+    diag["winner_original_index"] = best_i
+    diag["rows"] = rows_out
+    diag["best_score"] = round(best_score_val, 2) if pool else None
+    diag["best_pick_score"] = diag["best_score"]
+    return new_order, diag
 
 
 def _apply_hotel_search_intent_pairs(
@@ -3550,6 +3853,33 @@ def _apply_flight_leg2_overrides(
     return s
 
 
+def _maybe_save_hotel_debug_html(
+    html: str,
+    *,
+    dest_id: str,
+    hotel_index: int,
+    search_url: str,
+    session_id: str,
+) -> None:
+    """Write raw hotel SRP HTML to ``Travel Planner Prototype/.cache/hotel_debug_html/`` when env flag is on."""
+    if os.environ.get("BOOKING_SEARCH_HOTEL_DEBUG_SAVE_HTML", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return
+    try:
+        root = Path(__file__).resolve().parents[1] / ".cache" / "hotel_debug_html"
+        root.mkdir(parents=True, exist_ok=True)
+        fp = hashlib.sha256((search_url or "").encode("utf-8")).hexdigest()[:12]
+        sid = re.sub(r"[^\w\-]+", "", (session_id or "").strip()[:20]) or "anon"
+        name = f"{dest_id}_h{hotel_index}_{fp}_{sid}.html"
+        (root / name).write_text(html or "", encoding="utf-8", errors="replace")
+    except OSError:
+        pass
+
+
 def _hotel_option_from_snapshot(
     html: str,
     *,
@@ -3560,7 +3890,7 @@ def _hotel_option_from_snapshot(
     dest_country: str = "",
     exclude_price_values: set[int] | None = None,
     target_nightly_usd: tuple[int | None, int | None] | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     _ensure_cli_path()
     from expedia_listing_cli.extract_heuristic import (
         extract_candidate_links,
@@ -3612,35 +3942,69 @@ def _hotel_option_from_snapshot(
                 return m2.group(0)
         return ""
 
-    links = extract_candidate_links(html, limit=8)
+    excludes_early = exclude_price_values or set()
+    dest_slug = _destination_href_slug(area=area, dest_name=dest_name)
+    link_limit = 24 if dest_slug else 12
+    links = extract_candidate_links(html, limit=link_limit)
     tl, th = (target_nightly_usd or (None, None))
+    prices = extract_price_like_strings(html)
+    budget_pick_diag: dict[str, Any] = {
+        "applied": False,
+        "target_band": [tl, th] if isinstance(tl, int) and isinstance(th, int) else None,
+        "winner_original_index": 0,
+        "rows": [],
+    }
     if (
         links
         and isinstance(tl, int)
         and isinstance(th, int)
         and th >= tl
-        and len(links) > 1
     ):
-        links = _pick_hotel_link_for_budget(links, html, target_lo=tl, target_hi=th)
+        links, budget_pick_diag = _pick_hotel_link_for_budget(
+            links,
+            html,
+            target_lo=tl,
+            target_hi=th,
+            price_exclude=excludes_early,
+            destination_slug=dest_slug,
+            area_hint=area,
+        )
 
     listing_price_hint: int | None = None
-    if links and isinstance(tl, int) and isinstance(th, int) and th >= tl:
-        hp = _usd_amounts_near_href(html, (links[0].get("href") or "").strip())
-        if hp:
-            in_band = [v for v in hp if tl <= v <= th]
-            if in_band:
-                mid = (tl + th) // 2
-                listing_price_hint = min(in_band, key=lambda v: abs(v - mid))
+    if links:
+        href0 = (links[0].get("href") or "").strip()
+        if href0:
+            if isinstance(tl, int) and isinstance(th, int) and th >= tl:
+                listing_price_hint = _heuristic_listing_nightly_usd_hint(
+                    html, href0, tl=tl, th=th, exclude=excludes_early
+                )
             else:
-                listing_price_hint = sorted(hp)[len(hp) // 2]
+                listing_price_hint = _heuristic_listing_nightly_usd_hint(
+                    html, href0, tl=None, th=None, exclude=excludes_early
+                )
 
-    prices = extract_price_like_strings(html)
-    excludes = exclude_price_values or set()
+    excludes = excludes_early
     non_zero = [x for x in prices if _price_digits(x) > 0]
     preferred = [x for x in non_zero if _price_digits(x) >= 50 and _price_digits(x) not in excludes]
     if listing_price_hint is not None:
         price_display = _normalize_price_display(f"${listing_price_hint}")
-        price_src = "listing_row_near_href"
+        price_src = "listing_nightly_near_anchor"
+    elif preferred and isinstance(tl, int) and isinstance(th, int) and th >= tl:
+        mid = 0.5 * (tl + th)
+        cap = _soft_nightly_upper_cap(tl, th)
+
+        def _pref_band_distance(tok: str) -> float:
+            v = _price_digits(tok)
+            if v <= 0 or v in excludes:
+                return 1e15
+            if v > cap:
+                return 1e14 + float(v)
+            if tl <= v <= th:
+                return abs(v - mid)
+            return float(min(abs(v - tl), abs(v - th), abs(v - mid))) + 5000.0
+
+        price_display = min(preferred, key=_pref_band_distance)
+        price_src = "non_tiny_nearest_nightly_band"
     elif preferred:
         price_display = preferred[0]
         price_src = "non_tiny_non_excluded"
@@ -3698,6 +4062,54 @@ def _hotel_option_from_snapshot(
 
     href_abs = _absolute_expedia_href(href)
 
+    guest_rating: float | None = None
+    review_count: int | None = None
+    rating_label: str | None = None
+    if href:
+        try:
+            from src.wanderly.hotel_listing_extract import extract_guest_rating_reviews_near_href
+
+            _grr = extract_guest_rating_reviews_near_href(html, href)
+            if _grr.get("guest_rating") is not None:
+                guest_rating = float(_grr["guest_rating"])
+            if _grr.get("review_count") is not None:
+                review_count = int(_grr["review_count"])
+            rating_label = (_grr.get("rating_label") or None)
+        except ImportError:
+            pass
+
+    ordered_candidates: list[dict[str, Any]] = []
+    try:
+        from src.wanderly.hotel_listing_extract import extract_guest_rating_reviews_near_href as _gr_near
+    except ImportError:
+        _gr_near = None  # type: ignore[assignment]
+    for i, row in enumerate(links[:12]):
+        rh = (row.get("href") or "").strip()
+        oc: dict[str, Any] = {
+            "final_rank": i,
+            "title": _short((row.get("text") or "").strip(), 96),
+            "href": _short(rh, 96),
+        }
+        if rh and _gr_near is not None:
+            oc.update(_gr_near(html, rh))
+        ordered_candidates.append(oc)
+
+    heuristic_diag: dict[str, Any] = {
+        "path": "heuristic_html_snapshot",
+        "extracted_anchor_count": len(links),
+        "ordered_candidates": ordered_candidates,
+        "budget_pick": budget_pick_diag,
+        "listing_nightly_hint_usd": listing_price_hint,
+        "price_tokens_sample": prices[:18],
+        "non_zero_price_tokens_sample": non_zero[:18],
+        "chosen_price_source": price_src,
+        "chosen_listing_rank": 0 if links else None,
+        "pick_summary": (
+            f"Heuristic: {len(links)} property-like anchor(s); card uses final_rank=0 after optional budget reorder; "
+            f"price from {price_src}."
+        ),
+    }
+
     booking_search_trace(
         "hotel_parse_heuristic",
         link_count=len(links),
@@ -3725,7 +4137,7 @@ def _hotel_option_from_snapshot(
         image_source=image_src,
     )
 
-    option = {
+    option: dict[str, Any] = {
         "name": title,
         "area": area_display,
         "price": price_display if price_display.startswith("$") else f"{price_display}/night est.",
@@ -3734,6 +4146,21 @@ def _hotel_option_from_snapshot(
         "best": True,
         "listing_url": href_abs,
     }
+    if guest_rating is not None:
+        option["guest_rating"] = guest_rating
+    if review_count is not None:
+        option["review_count"] = review_count
+    if rating_label:
+        option["rating_label"] = rating_label
+        bits = [str(guest_rating) if guest_rating is not None else "", f"({rating_label})"]
+        if review_count is not None:
+            bits.append(f"{review_count} reviews")
+        option["star_rating"] = " ".join(x for x in bits if x).strip()[:80]
+    elif guest_rating is not None:
+        bits = [str(guest_rating)]
+        if review_count is not None:
+            bits.append(f"{review_count} reviews")
+        option["star_rating"] = " ".join(bits)[:80]
     profile: dict[str, Any] = {
         "name": {"source": name_src},
         "area": {"source": area_src},
@@ -3742,7 +4169,43 @@ def _hotel_option_from_snapshot(
         "image": {"source": image_src},
         "listing_url": {"source": link_src},
     }
-    return option, profile
+    if budget_pick_diag.get("applied"):
+        heuristic_diag["pick_summary"] += (
+            f" Budget reorder: winner_original_index={budget_pick_diag.get('winner_original_index')} "
+            f"(budget_pick.rows: higher score is better; price + rating + reviews via unified_rule_score)."
+        )
+    elif budget_pick_diag.get("rows"):
+        heuristic_diag["pick_summary"] += (
+            f" Single-link or no reorder; budget_pick still scored {len(budget_pick_diag['rows'])} anchor(s)."
+        )
+
+    brow = budget_pick_diag.get("rows") if isinstance(budget_pick_diag.get("rows"), list) else []
+    if brow and links:
+        try:
+            from src.wanderly.hotel_listing_alternatives import (
+                attach_ranked_picks_to_hotel_option,
+                build_heuristic_ranked_picks,
+            )
+
+            ranked = build_heuristic_ranked_picks(
+                links,
+                brow,
+                html,
+                nights=nights,
+                area=area_display,
+                image_fallback=image_fallback,
+                absolute_href=_absolute_expedia_href,
+                image_near_href=_image_near_listing_href,
+                normalize_price=_normalize_price_display,
+            )
+            if ranked:
+                sr = int((option.get("selected_rank") or 1))
+                option = attach_ranked_picks_to_hotel_option(option, ranked, selected_rank=sr)
+                heuristic_diag["ranked_picks_count"] = len(ranked)
+        except ImportError:
+            pass
+
+    return option, profile, heuristic_diag
 
 
 def _flight_option_from_snapshot(
@@ -3750,96 +4213,128 @@ def _flight_option_from_snapshot(
     *,
     route_fallback: str,
     to_label: str | None = None,
+    price_lo: int | None = None,
+    price_hi: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     _ensure_cli_path()
     from expedia_listing_cli.extract_heuristic import (
         extract_document_title,
-        extract_flight_airline_filter_hints,
         extract_flight_duration_guess,
         extract_price_like_strings,
     )
-
-    prices = extract_price_like_strings(html)
-    non_zero = [x for x in prices if _price_digits(x) > 0]
-    non_tiny = [x for x in non_zero if _price_digits(x) >= 50]
-    if non_tiny:
-        price_display = non_tiny[0]
-        price_src = "non_tiny"
-    elif non_zero:
-        price_display = non_zero[0]
-        price_src = "non_zero"
-    elif prices:
-        price_display = prices[0]
-        price_src = "any_token"
-    else:
-        price_display = "See Expedia"
-        price_src = "fallback"
-
-    price_display = _normalize_price_display(price_display)
+    from src.wanderly.flight_listing_alternatives import (
+        attach_ranked_picks_to_flight_option,
+        build_llm_ranked_flight_picks,
+        ordered_listing_indices_from_rule_rows,
+    )
+    from src.wanderly.flight_listing_extract import (
+        extract_flight_listing_rows_from_html,
+        llm_listing_row_to_flight_option,
+    )
+    from src.wanderly.flight_listing_score import pick_flight_listing_index
 
     raw_title = extract_document_title(html) or ""
-    airline_line, route_line, route_src = _flight_card_labels_from_page(
+    _, route_line, route_src = _flight_card_labels_from_page(
         raw_title,
         route_fallback=route_fallback,
         to_label=to_label,
     )
-    airline_src = "page_title_split"
-    airline_code = ""
-    hints = extract_flight_airline_filter_hints(html, limit=24)
-    if hints:
 
-        def _row_price_val(s: str) -> int:
-            d = re.sub(r"[^\d]", "", str(s))
-            return int(d) if d else 9_999_999
+    rows = extract_flight_listing_rows_from_html(html, limit=20)
+    pick_dbg: dict[str, Any] = {}
+    winner_ix: int | None = None
+    if rows:
+        winner_ix, pick_dbg = pick_flight_listing_index(
+            rows,
+            price_lo=price_lo,
+            price_hi=price_hi,
+            route_hint=route_fallback,
+        )
 
-        h_best = min(hints, key=lambda r: _row_price_val(r.get("min_price") or ""))
-        airline_line = (h_best.get("airline") or airline_line)[:120]
-        airline_src = f"expedia_{h_best.get('source', 'listing_hint')}"
-        airline_code = (h_best.get("iata") or "").strip().upper()[:3]
+    if winner_ix is not None and winner_ix < len(rows):
+        option = llm_listing_row_to_flight_option(rows[winner_ix])
+        option["route"] = str(option.get("route") or route_line)[:160]
+        airline_src = f"heuristic_rule_pick_{rows[winner_ix].get('source', 'row')}"
+        price_src = "rule_pick_row"
+        dur_src = "listing_row" if option.get("duration") and option["duration"] != "—" else "none"
+        rule_rows = list(pick_dbg.get("rows") or [])
+        pick_ix = ordered_listing_indices_from_rule_rows(rule_rows, winner_index=winner_ix)
+        ranked: list[dict[str, Any]] = build_llm_ranked_flight_picks(rows, pick_ix, rule_rows=rule_rows)
+        if ranked:
+            option = attach_ranked_picks_to_flight_option(option, ranked, selected_rank=1)
+        booking_search_trace(
+            "flight_parse_heuristic",
+            pick_mode=pick_dbg.get("pick_mode"),
+            rows=len(rows),
+            winner_index=winner_ix,
+            winner_score=pick_dbg.get("winner_score"),
+            winner_stops=pick_dbg.get("winner_stops"),
+            winner_duration=pick_dbg.get("winner_duration"),
+            ranked_picks=len(ranked) if ranked else 0,
+        )
+    else:
+        prices = extract_price_like_strings(html)
+        non_zero = [x for x in prices if _price_digits(x) > 0]
+        non_tiny = [x for x in non_zero if _price_digits(x) >= 50]
+        if non_tiny:
+            price_display = non_tiny[0]
+            price_src = "non_tiny"
+        elif non_zero:
+            price_display = non_zero[0]
+            price_src = "non_zero"
+        elif prices:
+            price_display = prices[0]
+            price_src = "any_token"
+        else:
+            price_display = "See Expedia"
+            price_src = "fallback"
+        price_display = _normalize_price_display(price_display)
+        airline_line, route_line, route_src = _flight_card_labels_from_page(
+            raw_title,
+            route_fallback=route_fallback,
+            to_label=to_label,
+        )
+        airline_src = "page_title_split"
+        airline_code = ""
+        dur = extract_flight_duration_guess(html)
+        duration_display = dur if dur else "—"
+        dur_src = "visible_text" if dur else "none"
+        option = {
+            "airline": airline_line[:120],
+            "route": route_line[:160],
+            "duration": duration_display,
+            "price": price_display if price_display.startswith("$") else str(price_display),
+            "best": True,
+        }
+        if airline_code:
+            option["airline_code"] = airline_code
+        booking_search_trace(
+            "flight_parse_heuristic",
+            price_candidates=prices[:12],
+            chosen_price=price_display,
+            price_source=price_src,
+            fallback="no_listing_rows",
+        )
 
-    dur = extract_flight_duration_guess(html)
-    duration_display = dur if dur else "—"
-    dur_src = "visible_text" if dur else "none"
-
-    booking_search_trace(
-        "flight_parse_heuristic",
-        price_candidates=prices[:12],
-        non_zero_candidates=non_zero[:12],
-        chosen_price=price_display,
-        price_source=price_src,
-        route_fallback=route_fallback,
-        route_resolved=_short(route_line, 120),
-        airline_source=airline_src,
-        page_title_head=_short(raw_title, 120),
-        duration_guess=duration_display,
-        duration_source=dur_src,
-    )
     booking_search_trace(
         "flight_card_fields",
-        airline_head=_short(airline_line, 120),
-        airline_code=airline_code or None,
-        route=route_line,
-        duration=duration_display,
-        price=price_display,
+        airline_head=_short(str(option.get("airline") or ""), 120),
+        route=option.get("route"),
+        duration=option.get("duration"),
+        price=option.get("price"),
+        stops=option.get("stops"),
     )
 
-    option: dict[str, Any] = {
-        "airline": airline_line[:120],
-        "route": route_line[:160],
-        "duration": duration_display,
-        "price": price_display if price_display.startswith("$") else str(price_display),
-        "best": True,
-    }
-    if airline_code:
-        option["airline_code"] = airline_code
     profile: dict[str, Any] = {
-        "airline": {"source": airline_src},
+        "airline": {"source": airline_src if winner_ix is not None else "page_title_split"},
         "route": {"source": route_src},
-        "duration": {"source": dur_src},
-        "price": {"source": price_src},
+        "duration": {"source": dur_src if winner_ix is not None else "visible_text"},
+        "price": {"source": price_src if winner_ix is not None else "fallback"},
     }
-    if airline_code:
-        profile["airline_code"] = {"source": airline_src, "iata": airline_code}
+    if option.get("stops"):
+        profile["stops"] = {"source": "heuristic_rule_pick"}
+    if option.get("ranked_picks"):
+        profile["ranked_picks"] = {"source": "heuristic_rule_pick", "count": len(option["ranked_picks"])}
     return option, profile
 
 
@@ -4050,6 +4545,13 @@ def run_booking_search_step(
             llm_meta: dict[str, Any] | None = None
             from src.wanderly.flight_listing_llm import flight_llm_parse_enabled, run_flight_listing_llm_parse
 
+            f_lo, f_hi, f_band_src = _resolve_flight_scoring_price_band(
+                budget_guidance=dest.get("budget_guidance") if isinstance(dest.get("budget_guidance"), dict) else None,
+                profile_pills=profile_pills,
+                adults=adults,
+            )
+            scoring_flight_pair = (f_lo, f_hi) if f_lo is not None and f_hi is not None else None
+
             if flight_llm_parse_enabled():
                 crit_lines = meta.get("criteria_lines") if isinstance(meta.get("criteria_lines"), list) else []
                 fo_llm, prof_llm, llm_meta = run_flight_listing_llm_parse(
@@ -4060,6 +4562,8 @@ def run_booking_search_step(
                     profile_pills=profile_pills,
                     criteria_lines=[str(x) for x in crit_lines if str(x).strip()],
                     session_id=session_id,
+                    scoring_price_usd=scoring_flight_pair,
+                    scoring_band_source=f_band_src,
                 )
                 if fo_llm and prof_llm:
                     fo, flight_profile = fo_llm, prof_llm
@@ -4069,6 +4573,8 @@ def run_booking_search_step(
                         excerpt_chars=llm_meta.get("excerpt_chars"),
                         listings=len(llm_meta.get("listings") or []),
                         best_index=llm_meta.get("best_index"),
+                        rule_pick=bool(llm_meta.get("rule_pick")),
+                        ranked_picks=llm_meta.get("ranked_picks_count"),
                         advisor_rank=bool(llm_meta.get("advisor_rank")),
                     )
                 else:
@@ -4076,6 +4582,8 @@ def run_booking_search_step(
                         html,
                         route_fallback=route_llm,
                         to_label=to_l if fl_leg == "outbound" else from_l,
+                        price_lo=f_lo,
+                        price_hi=f_hi,
                     )
                     booking_search_trace(
                         "flight_parse_llm_fallback",
@@ -4087,6 +4595,8 @@ def run_booking_search_step(
                     html,
                     route_fallback=route_llm,
                     to_label=to_l if fl_leg == "outbound" else from_l,
+                    price_lo=f_lo,
+                    price_hi=f_hi,
                 )
             # Same URL we fetched (catalog-built search). Flight SERPs rarely expose stable per-fare hrefs in static HTML,
             # unlike hotel Hotel-Information links — so we attach the search URL explicitly rather than parsing offers.
@@ -4173,10 +4683,71 @@ def run_booking_search_step(
                 pmx = int(hint_h["price_max_usd"])
                 if pmx >= pmn > 0:
                     target_nightly = (pmn, pmx)
+            sc_lo, sc_hi, sc_src = _resolve_hotel_scoring_nightly_band(
+                hint_tuple=target_nightly,
+                budget_guidance=dest.get("budget_guidance") if isinstance(dest.get("budget_guidance"), dict) else None,
+                profile_pills=profile_pills,
+                calendar_nights=calendar_nights,
+                adults=adults,
+            )
+            scoring_nightly_pair = (sc_lo, sc_hi) if sc_lo is not None and sc_hi is not None else None
             ck = f"hotel:{hotel_index}"
             t_html = time.perf_counter()
+            load_env_from_roots()
+            from src.wanderly.hotel_listing_llm import hotel_llm_parse_enabled, run_hotel_listing_llm_parse
+            from src.wanderly.hotel_listing_score import (
+                append_hotel_final_pick_log,
+                append_hotel_rule_pick_file_note,
+                hotel_rule_pick_file_enabled,
+                hotel_rule_pick_log_path,
+            )
+
+            _hrp_path = hotel_rule_pick_log_path()
+            _ck_body = (
+                "[hotel_booking_step] checkpoint (before hotel LLM / fallback)\n"
+                f"  dest_id={dest_id} hotel_index={hotel_index}\n"
+                f"  dest_label={dest_label!s}  area={area!s}  nights={nights}\n"
+                f"  search_url={_short(str(url), 260)!s}\n"
+                f"  BOOKING_SEARCH_HOTEL_LLM_PARSE enabled={hotel_llm_parse_enabled()}\n"
+                f"  scoring_nightly_usd={scoring_nightly_pair!r}  band_source={sc_src!r}\n"
+                f"  rule_pick_file_logging={hotel_rule_pick_file_enabled()}  log_path={_hrp_path!s}\n"
+                "  (Rule-pick score table only when the LLM returns listing rows; [hotel_final] when any hotel card is returned.)\n"
+            )
+            if _hrp_path is not None:
+                append_hotel_rule_pick_file_note(_ck_body, session_id=sid)
+            else:
+                booking_search_trace(
+                    "hotel_rule_pick_file_disabled",
+                    destination_id=dest_id,
+                    hotel_index=hotel_index,
+                    llm_parse_enabled=bool(hotel_llm_parse_enabled()),
+                    scoring_nightly_usd=repr(scoring_nightly_pair),
+                    band_source=str(sc_src)[:80],
+                )
             ph = pop_booking_prefetch_html(sid, dest_id, ck) if sid else None
             html = ph if ph else _fetch_html(url)
+            _maybe_save_hotel_debug_html(
+                html,
+                dest_id=dest_id,
+                hotel_index=hotel_index,
+                search_url=url,
+                session_id=sid,
+            )
+            hotel_page_anchor_rows: list[dict[str, Any]] = []
+            try:
+                _ensure_cli_path()
+                from expedia_listing_cli.extract_heuristic import extract_candidate_links
+
+                for i, row in enumerate(extract_candidate_links(html, limit=24)):
+                    hotel_page_anchor_rows.append(
+                        {
+                            "rank": i,
+                            "title": (row.get("text") or "")[:140],
+                            "href": (row.get("href") or "")[:220],
+                        }
+                    )
+            except Exception:
+                pass
             acquire_ms = int((time.perf_counter() - t_html) * 1000)
             booking_search_trace(
                 "step_html_acquired",
@@ -4191,8 +4762,8 @@ def run_booking_search_step(
             ho: dict[str, Any]
             hotel_profile: dict[str, Any]
             h_llm_meta: dict[str, Any] | None = None
-            from src.wanderly.hotel_listing_llm import hotel_llm_parse_enabled, run_hotel_listing_llm_parse
-
+            hotel_heuristic_diag: dict[str, Any] | None = None
+            used_llm_hotel_card = False
             crit_lines = meta.get("criteria_lines") if isinstance(meta.get("criteria_lines"), list) else []
             if hotel_llm_parse_enabled():
                 ho_llm, prof_llm, h_llm_meta = run_hotel_listing_llm_parse(
@@ -4205,9 +4776,12 @@ def run_booking_search_step(
                     criteria_lines=[str(x) for x in crit_lines if str(x).strip()],
                     session_id=session_id,
                     image_fallback=image_fallback,
+                    scoring_nightly_usd=scoring_nightly_pair,
+                    scoring_band_source=sc_src,
                 )
                 if ho_llm and prof_llm:
                     ho, hotel_profile = ho_llm, prof_llm
+                    used_llm_hotel_card = True
                     booking_search_trace(
                         "hotel_parse_llm_ok",
                         destination_id=dest_id,
@@ -4216,9 +4790,25 @@ def run_booking_search_step(
                         listings=len((h_llm_meta or {}).get("listings") or []),
                         best_index=(h_llm_meta or {}).get("best_index"),
                         advisor_rank=bool((h_llm_meta or {}).get("advisor_rank")),
+                        rule_pick=bool((h_llm_meta or {}).get("rule_pick")),
+                        scoring_band_source=str((h_llm_meta or {}).get("scoring_band_source") or "")[:40],
                     )
                 else:
-                    ho, hotel_profile = _hotel_option_from_snapshot(
+                    _err = _short(str((h_llm_meta or {}).get("llm_err") or ""), 400)
+                    _diag = (h_llm_meta or {}).get("llm_diag") if isinstance(h_llm_meta, dict) else None
+                    _diag_s = json.dumps(_diag, ensure_ascii=True)[:1200] if isinstance(_diag, dict) else "—"
+                    if _hrp_path is not None:
+                        append_hotel_rule_pick_file_note(
+                            "[hotel_booking_step] LLM parse returned no hotel card\n"
+                            f"  llm_err={_err!s}\n"
+                            f"  excerpt_chars={(h_llm_meta or {}).get('excerpt_chars')}  "
+                            f"llm_response_chars={(h_llm_meta or {}).get('llm_chars')}\n"
+                            f"  dest_label={dest_label!s}  area={area!s}  nights={nights}\n"
+                            f"  search_url={_short(str(url), 280)!s}\n"
+                            f"  llm_diag={_diag_s}\n",
+                            session_id=sid,
+                        )
+                    ho, hotel_profile, hotel_heuristic_diag = _hotel_option_from_snapshot(
                         html,
                         area=area,
                         nights=nights,
@@ -4235,7 +4825,12 @@ def run_booking_search_step(
                         llm_err=_short(str((h_llm_meta or {}).get("llm_err") or ""), 240),
                     )
             else:
-                ho, hotel_profile = _hotel_option_from_snapshot(
+                if _hrp_path is not None:
+                    append_hotel_rule_pick_file_note(
+                        "[hotel_booking_step] LLM parse disabled — set BOOKING_SEARCH_HOTEL_LLM_PARSE=1 for listing/rule logs.\n",
+                        session_id=sid,
+                    )
+                ho, hotel_profile, hotel_heuristic_diag = _hotel_option_from_snapshot(
                     html,
                     area=area,
                     nights=nights,
@@ -4245,6 +4840,45 @@ def run_booking_search_step(
                     exclude_price_values=exclude_vals,
                     target_nightly_usd=target_nightly,
                 )
+            if not hotel_llm_parse_enabled():
+                _hotel_sel_path = "heuristic_snapshot (LLM parse disabled)"
+            elif used_llm_hotel_card:
+                hm = h_llm_meta or {}
+                if hm.get("rule_pick"):
+                    _hotel_sel_path = "llm_listings + rule_pick"
+                elif hm.get("advisor_rank"):
+                    _hotel_sel_path = "llm_listings + advisor_rank"
+                else:
+                    _hotel_sel_path = "llm_listings + parse_best_index"
+            else:
+                _err = _short(str((h_llm_meta or {}).get("llm_err") or ""), 120).strip() or "unknown"
+                _hotel_sel_path = f"heuristic_snapshot (after LLM failure: {_err})"
+            _lm_rows = h_llm_meta if isinstance(h_llm_meta, dict) else None
+            _llm_row_ct = (
+                len(_lm_rows["listings"])
+                if _lm_rows and isinstance(_lm_rows.get("listings"), list)
+                else 0
+            )
+            booking_search_trace(
+                "hotel_page_anchor_vs_llm",
+                destination_id=dest_id,
+                hotel_index=hotel_index,
+                html_anchor_extract_count=len(hotel_page_anchor_rows),
+                llm_listing_row_count=_llm_row_ct,
+                used_llm_hotel_card=bool(used_llm_hotel_card),
+            )
+            append_hotel_final_pick_log(
+                selection_path=_hotel_sel_path,
+                ho=ho,
+                hotel_profile=hotel_profile,
+                session_id=sid,
+                dest_id=dest_id,
+                hotel_index=hotel_index,
+                dest_label=dest_label,
+                h_llm_meta=h_llm_meta if isinstance(h_llm_meta, dict) else None,
+                heuristic_diag=hotel_heuristic_diag,
+                page_anchor_candidates=hotel_page_anchor_rows,
+            )
             out_hotel: dict[str, Any] = {
                 "ok": True,
                 "step": step,
@@ -4263,7 +4897,8 @@ def run_booking_search_step(
                     dbg_h["hotel_llm_meta"] = {
                         k: v
                         for k, v in h_llm_meta.items()
-                        if k != "listings" and not str(k).startswith("_")
+                        if k not in ("listings", "rule_pick_rows")
+                        and not str(k).startswith("_")
                     }
                 out_hotel["debug_parse"] = dbg_h
             booking_search_trace(
