@@ -118,3 +118,59 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
   return text ? (JSON.parse(text) as T) : ({} as T);
 }
+
+/** POST JSON and return raw bytes (e.g. PDF download). */
+export async function apiFetchBlob(
+  path: string,
+  init?: RequestInit,
+): Promise<{ blob: Blob; filename: string }> {
+  const url = apiUrl(path);
+  const headers: HeadersInit = {
+    Accept: "application/pdf,*/*",
+    ...wanderlyActiveTraceHeaders(),
+    ...(init?.headers || {}),
+  };
+  if (init?.body && !(headers as Record<string, string>)["Content-Type"]) {
+    (headers as Record<string, string>)["Content-Type"] = "application/json";
+  }
+  const res = await fetch(url, { ...init, headers });
+  if (!res.ok) {
+    const errText = await res.text();
+    let message = (errText && errText.trim()) || res.statusText || `HTTP ${res.status}`;
+    if (errText) {
+      try {
+        const body = JSON.parse(errText) as { error?: unknown };
+        if (typeof body?.error === "string" && body.error.trim()) {
+          message = body.error.trim();
+        }
+      } catch {
+        /* keep message */
+      }
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const ct = (res.headers.get("Content-Type") || "").toLowerCase();
+  if (ct.includes("application/json")) {
+    const errText = await blob.text();
+    let message = errText.trim() || "Export failed";
+    try {
+      const body = JSON.parse(errText) as { error?: unknown };
+      if (typeof body?.error === "string" && body.error.trim()) message = body.error.trim();
+    } catch {
+      /* keep message */
+    }
+    throw new Error(message);
+  }
+  let filename = "itinerary.pdf";
+  const cd = res.headers.get("Content-Disposition") || "";
+  const m = /filename\*?=(?:UTF-8''|")?([^";\n]+)/i.exec(cd);
+  if (m?.[1]) {
+    try {
+      filename = decodeURIComponent(m[1].trim().replace(/^"|"$/g, ""));
+    } catch {
+      filename = m[1].trim().replace(/^"|"$/g, "");
+    }
+  }
+  return { blob, filename };
+}

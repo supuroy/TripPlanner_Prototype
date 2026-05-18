@@ -30,8 +30,6 @@ import {
   runSingleFlightBookingSearch,
   DetailedHotelCard,
   DetailedFlightCard,
-  HotelLoadSkeleton,
-  FlightLoadSkeleton,
 } from "./bookingExpandedContent";
 import { hotelWithSelectedRank } from "../lib/hotelRankedPicks";
 import { flightWithSelectedRank, resolveDisplayedFlight } from "../lib/flightRankedPicks";
@@ -43,6 +41,9 @@ import {
   tripWideStaysFromDest,
   tripWideCarGroundHint,
 } from "../lib/bookingFlightPlan";
+import { applyBookingStreamEvent, type BookingProgressStep } from "../lib/bookingSearchProgress";
+import type { BookingStreamDrafts } from "../lib/bookingStreamCaption";
+import { BookingSearchProgressCard } from "./BookingSearchProgressStrip";
 import type { DayLogisticsFlightSegment, DayLogisticsSurfaceLeg } from "../../types/workspace";
 
 function formatTransportMode(mode: string | undefined): string {
@@ -121,6 +122,22 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
   const [hotelDetailsExpanded, setHotelDetailsExpanded] = useState<Record<number, boolean>>({});
   const [flightDetailsExpanded, setFlightDetailsExpanded] = useState<Record<number, boolean>>({});
   const otaSearchLockRef = useRef(false);
+  const [otaProgressSteps, setOtaProgressSteps] = useState<BookingProgressStep[]>([]);
+  const [otaProgressLabel, setOtaProgressLabel] = useState("");
+  const [otaStreamPreview, setOtaStreamPreview] = useState("");
+  const otaStreamDraftsRef = useRef<BookingStreamDrafts>({
+    assistant: { text: "" },
+    thinking: { text: "" },
+  });
+
+  const pushOtaProgress = useCallback((ev: Record<string, unknown>) => {
+    setOtaProgressSteps((prev) => {
+      const out = applyBookingStreamEvent(prev, ev, otaStreamDraftsRef.current);
+      if (out.primary) setOtaProgressLabel(out.primary);
+      if (out.streamPreview) setOtaStreamPreview(out.streamPreview);
+      return out.steps;
+    });
+  }, []);
 
   useEffect(() => {
     setHotelSearchErrors({});
@@ -143,6 +160,10 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
       }
 
       otaSearchLockRef.current = true;
+      setOtaProgressSteps([]);
+      setOtaProgressLabel("");
+      setOtaStreamPreview("");
+      otaStreamDraftsRef.current = { assistant: { text: "" }, thinking: { text: "" } };
       setHotelSearchBusyIndex(rowIndex);
       setHotelSearchResults((prev) => {
         const next = { ...prev };
@@ -169,6 +190,7 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
           beginTripDiskSave,
           completeTripDiskSave,
           failTripDiskSave,
+          onProgress: pushOtaProgress,
         });
 
         if (!res.ok) {
@@ -200,6 +222,7 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
       completeTripDiskSave,
       failTripDiskSave,
       addResponse,
+      pushOtaProgress,
     ],
   );
 
@@ -304,6 +327,10 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
       }
 
       otaSearchLockRef.current = true;
+      setOtaProgressSteps([]);
+      setOtaProgressLabel("");
+      setOtaStreamPreview("");
+      otaStreamDraftsRef.current = { assistant: { text: "" }, thinking: { text: "" } };
       setFlightSearchBusyIndex(segmentIndex);
       setFlightSearchResults((prev) => {
         const next = { ...prev };
@@ -329,6 +356,7 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
           beginTripDiskSave,
           completeTripDiskSave,
           failTripDiskSave,
+          onProgress: pushOtaProgress,
         });
 
         if (!res.ok) {
@@ -360,6 +388,7 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
       completeTripDiskSave,
       failTripDiskSave,
       addResponse,
+      pushOtaProgress,
     ],
   );
 
@@ -472,7 +501,11 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
                     </div>
                     {flightSearchBusyIndex === i ? (
                       <div className="mt-2">
-                        <FlightLoadSkeleton label="Searching Expedia flights & parsing results…" />
+                        <BookingSearchProgressCard
+                          primary={otaProgressLabel || "Searching on Expedia…"}
+                          streamPreview={otaStreamPreview}
+                          steps={otaProgressSteps}
+                        />
                       </div>
                     ) : null}
                     {flightSearchErrors[i] ? (
@@ -585,7 +618,11 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
                   </div>
                   {hotelSearchBusyIndex === i ? (
                     <div className="mt-2">
-                      <HotelLoadSkeleton label="Searching Expedia & parsing results…" />
+                      <BookingSearchProgressCard
+                        primary={otaProgressLabel || "Searching this stay on Expedia…"}
+                        streamPreview={otaStreamPreview}
+                        steps={otaProgressSteps}
+                      />
                     </div>
                   ) : null}
                   {hotelSearchErrors[i] ? (

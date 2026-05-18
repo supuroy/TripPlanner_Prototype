@@ -2,6 +2,13 @@
  * Lightweight booking helpers for destination card faces (no OTA search / timeline UI).
  */
 import type { DestCard, FlightOption, HotelOption, ProfilePill } from "../components/TripStore";
+import {
+  commercialFlightSegmentsFromDest,
+  isGroundOnlyTransport,
+  transportFromDest,
+  tripWideStaysFromDest,
+} from "./bookingFlightPlan";
+import { buildLogisticsBreadcrumb, collectLodgingStayBlocks } from "./logisticsBreadcrumb";
 
 export function parsePriceDigits(s: string | undefined): number {
   const n = parseInt(String(s ?? "").replace(/[^\d]/g, ""), 10);
@@ -24,6 +31,16 @@ export function priceLooksLikeLiveBookableAmount(s: string | undefined): boolean
   return true;
 }
 
+/** One merged hotel row is safe to show as a full OTA card (not a heuristic shell). */
+export function hotelRowIsActionableHotel(h: HotelOption | undefined): boolean {
+  if (!h || h.isPlaceholder === true) return false;
+  const nm = (h.name || "").trim().toLowerCase();
+  if (!nm || nm === "lodging results" || nm === "hotel listing") return false;
+  if (!priceLooksLikeLiveBookableAmount(h.price)) return false;
+  if (!String(h.listing_url || "").trim()) return false;
+  return true;
+}
+
 export function liveBookingExtractLooksActionable(dest: DestCard): boolean {
   const flights = dest.flights || [];
   const hotels = dest.hotels || [];
@@ -41,11 +58,7 @@ export function liveBookingExtractLooksActionable(dest: DestCard): boolean {
   const hotelsPass = (): boolean => {
     if (!hotels.length) return false;
     for (const h of hotels) {
-      const nm = (h.name || "").trim().toLowerCase();
-      if (nm === "lodging results" || nm === "hotel listing" || nm === "") return false;
-      const pr = (h.price || "").trim();
-      if (/^see expedia$/i.test(pr)) return false;
-      if (!priceLooksLikeLiveBookableAmount(pr)) return false;
+      if (!hotelRowIsActionableHotel(h)) return false;
     }
     return true;
   };
@@ -119,4 +132,80 @@ export function flightPriceRangeLabel(flights: FlightOption[]): string | null {
   const hi = Math.max(...nums);
   if (lo === hi) return `$${lo.toLocaleString()}`;
   return `$${lo.toLocaleString()} - $${hi.toLocaleString()}`;
+}
+
+/** Merged OTA flight row the user picked (or default rank) — same bar as logistics flip ``persistedFlightPick``. */
+export function flightRowIsUserSelectedFlight(f: FlightOption | undefined): boolean {
+  if (!f || f.isPlaceholder === true) return false;
+  if (!priceLooksLikeLiveBookableAmount(f.price)) return false;
+  if (String(f.search_url || "").trim()) return true;
+  return f.isPlaceholder === false;
+}
+
+export function destHasUserSelectedBooking(dest: DestCard): boolean {
+  return (
+    (dest.flights || []).some((f) => flightRowIsUserSelectedFlight(f)) ||
+    (dest.hotels || []).some((h) => hotelRowIsActionableHotel(h))
+  );
+}
+
+/** Trip total from user-selected flight/hotel rows — matches ``BookingCostBreakdown`` when shown. */
+export function destUserSelectedTripTotalUsd(dest: DestCard): number | null {
+  if (!destHasUserSelectedBooking(dest)) return null;
+  let sum = 0;
+  for (const f of dest.flights || []) {
+    if (flightRowIsUserSelectedFlight(f)) sum += parsePriceDigits(f.price);
+  }
+  for (const h of dest.hotels || []) {
+    if (hotelRowIsActionableHotel(h)) sum += hotelStayTotal(h);
+  }
+  sum += activitySum(dest.activities);
+  return sum > 0 ? sum : null;
+}
+
+export function destUserSelectedTripTotalLabel(dest: DestCard): string {
+  const total = destUserSelectedTripTotalUsd(dest);
+  if (total === null) return "-";
+  return `$${total.toLocaleString()}`;
+}
+
+function formatRequiredBookingCount(n: number | null): string {
+  if (n === null) return "-";
+  return String(n);
+}
+
+/** Commercial flight legs to book (transport plan segments, else logistics outline). */
+export function requiredCommercialFlightBookings(
+  dest: DestCard,
+  profile: ProfilePill[],
+): number | null {
+  const segs = commercialFlightSegmentsFromDest(dest, profile);
+  if (segs.length > 0) return segs.length;
+  if (isGroundOnlyTransport(dest) || dest.needs_commercial_flight === false) return 0;
+  const crumbs = buildLogisticsBreadcrumb(dest);
+  const flightLegs = crumbs.filter((c) => c.kind === "flight_in" || c.kind === "flight_return");
+  if (flightLegs.length > 0) return flightLegs.length;
+  if (!(dest.itinerary?.length) && !transportFromDest(dest)) return null;
+  return 0;
+}
+
+/** Distinct hotel stays to book (outline / lodging_moves / itinerary). */
+export function requiredHotelBookings(dest: DestCard): number | null {
+  const stays = tripWideStaysFromDest(dest);
+  if (stays.length > 0) return stays.length;
+  const blocks = collectLodgingStayBlocks(dest.itinerary);
+  if (blocks.length > 0) return blocks.length;
+  if (!(dest.itinerary?.length) && !dest.booking_search_outline?.stays?.length) return null;
+  return 0;
+}
+
+export function requiredCommercialFlightBookingsLabel(
+  dest: DestCard,
+  profile: ProfilePill[],
+): string {
+  return formatRequiredBookingCount(requiredCommercialFlightBookings(dest, profile));
+}
+
+export function requiredHotelBookingsLabel(dest: DestCard): string {
+  return formatRequiredBookingCount(requiredHotelBookings(dest));
 }

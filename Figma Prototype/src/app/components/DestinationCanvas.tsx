@@ -36,6 +36,7 @@ import {
   ChevronUp,
   Route,
 } from "lucide-react";
+import { ExportItineraryPdfButton } from "./ExportItineraryPdfButton";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTrip } from "./TripStore";
 import type { DestCard, ItinDay } from "./TripStore";
@@ -43,15 +44,17 @@ import { syncUi, buildItineraryStream } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { buildLogisticsBreadcrumb, type LogisticsCrumb } from "../lib/logisticsBreadcrumb";
-import {
-  cardTripDaysLabel,
-  itineraryLogisticsSignature,
-  totalLodgingNights,
-} from "../lib/syncCardLogisticsFromItinerary";
+import { cardTripDaysLabel, itineraryLogisticsSignature } from "../lib/syncCardLogisticsFromItinerary";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
 import { streamEventToCaption } from "../lib/streamCaption";
 import { ConversationPanel } from "./ConversationPanel";
-import { bookingPaxFromProfile, liveBookingExtractLooksActionable } from "../lib/bookingCardGuards";
+import {
+  bookingPaxFromProfile,
+  destUserSelectedTripTotalLabel,
+  liveBookingExtractLooksActionable,
+  requiredCommercialFlightBookingsLabel,
+  requiredHotelBookingsLabel,
+} from "../lib/bookingCardGuards";
 import {
   BookingCostBreakdownLazy,
   LogisticsPlanFlipFaceLazy,
@@ -103,6 +106,37 @@ function expandedItineraryErrorMessage(kind: ExpandedItinErrorKind, hasPriorOutl
   return hasPriorOutline
     ? "The latest run did not return usable day rows, so we kept your previous outline below. You can try again or use a shorter ask."
     : "The planner did not return usable day rows. Try a shorter ask or check the planner service.";
+}
+
+/** True while day-by-day itinerary is missing or being rebuilt (background or expanded fetch). */
+function destinationItineraryIsPlanning(dest: DestCard, sessionId: string): boolean {
+  return Boolean(sessionId.trim()) && (!(dest.itinerary?.length) || dest.itinerary_dirty === true);
+}
+
+/** Centered translucent badge on hero while itinerary builds (grid + compare mini cards). */
+function DestinationPlanningOverlay({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center bg-black/40 backdrop-blur-[1px]"
+      aria-hidden
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className={`flex items-center gap-1.5 rounded-lg border border-indigo-400/35 bg-indigo-500/25 shadow-lg shadow-black/20 backdrop-blur-md ${
+          compact ? "px-2 py-1" : "px-2.5 py-1.5"
+        }`}
+      >
+        <Loader2
+          className={`shrink-0 animate-spin text-indigo-200/95 ${compact ? "h-3 w-3" : "h-3.5 w-3.5"}`}
+          aria-hidden
+        />
+        <span className={`font-medium tracking-wide text-indigo-50/95 ${compact ? "text-[9px]" : "text-[10px]"}`}>
+          Planning
+        </span>
+      </motion.div>
+    </div>
+  );
 }
 
 /** Shown in commerce strips until the itinerary pass fills ``cost`` / ``budget_guidance`` — no fake ranges. */
@@ -181,10 +215,11 @@ function LogisticsBreadcrumbRow({ dest }: { dest: DestCard }) {
 
 function CardTripCostLine({ dest }: { dest: DestCard }) {
   const tripDays = cardTripDaysLabel(dest.itinerary);
+  const totalLabel = destUserSelectedTripTotalLabel(dest);
   return (
     <span className="flex items-center gap-1 shrink-0">
       <DollarSign className="w-3 h-3" aria-hidden />
-      {estimateOrDash(dest.cost)}
+      {totalLabel}
       {tripDays ? <span className="text-white/25"> · {tripDays}</span> : null}
     </span>
   );
@@ -399,12 +434,12 @@ function ComparisonMiniCard({
   onExpand: () => void;
   expandLocked: boolean;
 }) {
-  const { setDestinations } = useTrip();
+  const { setDestinations, sessionId, profile } = useTrip();
   const { src: heroSrc, count: heroCount, index: heroIndex } = useRotatingHeroSrc(dest, HERO_SLIDE_MS);
-  const bestFlight = dest.flights?.find(f => f.best) || dest.flights?.[0];
-  const bestHotel = dest.hotels?.find(h => h.best) || dest.hotels?.[0];
-  const lodgingNights = totalLodgingNights(dest.itinerary);
-  const displayHotelNights = lodgingNights > 0 ? lodgingNights : bestHotel?.nights;
+  const showPlanningOverlay = destinationItineraryIsPlanning(dest, sessionId);
+  const requiredFlightsLabel = requiredCommercialFlightBookingsLabel(dest, profile);
+  const requiredHotelsLabel = requiredHotelBookingsLabel(dest);
+  const tripTotalLabel = destUserSelectedTripTotalLabel(dest);
 
   return (
     <motion.div
@@ -448,7 +483,8 @@ function ComparisonMiniCard({
             ))}
           </div>
         )}
-        <div className="absolute bottom-2 left-2.5 right-2.5 flex items-end justify-between">
+        {showPlanningOverlay ? <DestinationPlanningOverlay compact /> : null}
+        <div className="absolute bottom-2 left-2.5 right-2.5 z-10 flex items-end justify-between">
           <div>
             <h4 className="text-white text-[14px]">{dest.name}</h4>
             <p className="text-white/40 text-[10px]">{dest.country}</p>
@@ -456,7 +492,7 @@ function ComparisonMiniCard({
           <ScoreBadge score={dest.score} />
         </div>
         {dest.pinned && (
-          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-indigo-500 to-purple-500" />
+          <div className="absolute top-0 left-0 z-10 w-full h-0.5 bg-gradient-to-r from-indigo-500 to-purple-500" />
         )}
       </div>
 
@@ -468,10 +504,10 @@ function ComparisonMiniCard({
               <Plane className="w-3 h-3 shrink-0 text-blue-400" aria-hidden />
             </div>
             <div className="min-w-0 text-center">
-              <p className="text-[9px] leading-tight text-white/40 line-clamp-1">{estimateOrDash(dest.flight)}</p>
-              <p className="mt-0.5 text-[9px] leading-snug text-white/55 line-clamp-3 break-words">
-                {bestFlight?.price?.trim() || "-"}
+              <p className="text-[11px] font-medium tabular-nums leading-snug text-white/75">
+                {requiredFlightsLabel}
               </p>
+              <p className="mt-0.5 text-[9px] text-white/35">required</p>
             </div>
           </div>
           <div className="flex min-w-0 flex-col items-stretch gap-1 px-1 py-1.5 rounded-lg bg-white/[0.03]">
@@ -479,12 +515,10 @@ function ComparisonMiniCard({
               <Hotel className="w-3 h-3 shrink-0 text-purple-400" aria-hidden />
             </div>
             <div className="min-w-0 text-center">
-              <p className="text-[9px] leading-snug text-white/55 line-clamp-3 break-words">
-                {bestHotel?.price?.trim() || "-"}
+              <p className="text-[11px] font-medium tabular-nums leading-snug text-white/75">
+                {requiredHotelsLabel}
               </p>
-              <p className="mt-0.5 text-[9px] text-white/35">
-                {displayHotelNights != null ? `${displayHotelNights}n` : "-"}
-              </p>
+              <p className="mt-0.5 text-[9px] text-white/35">required</p>
             </div>
           </div>
           <div className="flex min-w-0 flex-col items-stretch gap-1 px-1 py-1.5 rounded-lg bg-white/[0.03]">
@@ -492,8 +526,8 @@ function ComparisonMiniCard({
               <DollarSign className="w-3 h-3 shrink-0 text-emerald-400" aria-hidden />
             </div>
             <div className="min-w-0 text-center">
-              <p className="text-[9px] leading-snug text-white/55 line-clamp-3 break-words">
-                {estimateOrDash(dest.cost)}
+              <p className="text-[9px] leading-snug text-white/55 line-clamp-3 break-words tabular-nums">
+                {tripTotalLabel}
               </p>
               <p className="mt-0.5 text-[9px] text-white/35">total</p>
             </div>
@@ -903,6 +937,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             >
               <Route className="h-3.5 w-3.5" aria-hidden />
             </motion.button>
+            <ExportItineraryPdfButton dest={dest} profile={profile} variant="toolbar" />
             <button
               type="button"
               onClick={togglePin}
@@ -988,6 +1023,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                 >
                   <Route className="h-3.5 w-3.5" aria-hidden />
                 </motion.button>
+                <ExportItineraryPdfButton dest={dest} profile={profile} variant="toolbar" className="h-8 w-8" />
                 <button
                   type="button"
                   onClick={togglePin}
@@ -1050,15 +1086,19 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             </div>
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[13px] text-white/50 leading-relaxed max-w-md">{renderHookWithBold(dest.hook)}</p>
-            <button
-              onClick={() => setExpandedDest(null)}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[11px] text-white/30 hover:text-white/50 transition-colors shrink-0"
-            >
-              <ChevronLeft className="w-3 h-3" />
-              All options
-            </button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <ExportItineraryPdfButton dest={dest} profile={profile} variant="chip" />
+              <button
+                type="button"
+                onClick={() => setExpandedDest(null)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[11px] text-white/30 hover:text-white/50 transition-colors"
+              >
+                <ChevronLeft className="w-3 h-3" />
+                All options
+              </button>
+            </div>
           </div>
 
           {/* Logistics outline + budget (weather removed — use itinerary logistics) */}
@@ -1292,8 +1332,9 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
 /* ── Grid card (collapsed view) ── */
 function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolean }) {
-  const { setDestinations, setExpandedDest, addResponse } = useTrip();
+  const { setDestinations, setExpandedDest, addResponse, sessionId } = useTrip();
   const { src: heroSrc, count: heroCount, index: heroIndex } = useRotatingHeroSrc(dest, HERO_SLIDE_MS);
+  const showPlanningOverlay = destinationItineraryIsPlanning(dest, sessionId);
 
   const dismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1372,19 +1413,11 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
         </div>
       )}
 
-      {dest.itinerary_dirty && !expandLocked ? (
-        <div className="absolute bottom-2 left-2 z-10 max-w-[85%]">
-          <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-500/15 border border-indigo-400/25 backdrop-blur-sm">
-            <Loader2 className="w-3 h-3 shrink-0 animate-spin text-indigo-300/90" aria-hidden />
-            <span className="text-[9px] text-indigo-200/80 leading-tight">Plan updating…</span>
-          </div>
-        </div>
-      ) : null}
-
       {/* Image */}
       <div className="relative h-36 overflow-hidden sm:h-40">
         <ImageWithFallback src={heroSrc} alt={dest.name} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
+        {showPlanningOverlay ? <DestinationPlanningOverlay compact /> : null}
         {heroCount > 1 && (
           <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex gap-1">
             {Array.from({ length: heroCount }).map((_, i) => (
@@ -1397,7 +1430,7 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
         )}
 
         {/* Top controls */}
-        <div className="absolute top-2.5 right-2.5 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-2.5 right-2.5 z-10 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             type="button"
             title={pinTooltip}
@@ -1419,12 +1452,12 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
         </div>
 
         {/* Score */}
-        <div className="absolute top-2.5 left-2.5">
+        <div className="absolute top-2.5 left-2.5 z-10">
           <ScoreBadge score={dest.score} />
         </div>
 
         {/* Name overlay */}
-        <div className="absolute bottom-3 left-3 right-3">
+        <div className="absolute bottom-3 left-3 right-3 z-10">
           <h3 data-testid="destination-name" className="text-[16px] text-white sm:text-[18px]">{dest.name}</h3>
           <p className="text-[11px] text-white/50 sm:text-[12px]">{dest.country}</p>
         </div>

@@ -24,6 +24,7 @@ from src.integrations.cursor_agent_client import (
     load_env_from_roots,
     run_prompt_collect_assistant_text,
 )
+from src.wanderly.booking_search_emit import BookingEmitFn, booking_llm_collect
 from src.wanderly.cursor_advisor import structured_followup_model_id
 from src.wanderly.flight_listing_llm import parse_llm_json_object
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
@@ -352,6 +353,7 @@ def run_hotel_listing_llm_parse(
     image_fallback: str = "",
     scoring_nightly_usd: tuple[int, int] | None = None,
     scoring_band_source: str = "",
+    emit: BookingEmitFn | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any]]:
     meta: dict[str, Any] = {"path": "hotel_listing_llm", "excerpt_chars": 0, "llm_err": ""}
     load_env_from_roots()
@@ -380,9 +382,11 @@ def run_hotel_listing_llm_parse(
     raw = ""
     try:
         with basic_client(get_api_key(), timeout_s=180.0) as client:
-            raw = run_prompt_collect_assistant_text(
+            raw = booking_llm_collect(
                 client,
                 prompt,
+                emit=emit,
+                phase_start="Parsing hotel listings from Expedia…",
                 model_id_override=model,
                 **cursor_run_persist_kwargs_for_lane(
                     sid, "hotel_listing_llm", trace_path="hotel_listing_llm.json"
@@ -590,8 +594,26 @@ def run_hotel_listing_llm_parse(
             bits.append(f"{best.review_count} reviews")
         ho["star_rating"] = " ".join(bits)[:80]
 
+    from src.wanderly.hotel_listing_extract import (
+        extract_listing_image_near_href,
+        is_placeholder_hotel_image_url,
+    )
+
+    resolved_img = (best.image_url or "").strip()
+    if is_placeholder_hotel_image_url(resolved_img):
+        resolved_img = ""
+    if not resolved_img:
+        dump_row = listings_dump[idx] if 0 <= idx < len(listings_dump) else {}
+        resolved_img = str(dump_row.get("image_url") or "").strip()
+    if is_placeholder_hotel_image_url(resolved_img):
+        resolved_img = ""
+    listing_href = (best.listing_url or "").strip()
+    if not resolved_img and listing_href and html:
+        resolved_img = extract_listing_image_near_href(html, listing_href)
     img_src = "cursor_llm_hotel_listings"
-    if not (best.image_url or "").strip() and (image_fallback or "").strip():
+    if resolved_img:
+        ho["image"] = resolved_img[:800]
+    elif (image_fallback or "").strip() and not is_placeholder_hotel_image_url(image_fallback):
         ho["image"] = image_fallback.strip()[:800]
         img_src = "itinerary_card_fallback"
     elif not (ho.get("image") or "").strip():

@@ -145,17 +145,69 @@ def extract_guest_rating_reviews_near_href(
     return out
 
 
+def is_placeholder_hotel_image_url(url: object) -> bool:
+    """True for empty URLs and generic card heroes (not Expedia lodging photos)."""
+    u = str(url or "").strip().lower()
+    return not u or "placehold.co" in u
+
+
+def extract_listing_image_near_href(html: str, href: str) -> str:
+    """
+    Best-effort SRP thumbnail for one ``Hotel-Information`` link (trvl-media / travel-assets).
+    """
+    href_raw = (href or "").strip()
+    if not href_raw or not html:
+        return ""
+    candidates = [href_raw]
+    if "&amp;" in href_raw:
+        candidates.append(href_raw.replace("&amp;", "&"))
+    if "&" in href_raw:
+        candidates.append(href_raw.replace("&", "&amp;"))
+    if href_raw.startswith("http"):
+        m = re.search(r"https?://[^/]+(/[^?#]+)", href_raw, re.I)
+        if m:
+            candidates.append(m.group(1))
+    pid_m = re.search(r"(\.h\d+\.Hotel-Information)", href_raw, re.I)
+    if pid_m:
+        candidates.append(pid_m.group(1))
+    seen: set[str] = set()
+    needles = [x for x in candidates if x and not (x in seen or seen.add(x))]
+    img_re = re.compile(
+        r"https?://[^\"'\s>]*(?:trvl-media|travel-assets)[^\"'\s>]*\.(?:jpe?g|png|webp|avif)",
+        re.I,
+    )
+    any_img_re = re.compile(r"https?://[^\"'\s>]+\.(?:jpe?g|png|webp|avif)", re.I)
+    for nd in needles:
+        ix = html.find(nd)
+        if ix < 0:
+            continue
+        lo = max(0, ix - 6000)
+        hi = min(len(html), ix + 12000)
+        chunk = html[lo:hi]
+        m = img_re.search(chunk)
+        if m:
+            return m.group(0)
+        m2 = any_img_re.search(chunk)
+        if m2 and "favicon" not in m2.group(0).lower():
+            return m2.group(0)
+    return ""
+
+
 def enrich_hotel_listing_row_from_html(row: dict[str, Any], html: str) -> dict[str, Any]:
-    """Fill ``guest_rating`` / ``review_count`` / ``rating_label`` on a listing dict when missing."""
+    """Fill guest rating fields and ``image_url`` on a listing dict when missing."""
     if not isinstance(row, dict) or not html:
         return row
     href = str(row.get("listing_url") or row.get("href") or "").strip()
     if not href:
         return row
+    merged = dict(row)
+    if is_placeholder_hotel_image_url(merged.get("image_url") or merged.get("image")):
+        near_img = extract_listing_image_near_href(html, href)
+        if near_img:
+            merged["image_url"] = near_img
     ext = extract_guest_rating_reviews_near_href(html, href)
     if not ext:
-        return row
-    merged = dict(row)
+        return merged
     for key in ("guest_rating", "review_count", "rating_label"):
         if key in ext and ext[key] is not None:
             merged[key] = ext[key]

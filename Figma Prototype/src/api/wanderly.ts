@@ -1,4 +1,4 @@
-import { apiFetch, apiPostSseJson } from "./client";
+import { apiFetch, apiFetchBlob, apiPostSseJson } from "./client";
 import { isPlaceholderProfilePills } from "../app/lib/wanderlyProfilePills";
 import type {
   ItineraryBudgetGuidance,
@@ -34,6 +34,32 @@ async function apiFetchWith409Retry<T>(path: string, init: RequestInit | undefin
     }
   }
   throw last;
+}
+
+/** Download a destination itinerary as PDF (server Playwright render). */
+export async function exportItineraryPdf(
+  sessionId: string,
+  destination: Record<string, unknown>,
+  profilePills: ProfilePill[],
+  opts?: { signal?: AbortSignal },
+): Promise<{ blob: Blob; filename: string }> {
+  const destinationId = String(destination.id ?? "").trim();
+  return apiFetchBlob("/api/wanderly/export_itinerary_pdf", {
+    method: "POST",
+    signal: opts?.signal,
+    body: JSON.stringify({
+      session_id: sessionId,
+      destination_id: destinationId,
+      destination,
+      profile_pills: profilePills.map((p) => ({
+        key: p.key,
+        label: p.label,
+        value: p.value,
+        emoji: p.icon,
+        icon: p.icon,
+      })),
+    }),
+  });
 }
 
 export async function smokeTurn(sessionId: string, message: string) {
@@ -638,6 +664,77 @@ export async function bookingSearchStep(args: {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/** SSE: live progress + LLM stream previews; final ``done`` matches ``bookingSearchPrepare``. */
+export async function bookingSearchPrepareStream(
+  args: Parameters<typeof bookingSearchPrepare>[0],
+  onEvent: (e: Record<string, unknown>) => void,
+  options?: { signal?: AbortSignal },
+): Promise<BookingSearchPrepareResponse> {
+  const body: Record<string, unknown> = {
+    session_id: args.session_id,
+    destination_id: args.destination_id,
+    date_hints: args.date_hints,
+  };
+  if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
+  if (args.skip_parallel_prefetch) body.skip_parallel_prefetch = true;
+  let result: BookingSearchPrepareResponse | undefined;
+  await apiPostSseJson(
+    "/api/wanderly/booking_search_prepare_stream",
+    body,
+    (obj) => {
+      onEvent(obj);
+      if (obj.type === "error" || obj.type === "stream_error") {
+        throw new Error(String((obj as { message?: string }).message || "Booking prepare stream error"));
+      }
+      if (obj.type === "done") {
+        const { type: _t, ...rest } = obj as BookingSearchPrepareResponse & { type: string };
+        result = rest as BookingSearchPrepareResponse;
+      }
+    },
+    { signal: options?.signal },
+  );
+  if (!result) throw new Error("Booking prepare stream closed before completion");
+  return result;
+}
+
+/** SSE: live progress during one flight/hotel step; final ``done`` matches ``bookingSearchStep``. */
+export async function bookingSearchStepStream(
+  args: Parameters<typeof bookingSearchStep>[0],
+  onEvent: (e: Record<string, unknown>) => void,
+  options?: { signal?: AbortSignal },
+): Promise<BookingSearchStepResponse> {
+  const body: Record<string, unknown> = {
+    session_id: args.session_id,
+    destination_id: args.destination_id,
+    step: args.step,
+    date_hints: args.date_hints,
+  };
+  if (args.step === "hotel" && args.hotel_index != null) body.hotel_index = args.hotel_index;
+  if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
+  if (args.step === "flight") {
+    if (args.flight_leg) body.flight_leg = args.flight_leg;
+    if (args.flight_segment_index != null) body.flight_segment_index = args.flight_segment_index;
+  }
+  let result: BookingSearchStepResponse | undefined;
+  await apiPostSseJson(
+    "/api/wanderly/booking_search_step_stream",
+    body,
+    (obj) => {
+      onEvent(obj);
+      if (obj.type === "error" || obj.type === "stream_error") {
+        throw new Error(String((obj as { message?: string }).message || "Booking step stream error"));
+      }
+      if (obj.type === "done") {
+        const { type: _t, ...rest } = obj as BookingSearchStepResponse & { type: string };
+        result = rest as BookingSearchStepResponse;
+      }
+    },
+    { signal: options?.signal },
+  );
+  if (!result) throw new Error("Booking step stream closed before completion");
+  return result;
 }
 
 export async function advisorFeed(

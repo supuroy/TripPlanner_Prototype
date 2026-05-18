@@ -43,6 +43,7 @@ from src.wanderly.session_store import (
     wanderly_destinations_for_session,
 )
 from src.wanderly import trip_disk_store
+from src.wanderly.itinerary_pdf_export import build_itinerary_pdf_bytes, itinerary_pdf_filename
 from src.wanderly.legacy_session_snapshots import maybe_hydrate_empty_session_from_snapshots
 from src.wanderly.parallel_post_refine import PROFILE_LISTENER_THREAD_KEY
 from src.wanderly.smoke_service import (
@@ -227,6 +228,19 @@ def run_web_server(
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                return
+
+        def _send_pdf(self, pdf_bytes: bytes, filename: str, status: int = 200) -> None:
+            safe = re.sub(r"[^\w\-.]+", "-", (filename or "itinerary.pdf").strip())[:200] or "itinerary.pdf"
+            try:
+                self.send_response(status)
+                self._apply_cors()
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Length", str(len(pdf_bytes)))
+                self.send_header("Content-Disposition", f'attachment; filename="{safe}"')
+                self.end_headers()
+                self.wfile.write(pdf_bytes)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 return
 
@@ -959,6 +973,51 @@ def run_web_server(
                             return
                     return
 
+                if path == "/api/wanderly/export_itinerary_pdf":
+                    sid = (payload.get("session_id") or "").strip()
+                    if not sid:
+                        self._send_json({"error": "Missing 'session_id'."}, status=400)
+                        return
+                    dest_in = payload.get("destination")
+                    did = str(payload.get("destination_id") or "").strip()
+                    if isinstance(dest_in, dict):
+                        did = did or str(dest_in.get("id") or "").strip()
+                    if not did:
+                        self._send_json({"error": "Missing 'destination_id'."}, status=400)
+                        return
+                    dest: dict[str, Any] | None = None
+                    if isinstance(dest_in, dict) and isinstance(dest_in.get("itinerary"), list) and dest_in.get("itinerary"):
+                        dest = dest_in
+                    if dest is None:
+                        hydrate_wanderly_session_from_disk(sid)
+                        s = get_session(sid)
+                        dests = wanderly_destinations_for_session(s)
+                        dest = next(
+                            (d for d in dests if isinstance(d, dict) and str(d.get("id") or "").strip() == did),
+                            None,
+                        )
+                    if not dest:
+                        self._send_json({"error": f"Unknown destination_id {did!r}."}, status=404)
+                        return
+                    itin = dest.get("itinerary")
+                    if not isinstance(itin, list) or not itin:
+                        self._send_json({"error": "Itinerary not ready for this destination."}, status=400)
+                        return
+                    pills_in = payload.get("profile_pills")
+                    if isinstance(pills_in, list) and pills_in:
+                        pills = [x for x in pills_in if isinstance(x, dict)]
+                    else:
+                        hydrate_wanderly_session_from_disk(sid)
+                        pills = snapshot_profile_pills(sid)
+                    try:
+                        pdf_bytes = build_itinerary_pdf_bytes(dest, pills)
+                        self._send_pdf(pdf_bytes, itinerary_pdf_filename(dest))
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/export_itinerary_pdf error: {exc!r}")
+                        traceback.print_exc()
+                        self._send_json({"error": str(exc)}, status=500)
+                    return
+
                 if path == "/api/wanderly/plan":
                     user_input = (payload.get("input") or "").strip()
                     sid = (payload.get("session_id") or "").strip() or str(uuid.uuid4())
@@ -1362,6 +1421,203 @@ def run_web_server(
                         print(f"[web] /api/wanderly/booking_search_step error: {exc!r}")
                         traceback.print_exc()
                         self._send_json({"ok": False, "error": str(exc)}, status=500)
+                    return
+
+                if path == "/api/wanderly/booking_search_prepare_stream":
+                    import copy as _copy_mod_prep_s
+                    import time as _time_mod_prep_s
+
+                    from src.wanderly.booking_search_emit import booking_phase, set_booking_emit, reset_booking_emit
+                    from src.wanderly.ota_booking_search import (
+                        booking_prepare_request_fingerprint,
+                        booking_search_trace,
+                        build_booking_criteria,
+                    )
+                    from src.wanderly.session_store import (
+                        clear_booking_prepare_caches,
+                        get_booking_prepare_response_cache,
+                        set_booking_prepare_response_cache,
+                    )
+
+                    sid_bps = (payload.get("session_id") or "").strip()
+                    did_bps = (payload.get("destination_id") or "").strip()
+                    if not sid_bps or not did_bps:
+                        self._send_json({"error": "Missing session_id or destination_id."}, status=400)
+                        return
+                    dh_bps = payload.get("date_hints") if isinstance(payload.get("date_hints"), dict) else None
+                    dests_bps = snapshot_destinations_for_model(sid_bps)
+                    dest_bps = next(
+                        (x for x in dests_bps if isinstance(x, dict) and str(x.get("id") or "") == did_bps),
+                        None,
+                    )
+                    if not dest_bps:
+                        self._send_json({"error": "Destination not found in session."}, status=404)
+                        return
+                    pills_raw_bps = payload.get("profile_pills")
+                    if isinstance(pills_raw_bps, list) and any(isinstance(x, dict) for x in pills_raw_bps):
+                        pills_bps = [x for x in pills_raw_bps if isinstance(x, dict)]
+                    else:
+                        pills_bps = snapshot_profile_pills(sid_bps)
+                    skip_raw_bps = payload.get("skip_parallel_prefetch")
+                    skip_parallel_prefetch_bps = skip_raw_bps is True or (
+                        isinstance(skip_raw_bps, str) and skip_raw_bps.strip().lower() in ("1", "true", "yes")
+                    )
+                    try:
+                        self.send_response(200)
+                        self._apply_cors()
+                        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                        self.send_header("Cache-Control", "no-cache")
+                        self.send_header("X-Accel-Buffering", "no")
+                        self.end_headers()
+
+                        def emit_bps(obj: dict[str, Any]) -> None:
+                            self._write_sse(obj)
+
+                        booking_phase("Preparing live booking search…", emit=emit_bps)
+                        token_bps = set_booking_emit(emit_bps)
+                        try:
+                            fp_bps = booking_prepare_request_fingerprint(
+                                dest_bps, pills_bps, dh_bps, skip_parallel_prefetch=skip_parallel_prefetch_bps
+                            )
+                            with _booking_prepare_lock(sid_bps, did_bps):
+                                cached_bps = get_booking_prepare_response_cache(sid_bps, did_bps, fp_bps)
+                                if cached_bps is not None:
+                                    booking_search_trace(
+                                        "booking_prepare_served_from_cache",
+                                        destination_id=did_bps,
+                                        session_id_prefix=sid_bps[:12] if len(sid_bps) >= 12 else sid_bps,
+                                        fp_sha8=fp_bps[:8],
+                                    )
+                                    emit_bps({"type": "progress", "message": "Using cached search criteria", "step_key": "prepare", "step_status": "done"})
+                                    emit_bps({"type": "done", **cached_bps})
+                                    return
+                                booking_search_trace(
+                                    "booking_prepare_begin",
+                                    destination_id=did_bps,
+                                    session_id_prefix=sid_bps[:12] if len(sid_bps) >= 12 else sid_bps,
+                                )
+                                t_prep_s = _time_mod_prep_s.perf_counter()
+                                clear_booking_prepare_caches(sid_bps, did_bps)
+                                out_bps = build_booking_criteria(
+                                    dest_bps,
+                                    pills_bps,
+                                    date_hints=dh_bps,
+                                    session_id=sid_bps,
+                                    skip_parallel_prefetch=skip_parallel_prefetch_bps,
+                                    emit=emit_bps,
+                                )
+                                set_booking_prepare_response_cache(
+                                    sid_bps, did_bps, fp_bps, _copy_mod_prep_s.deepcopy(out_bps)
+                                )
+                                booking_search_trace(
+                                    "booking_prepare_done",
+                                    destination_id=did_bps,
+                                    session_id_prefix=sid_bps[:12] if len(sid_bps) >= 12 else sid_bps,
+                                    elapsed_ms=int((_time_mod_prep_s.perf_counter() - t_prep_s) * 1000),
+                                )
+                                emit_bps({"type": "done", **out_bps})
+                        finally:
+                            reset_booking_emit(token_bps)
+                    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                        return
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/booking_search_prepare_stream error: {exc!r}")
+                        traceback.print_exc()
+                        try:
+                            self._write_sse({"type": "error", "message": str(exc)})
+                        except Exception:
+                            pass
+                    return
+
+                if path == "/api/wanderly/booking_search_step_stream":
+                    from src.wanderly.booking_search_emit import booking_phase, set_booking_emit, reset_booking_emit
+                    from src.wanderly.ota_booking_search import run_booking_search_step
+
+                    sid_bss = (payload.get("session_id") or "").strip()
+                    did_bss = (payload.get("destination_id") or "").strip()
+                    step_bss = str(payload.get("step") or "").strip().lower()
+                    if not sid_bss or not did_bss or step_bss not in ("flight", "hotel"):
+                        self._send_json({"error": "Missing session_id, destination_id, or invalid step."}, status=400)
+                        return
+                    hi_raw_bss = payload.get("hotel_index")
+                    hotel_ix_bss: int | None = None
+                    if step_bss == "hotel":
+                        if hi_raw_bss is None:
+                            self._send_json({"error": "hotel_index required for hotel step."}, status=400)
+                            return
+                        try:
+                            hotel_ix_bss = int(hi_raw_bss)
+                        except (TypeError, ValueError):
+                            self._send_json({"error": "hotel_index must be an integer."}, status=400)
+                            return
+                    dh_bss = payload.get("date_hints") if isinstance(payload.get("date_hints"), dict) else None
+                    dests_bss = snapshot_destinations_for_model(sid_bss)
+                    dest_bss = next(
+                        (x for x in dests_bss if isinstance(x, dict) and str(x.get("id") or "") == did_bss),
+                        None,
+                    )
+                    if not dest_bss:
+                        self._send_json({"error": "Destination not found in session."}, status=404)
+                        return
+                    pills_raw_bss = payload.get("profile_pills")
+                    if isinstance(pills_raw_bss, list) and any(isinstance(x, dict) for x in pills_raw_bss):
+                        pills_bss = [x for x in pills_raw_bss if isinstance(x, dict)]
+                    else:
+                        pills_bss = snapshot_profile_pills(sid_bss)
+                    fl_leg_bss = str(payload.get("flight_leg") or "").strip().lower()
+                    flight_leg_kw_bss = fl_leg_bss if fl_leg_bss in ("outbound", "return") else None
+                    seg_ix_raw_bss = payload.get("flight_segment_index")
+                    flight_seg_ix_bss: int | None = None
+                    if seg_ix_raw_bss is not None:
+                        try:
+                            flight_seg_ix_bss = int(seg_ix_raw_bss)
+                        except (TypeError, ValueError):
+                            self._send_json({"error": "flight_segment_index must be an integer."}, status=400)
+                            return
+                    try:
+                        self.send_response(200)
+                        self._apply_cors()
+                        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                        self.send_header("Cache-Control", "no-cache")
+                        self.send_header("X-Accel-Buffering", "no")
+                        self.end_headers()
+
+                        def emit_bss(obj: dict[str, Any]) -> None:
+                            self._write_sse(obj)
+
+                        step_label = (
+                            f"hotel stay {hotel_ix_bss + 1}"
+                            if step_bss == "hotel" and hotel_ix_bss is not None
+                            else f"{flight_leg_kw_bss or 'outbound'} flight"
+                            if step_bss == "flight"
+                            else step_bss
+                        )
+                        booking_phase(f"Starting {step_label} search…", emit=emit_bss)
+                        token_bss = set_booking_emit(emit_bss)
+                        try:
+                            result_bss = run_booking_search_step(
+                                dest_bss,
+                                step=step_bss,
+                                hotel_index=hotel_ix_bss,
+                                profile_pills=pills_bss,
+                                date_hints=dh_bss,
+                                session_id=sid_bss,
+                                flight_leg=flight_leg_kw_bss,
+                                flight_segment_index=flight_seg_ix_bss,
+                                emit=emit_bss,
+                            )
+                            emit_bss({"type": "done", **(result_bss if isinstance(result_bss, dict) else {"ok": False})})
+                        finally:
+                            reset_booking_emit(token_bss)
+                    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                        return
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/booking_search_step_stream error: {exc!r}")
+                        traceback.print_exc()
+                        try:
+                            self._write_sse({"type": "error", "message": str(exc)})
+                        except Exception:
+                            pass
                     return
 
                 if path == "/plan":

@@ -23,6 +23,7 @@ from src.integrations.cursor_agent_client import (
     load_env_from_roots,
     run_prompt_collect_assistant_text,
 )
+from src.wanderly.booking_search_emit import BookingEmitFn, booking_llm_collect
 from src.wanderly.cursor_advisor import structured_followup_model_id
 from src.wanderly.flight_listing_score import flight_rule_pick_enabled
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
@@ -295,6 +296,7 @@ def run_flight_listing_llm_parse(
     session_id: str | None = None,
     scoring_price_usd: tuple[int, int] | None = None,
     scoring_band_source: str = "",
+    emit: BookingEmitFn | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any]]:
     """
     Returns ``(flight_option, profile, meta)`` where ``flight_option`` is None on failure (caller falls back).
@@ -329,9 +331,11 @@ def run_flight_listing_llm_parse(
     raw = ""
     try:
         with basic_client(get_api_key(), timeout_s=180.0) as client:
-            raw = run_prompt_collect_assistant_text(
+            raw = booking_llm_collect(
                 client,
                 prompt,
+                emit=emit,
+                phase_start="Parsing flight listings from Expedia…",
                 model_id_override=model,
                 **cursor_run_persist_kwargs_for_lane(
                     sid, "flight_listing_llm", trace_path="flight_listing_llm.json"

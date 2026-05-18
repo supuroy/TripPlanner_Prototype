@@ -33,8 +33,8 @@ import { useTrip } from "./TripStore";
 import type { WanderlyProfilePillDTO } from "../../types/workspace";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import {
-  bookingSearchPrepare,
-  bookingSearchStep,
+  bookingSearchPrepareStream,
+  bookingSearchStepStream,
   syncUi,
   type BookingDateHints,
 } from "../../api/wanderly";
@@ -43,14 +43,29 @@ import {
   transportPlanSummary,
   type PlannedFlightSegment,
 } from "../lib/bookingFlightPlan";
+import {
+  applyBookingStreamEvent,
+  BOOKING_PROGRESS_MESSAGES,
+  useRotatingProgressMessage,
+  type BookingProgressPhase,
+  type BookingProgressStep,
+} from "../lib/bookingSearchProgress";
+import type { BookingStreamDrafts } from "../lib/bookingStreamCaption";
+import { BookingSearchProgressCard, BookingSearchProgressStrip } from "./BookingSearchProgressStrip";
 
 import {
   parsePriceDigits,
   priceLooksLikeLiveBookableAmount,
   liveBookingExtractLooksActionable,
+  hotelRowIsActionableHotel,
 } from "../lib/bookingCardGuards";
 
-export { parsePriceDigits, priceLooksLikeLiveBookableAmount, liveBookingExtractLooksActionable };
+export {
+  parsePriceDigits,
+  priceLooksLikeLiveBookableAmount,
+  liveBookingExtractLooksActionable,
+  hotelRowIsActionableHotel,
+};
 
 /** True when this card still has merged live / restored OTA rows worth clearing manually. */
 export function destHasPersistentBookingSummary(dest: DestCard): boolean {
@@ -170,16 +185,29 @@ export function SummaryHotelStrip({ dest }: { dest: DestCard }) {
   );
 }
 
+function PlaceholderProgressHint({ message }: { message: string }) {
+  if (!message.trim()) return null;
+  return (
+    <p className="mt-2 flex items-center gap-1.5 rounded-lg border border-sky-500/20 bg-sky-500/[0.06] px-2.5 py-1.5 text-[11px] leading-snug text-sky-200/85">
+      <span className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-sky-400/90" aria-hidden />
+      {message}
+    </p>
+  );
+}
+
 export function DetailedFlightCard({
   flight,
   isSelected,
   onClick,
   onSelectRank,
+  loadingHint,
 }: {
   flight: FlightOption;
   isSelected?: boolean;
   onClick?: () => void;
   onSelectRank?: (rank: number) => void;
+  /** Shown under placeholder rows while live OTA search runs. */
+  loadingHint?: string;
 }) {
   const [altOpen, setAltOpen] = useState(false);
   const displayed = resolveDisplayedFlight(flight);
@@ -244,6 +272,7 @@ export function DetailedFlightCard({
           </div>
         </div>
       </div>
+      {flight.isPlaceholder && loadingHint ? <PlaceholderProgressHint message={loadingHint} /> : null}
       <div className="mt-3 border-t border-white/[0.06] pt-2 text-center">
         <span className="inline-flex items-center gap-1.5 text-[12px] text-indigo-400 hover:text-indigo-300">
           <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
@@ -318,11 +347,13 @@ export function DetailedHotelCard({
   isSelected,
   onClick,
   onSelectRank,
+  loadingHint,
 }: {
   hotel: HotelOption;
   isSelected?: boolean;
   onClick?: () => void;
   onSelectRank?: (rank: number) => void;
+  loadingHint?: string;
 }) {
   const [altOpen, setAltOpen] = useState(false);
   const displayed = resolveDisplayedHotel(hotel);
@@ -386,6 +417,7 @@ export function DetailedHotelCard({
             <Calendar className="h-3 w-3 shrink-0" aria-hidden />
             {displayed.nights} nights × {displayed.price}
           </p>
+          {hotel.isPlaceholder && loadingHint ? <PlaceholderProgressHint message={loadingHint} /> : null}
           <div className="mt-2 flex items-center justify-between border-t border-white/[0.06] pt-2">
             <span className="text-[11px] text-white/35">Total stay</span>
             <span className="text-[13px] font-medium tabular-nums text-white/80">${total.toLocaleString()}</span>
@@ -459,22 +491,38 @@ export function DetailedHotelCard({
   );
 }
 
-export function FlightLoadSkeleton({ label = "Searching flights…" }: { label?: string }) {
+export function FlightLoadSkeleton({
+  label = "Searching flights…",
+  hints,
+}: {
+  label?: string;
+  hints?: readonly string[];
+}) {
+  const rotating = useRotatingProgressMessage(hints ?? [], Boolean(hints?.length));
+  const display = rotating || label;
   return (
     <div className="animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
       <div className="mb-3 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-lg bg-white/[0.06]" />
+        <motion.div className="h-10 w-10 rounded-lg bg-white/[0.06]" />
         <div className="flex-1 space-y-2">
           <div className="h-3 w-24 rounded bg-white/[0.06]" />
           <div className="h-2 w-32 rounded bg-white/[0.06]" />
         </div>
       </div>
-      <p className="text-center text-[11px] text-white/30">{label}</p>
+      <p className="text-center text-[11px] text-sky-300/75">{display}</p>
     </div>
   );
 }
 
-export function HotelLoadSkeleton({ label }: { label: string }) {
+export function HotelLoadSkeleton({
+  label,
+  hints,
+}: {
+  label: string;
+  hints?: readonly string[];
+}) {
+  const rotating = useRotatingProgressMessage(hints ?? [], Boolean(hints?.length));
+  const display = rotating || label;
   return (
     <div className="animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
       <div className="mb-3 flex items-center gap-3">
@@ -484,7 +532,7 @@ export function HotelLoadSkeleton({ label }: { label: string }) {
           <div className="h-2 w-36 rounded bg-white/[0.06]" />
         </div>
       </div>
-      <p className="text-center text-[11px] text-white/30">{label}</p>
+      <p className="text-center text-[11px] text-amber-200/75">{display}</p>
     </div>
   );
 }
@@ -606,13 +654,9 @@ function buildPlannedHotelRows(
   });
 }
 
-/** True when this slot holds a merged OTA row (not the prepare skeleton). */
+/** True when this slot holds a merged OTA row ready for the full hotel card. */
 function hotelRowIsPersistedSearchMerge(h: HotelOption | undefined): h is HotelOption {
-  if (!h || typeof h !== "object") return false;
-  if (h.isPlaceholder === true) return false;
-  if (String(h.listing_url || "").trim()) return true;
-  if (h.isPlaceholder === false) return true;
-  return false;
+  return hotelRowIsActionableHotel(h);
 }
 
 /**
@@ -856,6 +900,7 @@ export async function runSingleHotelBookingSearch(args: {
   beginTripDiskSave: () => void;
   completeTripDiskSave: (dests: DestCard[], opts?: { savedToDisk?: boolean }) => void;
   failTripDiskSave: () => void;
+  onProgress?: (ev: Record<string, unknown>) => void;
 }): Promise<RunSingleHotelSearchResult> {
   const {
     sessionId,
@@ -869,6 +914,7 @@ export async function runSingleHotelBookingSearch(args: {
     beginTripDiskSave,
     completeTripDiskSave,
     failTripDiskSave,
+    onProgress,
   } = args;
 
   const tidSync = wanderlyTripId?.trim();
@@ -888,13 +934,16 @@ export async function runSingleHotelBookingSearch(args: {
   const pillsPayload = profilePillsForBookingApi(profile);
 
   try {
-    const prep = await bookingSearchPrepare({
-      session_id: sessionId,
-      destination_id: dest.id,
-      date_hints: dateHintsPayload,
-      profile_pills: pillsPayload,
-      skip_parallel_prefetch: true,
-    });
+    const prep = await bookingSearchPrepareStream(
+      {
+        session_id: sessionId,
+        destination_id: dest.id,
+        date_hints: dateHintsPayload,
+        profile_pills: pillsPayload,
+        skip_parallel_prefetch: true,
+      },
+      onProgress ?? (() => undefined),
+    );
 
     const { index: resolvedIndex, error: resolveErr } = resolveHotelPlanIndexAfterPrepare(
       prep,
@@ -945,14 +994,17 @@ export async function runSingleHotelBookingSearch(args: {
       failTripDiskSave();
     }
 
-    const hr = await bookingSearchStep({
-      session_id: sessionId,
-      destination_id: dest.id,
-      step: "hotel",
-      hotel_index: resolvedIndex,
-      date_hints: dateHintsPayload,
-      profile_pills: pillsPayload,
-    });
+    const hr = await bookingSearchStepStream(
+      {
+        session_id: sessionId,
+        destination_id: dest.id,
+        step: "hotel",
+        hotel_index: resolvedIndex,
+        date_hints: dateHintsPayload,
+        profile_pills: pillsPayload,
+      },
+      onProgress ?? (() => undefined),
+    );
 
     if (!hr.ok || !hr.hotel) {
       return { ok: false, error: hr.error || "Hotel search did not return a result." };
@@ -1016,6 +1068,7 @@ export async function runSingleFlightBookingSearch(args: {
   beginTripDiskSave: () => void;
   completeTripDiskSave: (dests: DestCard[], opts?: { savedToDisk?: boolean }) => void;
   failTripDiskSave: () => void;
+  onProgress?: (ev: Record<string, unknown>) => void;
 }): Promise<RunSingleFlightSearchResult> {
   const {
     sessionId,
@@ -1028,6 +1081,7 @@ export async function runSingleFlightBookingSearch(args: {
     beginTripDiskSave,
     completeTripDiskSave,
     failTripDiskSave,
+    onProgress,
   } = args;
 
   const segments = commercialFlightSegmentsFromDest(dest, profile);
@@ -1060,13 +1114,16 @@ export async function runSingleFlightBookingSearch(args: {
   const pillsPayload = profilePillsForBookingApi(profile);
 
   try {
-    const prep = await bookingSearchPrepare({
-      session_id: sessionId,
-      destination_id: dest.id,
-      date_hints: dateHintsPayload,
-      profile_pills: pillsPayload,
-      skip_parallel_prefetch: true,
-    });
+    const prep = await bookingSearchPrepareStream(
+      {
+        session_id: sessionId,
+        destination_id: dest.id,
+        date_hints: dateHintsPayload,
+        profile_pills: pillsPayload,
+        skip_parallel_prefetch: true,
+      },
+      onProgress ?? (() => undefined),
+    );
 
     if (prep.include_flight_search === false) {
       return {
@@ -1102,14 +1159,17 @@ export async function runSingleFlightBookingSearch(args: {
       failTripDiskSave();
     }
 
-    const fr = await bookingSearchStep({
-      session_id: sessionId,
-      destination_id: dest.id,
-      step: "flight",
-      flight_segment_index: resolvedIndex,
-      date_hints: dateHintsPayload,
-      profile_pills: pillsPayload,
-    });
+    const fr = await bookingSearchStepStream(
+      {
+        session_id: sessionId,
+        destination_id: dest.id,
+        step: "flight",
+        flight_segment_index: resolvedIndex,
+        date_hints: dateHintsPayload,
+        profile_pills: pillsPayload,
+      },
+      onProgress ?? (() => undefined),
+    );
 
     if (fr.skipped) {
       return {
@@ -1322,14 +1382,31 @@ export function BookingTimelineFace({
   const [hotelStepErrors, setHotelStepErrors] = useState<Record<number, string | undefined>>({});
   const [prepPax, setPrepPax] = useState(2);
   const [bookingStatus, setBookingStatus] = useState<string | null>(null);
+  const [progressSteps, setProgressSteps] = useState<BookingProgressStep[]>([]);
+  const [streamPreview, setStreamPreview] = useState("");
+  const streamDraftsRef = useRef<BookingStreamDrafts>({
+    assistant: { text: "" },
+    thinking: { text: "" },
+  });
   const [returnFlightPhase, setReturnFlightPhase] = useState<"na" | "pending" | "loading" | "done" | "error">("na");
   const [returnFlightError, setReturnFlightError] = useState<string | null>(null);
+  /** Which commercial flight segment index is currently on Expedia (structured multi-leg). */
+  const [busyFlightSegmentIndex, setBusyFlightSegmentIndex] = useState<number | null>(null);
   const [criteriaExpanded, setCriteriaExpanded] = useState(false);
   /** When prepare says ``include_flight_search: false`` (ground / road trip), hide flight UI and skip flight steps. */
   const [liveSkipFlights, setLiveSkipFlights] = useState(false);
 
   /** Bumps on each live-pipeline mount so Strict Mode / prop churn does not merge stale step results. */
   const livePipelineGen = useRef(0);
+
+  const pushBookingEvent = useCallback((ev: Record<string, unknown>) => {
+    setProgressSteps((prev) => {
+      const out = applyBookingStreamEvent(prev, ev, streamDraftsRef.current);
+      if (out.primary) setBookingStatus(out.primary);
+      if (out.streamPreview) setStreamPreview(out.streamPreview);
+      return out.steps;
+    });
+  }, []);
 
   const selectHotelRank = useCallback(
     (stayIndex: number, rank: number) => {
@@ -1558,6 +1635,9 @@ export function BookingTimelineFace({
       setReturnFlightError(null);
       setLiveSkipFlights(false);
       setBookingStatus("Summarizing trip criteria…");
+      setProgressSteps([]);
+      setStreamPreview("");
+      streamDraftsRef.current = { assistant: { text: "" }, thinking: { text: "" } };
       setCriteriaExpanded(false);
       setHotelPhases(hotels.map(() => "pending"));
 
@@ -1567,13 +1647,14 @@ export function BookingTimelineFace({
           adults: adultsFromProfileForBooking(profile),
         };
         const pillsPayload = profilePillsForBookingApi(profile);
-        const prep = await bookingSearchPrepare(
+        const prep = await bookingSearchPrepareStream(
           {
             session_id: sessionId,
             destination_id: dest.id,
             date_hints: dateHintsPayload,
             profile_pills: pillsPayload,
           },
+          pushBookingEvent,
           { signal: ac.signal },
         );
         if (cancelled || gen !== livePipelineGen.current) return;
@@ -1678,7 +1759,7 @@ export function BookingTimelineFace({
           include_flight_search: prep.include_flight_search,
         });
 
-        let fr: Awaited<ReturnType<typeof bookingSearchStep>> | null = null;
+        let fr: Awaited<ReturnType<typeof bookingSearchStepStream>> | null = null;
         if (!skipFlights) {
           if (useStructuredFlights) {
             for (let si = 0; si < structuredSegments.length; si++) {
@@ -1688,15 +1769,19 @@ export function BookingTimelineFace({
                   ? `Searching flight ${si + 1} of ${structuredSegments.length}…`
                   : "Searching flights…",
               );
-              setFlightPhase(si === 0 ? "loading" : flightPhase);
-              const segFr = await bookingSearchStep({
-                session_id: sessionId,
-                destination_id: dest.id,
-                step: "flight",
-                flight_segment_index: si,
-                date_hints: dateHintsPayload,
-                profile_pills: pillsPayload,
-              });
+              setBusyFlightSegmentIndex(si);
+              setFlightPhase("loading");
+              const segFr = await bookingSearchStepStream(
+                {
+                  session_id: sessionId,
+                  destination_id: dest.id,
+                  step: "flight",
+                  flight_segment_index: si,
+                  date_hints: dateHintsPayload,
+                  profile_pills: pillsPayload,
+                },
+                pushBookingEvent,
+              );
               fr = segFr;
               if (cancelled || gen !== livePipelineGen.current) return;
               const segLeg =
@@ -1711,23 +1796,31 @@ export function BookingTimelineFace({
                 mergeFlightAtIndex(si, segFr.flight, segLeg);
                 setFlightStepError(null);
               } else if (!segFr.ok) {
+                setBusyFlightSegmentIndex(null);
                 setFlightPhase("error");
                 setFlightStepError(segFr.error || "Flight search did not return a result.");
                 break;
               }
             }
-            if (gen === livePipelineGen.current) setFlightPhase("done");
+            if (gen === livePipelineGen.current) {
+              setBusyFlightSegmentIndex(null);
+              setFlightPhase("done");
+            }
           } else {
             setBookingStatus("Searching outbound flights…");
+            setBusyFlightSegmentIndex(0);
             setFlightPhase("loading");
-            fr = await bookingSearchStep({
-              session_id: sessionId,
-              destination_id: dest.id,
-              step: "flight",
-              flight_leg: "outbound",
-              date_hints: dateHintsPayload,
-              profile_pills: pillsPayload,
-            });
+            fr = await bookingSearchStepStream(
+              {
+                session_id: sessionId,
+                destination_id: dest.id,
+                step: "flight",
+                flight_leg: "outbound",
+                date_hints: dateHintsPayload,
+                profile_pills: pillsPayload,
+              },
+              pushBookingEvent,
+            );
             if (cancelled || gen !== livePipelineGen.current) return;
             console.info("[wanderly:booking_search_step]", {
               destination_id: dest.id,
@@ -1744,10 +1837,12 @@ export function BookingTimelineFace({
                 leg: fr.flight_leg === "return" ? "return" : fr.flight.leg ?? "outbound",
               });
               if (gen !== livePipelineGen.current) return;
+              setBusyFlightSegmentIndex(null);
               setFlightPhase("done");
               setFlightStepError(null);
             } else {
               if (gen !== livePipelineGen.current) return;
+              setBusyFlightSegmentIndex(null);
               setFlightPhase("error");
               setFlightStepError(fr.error || "Flight search did not return a result.");
             }
@@ -1773,14 +1868,17 @@ export function BookingTimelineFace({
             if (next[i] !== undefined) next[i] = "loading";
             return next;
           });
-          const hr = await bookingSearchStep({
-            session_id: sessionId,
-            destination_id: dest.id,
-            step: "hotel",
-            hotel_index: i,
-            date_hints: dateHintsPayload,
-            profile_pills: pillsPayload,
-          });
+          const hr = await bookingSearchStepStream(
+            {
+              session_id: sessionId,
+              destination_id: dest.id,
+              step: "hotel",
+              hotel_index: i,
+              date_hints: dateHintsPayload,
+              profile_pills: pillsPayload,
+            },
+            pushBookingEvent,
+          );
           if (cancelled || gen !== livePipelineGen.current) return;
           console.info("[wanderly:booking_search_step]", {
             destination_id: dest.id,
@@ -1793,13 +1891,27 @@ export function BookingTimelineFace({
             debug_parse: hr.debug_parse,
           });
           if (hr.ok && hr.hotel) {
-            mergeHotel(i, hr.hotel);
-            if (gen !== livePipelineGen.current) return;
-            setHotelPhases((prev) => {
-              const next = [...prev];
-              if (next[i] !== undefined) next[i] = "done";
-              return next;
-            });
+            const candidate = { ...hr.hotel, isPlaceholder: false as const };
+            if (hotelRowIsActionableHotel(candidate)) {
+              mergeHotel(i, hr.hotel);
+              setHotelPhases((prev) => {
+                const next = [...prev];
+                if (next[i] !== undefined) next[i] = "done";
+                return next;
+              });
+            } else {
+              setHotelStepErrors((prev) => ({
+                ...prev,
+                [i]:
+                  hr.error ||
+                  "Expedia did not return a complete hotel listing for this stay. Expand search criteria or try again.",
+              }));
+              setHotelPhases((prev) => {
+                const next = [...prev];
+                if (next[i] !== undefined) next[i] = "error";
+                return next;
+              });
+            }
           } else {
             if (gen !== livePipelineGen.current) return;
             setHotelStepErrors((prev) => ({
@@ -1816,15 +1928,19 @@ export function BookingTimelineFace({
 
         if (!skipFlights && !useStructuredFlights && multiDayStay && fr && fr.ok && fr.flight) {
           setReturnFlightPhase("loading");
+          setBusyFlightSegmentIndex(null);
           setBookingStatus("Searching return flights…");
-          const rr = await bookingSearchStep({
-            session_id: sessionId,
-            destination_id: dest.id,
-            step: "flight",
-            flight_leg: "return",
-            date_hints: dateHintsPayload,
-            profile_pills: pillsPayload,
-          });
+          const rr = await bookingSearchStepStream(
+            {
+              session_id: sessionId,
+              destination_id: dest.id,
+              step: "flight",
+              flight_leg: "return",
+              date_hints: dateHintsPayload,
+              profile_pills: pillsPayload,
+            },
+            pushBookingEvent,
+          );
           if (cancelled || gen !== livePipelineGen.current) return;
           console.info("[wanderly:booking_search_step]", {
             destination_id: dest.id,
@@ -1847,6 +1963,9 @@ export function BookingTimelineFace({
 
         if (!cancelled && gen === livePipelineGen.current) {
           setBookingStatus(null);
+          setStreamPreview("");
+          setProgressSteps([]);
+          streamDraftsRef.current = { assistant: { text: "" }, thinking: { text: "" } };
         }
       } catch (e: unknown) {
         if (!cancelled && gen === livePipelineGen.current) {
@@ -2001,6 +2120,87 @@ export function BookingTimelineFace({
       returnSearchSettled &&
       hotelPhases.every((p) => p !== "pending" && p !== "loading"));
 
+  const progressPhase = useMemo((): BookingProgressPhase | null => {
+    if (runMode !== "live" || livePipelineIdle) return null;
+    if (preparePending && !prepareError) return "prepare";
+    if (returnFlightPhase === "loading") return "return_flight";
+    if (flightPhase === "loading") return "flight";
+    if (hotelPhases.some((p) => p === "loading" || p === "pending")) return "hotel";
+    return null;
+  }, [
+    runMode,
+    livePipelineIdle,
+    preparePending,
+    prepareError,
+    returnFlightPhase,
+    flightPhase,
+    hotelPhases,
+  ]);
+
+  const rotatingProgress = useRotatingProgressMessage(
+    progressPhase ? BOOKING_PROGRESS_MESSAGES[progressPhase] : [],
+    progressPhase !== null,
+  );
+
+  const activeProgressLabel = bookingStatus || streamPreview || rotatingProgress;
+
+  const hotelProgressHint = (idx: number) => {
+    if (bookingStatus && hotelPhases[idx] === "loading") return bookingStatus;
+    if (hotelPhases[idx] === "loading" || hotelPhases[idx] === "pending") {
+      return rotatingProgress || "Searching accommodations…";
+    }
+    return activeProgressLabel;
+  };
+
+  const progressCardProps = {
+    primary: activeProgressLabel || "Searching live prices…",
+    streamPreview,
+    steps: progressSteps,
+  };
+
+  const showOutboundFlightProgress =
+    runMode === "live" &&
+    prepareError === null &&
+    !preparePending &&
+    !flightRowIsPersistedSearchMerge(outboundFlight) &&
+    (flightPhase === "loading" ||
+      (multiSegmentFlights && busyFlightSegmentIndex === outboundFlightIndex));
+
+  const showSegmentFlightProgress = (segmentListIndex: number) => {
+    const flightIndex = segmentListIndex + 1;
+    if (runMode !== "live" || prepareError || preparePending) return false;
+    const f = flights[flightIndex];
+    if (flightRowIsPersistedSearchMerge(f)) return false;
+    if (multiSegmentFlights) return busyFlightSegmentIndex === flightIndex;
+    return false;
+  };
+
+  const showSegmentFlightWait = (segmentListIndex: number) => {
+    const flightIndex = segmentListIndex + 1;
+    if (runMode !== "live" || prepareError || preparePending) return false;
+    const f = flights[flightIndex];
+    if (!f?.isPlaceholder) return false;
+    return busyFlightSegmentIndex !== null && busyFlightSegmentIndex < flightIndex;
+  };
+
+  const showReturnFlightProgress =
+    runMode === "live" &&
+    prepareError === null &&
+    !flightRowIsPersistedSearchMerge(returnFlight) &&
+    returnFlightPhase === "loading";
+
+  const showHotelProgressCard = (idx: number) => {
+    if (runMode !== "live" || prepareError) return false;
+    if (hotelRowIsPersistedSearchMerge(hotels[idx])) return false;
+    return hotelPhases[idx] === "loading";
+  };
+
+  const showHotelPendingWait = (idx: number) =>
+    runMode === "live" &&
+    !prepareError &&
+    hotelPhases[idx] === "pending" &&
+    Boolean(hotels[idx]?.isPlaceholder);
+
   const demoTimelineSettled =
     flightResolved &&
     (hotels.length === 0 || demoHotelsReady >= hotels.length);
@@ -2063,8 +2263,14 @@ export function BookingTimelineFace({
                 <p className="mt-2 text-[12px] text-sky-300/85">{bookingStatus}</p>
               ) : null}
               {criteriaExpanded ? (
-                preparePending ? (
-                  <p className="mt-2 text-[12px] text-white/45">Summarizing what we&apos;ll look up…</p>
+                preparePending && !prepareError ? (
+                  <div className="mt-2">
+                    <BookingSearchProgressCard
+                      primary={activeProgressLabel || "Summarizing what we'll look up…"}
+                      streamPreview={streamPreview}
+                      steps={progressSteps}
+                    />
+                  </div>
                 ) : prepareError ? (
                   <p className="mt-2 text-[12px] text-rose-300/90">{prepareError}</p>
                 ) : criteriaLines.length ? (
@@ -2078,6 +2284,14 @@ export function BookingTimelineFace({
                 ) : (
                   <p className="mt-2 text-[12px] text-white/45">No criteria returned.</p>
                 )
+              ) : preparePending && !prepareError ? (
+                <div className="mt-2">
+                  <BookingSearchProgressCard
+                    primary={activeProgressLabel || "Summarizing what we'll look up…"}
+                    streamPreview={streamPreview}
+                    steps={progressSteps}
+                  />
+                </div>
               ) : (
                 <p className="mt-2 text-[11px] text-white/45">
                   {prepareError
@@ -2111,20 +2325,24 @@ export function BookingTimelineFace({
               <p className="text-[11px] uppercase tracking-wider text-white/35">Depart</p>
               <div className="mt-2">
                 <AnimatePresence mode="wait">
-                  {showFlightSkeleton ? (
-                    <motion.div
-                      key="sk"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                    >
-                      <FlightLoadSkeleton />
+                  {runMode === "demo" && showFlightSkeleton ? (
+                    <motion.div key="sk" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                      <FlightLoadSkeleton hints={BOOKING_PROGRESS_MESSAGES.flight} />
+                    </motion.div>
+                  ) : showOutboundFlightProgress ? (
+                    <motion.div key="fp" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                      {flightStepError ? (
+                        <p className="mb-2 text-[11px] text-amber-300/85">{flightStepError}</p>
+                      ) : null}
+                      <BookingSearchProgressCard {...progressCardProps} />
                     </motion.div>
                   ) : preparePending && runMode === "live" && !prepareError ? (
                     <p key="wait" className="text-[11px] text-white/35">
                       Flight search runs as soon as the summary above is ready.
                     </p>
-                  ) : showFlightCard && outboundFlight ? (
+                  ) : showFlightCard &&
+                    outboundFlight &&
+                    (flightRowIsPersistedSearchMerge(outboundFlight) || !outboundFlight.isPlaceholder) ? (
                     <motion.div
                       key="fc"
                       initial={{ opacity: 0, rotateY: -12 }}
@@ -2140,6 +2358,13 @@ export function BookingTimelineFace({
                         onSelectRank={(rank) => selectFlightRank(outboundFlightIndex, rank)}
                       />
                     </motion.div>
+                  ) : runMode === "live" &&
+                    outboundFlight?.isPlaceholder &&
+                    flightPhase !== "loading" &&
+                    busyFlightSegmentIndex !== outboundFlightIndex ? (
+                    <p key="flight-wait" className="text-[11px] text-white/38">
+                      This flight runs after earlier legs finish.
+                    </p>
                   ) : runMode === "live" && !outboundFlight && (flightPhase === "error" || prepareError) ? (
                     <p className="text-[12px] text-amber-300/85">
                       {prepareError || flightStepError || "Flight search unavailable."}
@@ -2163,13 +2388,19 @@ export function BookingTimelineFace({
                 <p className="text-[11px] uppercase tracking-wider text-white/35">
                   {structuredFlightSegments[si + 1]?.role === "within_trip" ? "Connect" : "Flight"}
                 </p>
-                <motion.div className="mt-2">
-                  <DetailedFlightCard
-                    flight={segFlight}
-                    onClick={() => console.info("[booking] flight select segment", segFlight.airline)}
-                    onSelectRank={(rank) => selectFlightRank(si + 1, rank)}
-                  />
-                </motion.div>
+                <div className="mt-2">
+                  {showSegmentFlightProgress(si) ? (
+                    <BookingSearchProgressCard {...progressCardProps} />
+                  ) : showSegmentFlightWait(si) ? (
+                    <p className="text-[11px] text-white/38">This flight runs after earlier legs finish.</p>
+                  ) : flightRowIsPersistedSearchMerge(segFlight) || !segFlight.isPlaceholder ? (
+                    <DetailedFlightCard
+                      flight={segFlight}
+                      onClick={() => console.info("[booking] flight select segment", segFlight.airline)}
+                      onSelectRank={(rank) => selectFlightRank(si + 1, rank)}
+                    />
+                  ) : null}
+                </div>
               </motion.div>
             </div>
           ))}
@@ -2193,16 +2424,47 @@ export function BookingTimelineFace({
                 <p className="text-[11px] uppercase tracking-wider text-white/35">Stay · {dedupeMiddleDotSegments(h.area)}</p>
                 <div className="mt-2">
                   <AnimatePresence mode="wait">
-                    {showHotelSkeleton(idx) ? (
+                    {runMode === "demo" && showHotelSkeleton(idx) ? (
                       <motion.div
                         key={`sk-${idx}`}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                       >
-                        <HotelLoadSkeleton label="Searching accommodations…" />
+                        <HotelLoadSkeleton
+                          label={hotelProgressHint(idx) || "Searching accommodations…"}
+                          hints={BOOKING_PROGRESS_MESSAGES.hotel}
+                        />
                       </motion.div>
-                    ) : showHotelCard(idx) ? (
+                    ) : showHotelProgressCard(idx) ? (
+                      <motion.div
+                        key={`hp-${idx}`}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        {hotelStepErrors[idx] ? (
+                          <p className="mb-2 text-[11px] text-amber-300/85">{hotelStepErrors[idx]}</p>
+                        ) : null}
+                        <BookingSearchProgressCard
+                          primary={hotelProgressHint(idx) || progressCardProps.primary}
+                          streamPreview={streamPreview}
+                          steps={progressSteps}
+                        />
+                      </motion.div>
+                    ) : showHotelPendingWait(idx) ? (
+                      <p key={`hw-${idx}`} className="text-[11px] text-white/38">
+                        {idx === 0
+                          ? "Accommodation search runs after outbound flights."
+                          : "This stay runs after the previous accommodation search."}
+                      </p>
+                    ) : hotelPhases[idx] === "error" ||
+                      (hotelPhases[idx] === "done" && !hotelRowIsActionableHotel(h)) ? (
+                      <p key={`he-${idx}`} className="text-[12px] leading-snug text-amber-300/85">
+                        {hotelStepErrors[idx] ||
+                          "We could not load a complete hotel listing from Expedia for this stay."}
+                      </p>
+                    ) : hotelRowIsActionableHotel(h) ? (
                       <motion.div
                         key={`hc-${idx}`}
                         initial={{ opacity: 0, rotateY: -12 }}
@@ -2234,16 +2496,24 @@ export function BookingTimelineFace({
               <p className="text-[11px] uppercase tracking-wider text-white/35">Return</p>
               <div className="mt-2">
                 <AnimatePresence mode="wait">
-                  {showReturnSkeleton ? (
-                    <motion.div
-                      key="r-sk"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                    >
-                      <FlightLoadSkeleton label="Searching return flights…" />
+                  {runMode === "demo" && showReturnSkeleton ? (
+                    <motion.div key="r-sk" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                      <FlightLoadSkeleton
+                        label="Searching return flights…"
+                        hints={BOOKING_PROGRESS_MESSAGES.return_flight}
+                      />
                     </motion.div>
-                  ) : showReturnFlightCard && returnFlight ? (
+                  ) : showReturnFlightProgress ? (
+                    <motion.div key="r-fp" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                      <BookingSearchProgressCard
+                        primary={bookingStatus || activeProgressLabel || "Searching return flights…"}
+                        streamPreview={streamPreview}
+                        steps={progressSteps}
+                      />
+                    </motion.div>
+                  ) : showReturnFlightCard &&
+                    returnFlight &&
+                    (flightRowIsPersistedSearchMerge(returnFlight) || !returnFlight.isPlaceholder) ? (
                     <motion.div
                       key="r-fc"
                       initial={{ opacity: 0, rotateY: -12 }}
@@ -2302,7 +2572,7 @@ export function BookingTimelineFace({
             <p className="text-[11px] font-medium uppercase tracking-wider text-white/35">Cost breakdown</p>
             <p className="mt-2 text-[12px] leading-relaxed text-white/45">
               {runMode === "live" && !livePipelineIdle
-                ? "Fetching live prices…"
+                ? activeProgressLabel || "Fetching live prices from Expedia…"
                 : "Totals appear once flight and hotel rows look like real search results (not heuristic placeholders). Use the browser console for each step’s search_url; on the server see Travel Planner Prototype/.cache/booking_search_trace.log (or BOOKING_SEARCH_TRACE_LOG)."}
             </p>
           </div>

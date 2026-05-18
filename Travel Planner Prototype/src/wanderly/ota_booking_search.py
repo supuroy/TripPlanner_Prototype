@@ -27,6 +27,7 @@ from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse
 
 from src.integrations.cursor_agent_client import basic_client, get_api_key, load_env_from_roots, run_prompt_collect_assistant_text
+from src.wanderly.booking_search_emit import BookingEmitFn, booking_llm_collect, booking_progress
 from src.wanderly.cursor_advisor import _extract_json_object, structured_followup_model_id
 from src.wanderly.session_store import (
     bump_booking_prefetch_generation,
@@ -503,6 +504,8 @@ def _normalize_hotel_rows_from_card(hotels: list[Any], image_fallback: str) -> l
         if not isinstance(h, dict):
             continue
         area_raw = str(h.get("area") or "").strip()
+        if _hotel_area_is_ota_result_noise(area_raw):
+            area_raw = ""
         area = _strip_hotel_card_area_date_spans(area_raw) or "Stay"
         nights = max(1, int(h.get("nights") or 1))
         img = str(h.get("image") or "").strip() or image_fallback
@@ -809,6 +812,7 @@ def run_booking_travel_window_llm(
     dest: dict[str, Any],
     itinerary_days: int,
     session_id: str,
+    emit: BookingEmitFn | None = None,
 ) -> tuple[date, date] | None:
     """
     Advisor LLM: map natural-language trip timing to concrete ISO dates for OTA search.
@@ -862,11 +866,19 @@ Interpret the trip timing naturally:
 Respond with start_iso and end_iso as YYYY-MM-DD only.
 """.strip()
     did = str(dest.get("id") or "")[:24]
+    booking_progress(
+        "Advisor is interpreting your trip dates…",
+        step_key="prepare_dates",
+        step_status="active",
+        emit=emit,
+    )
     try:
         with basic_client(key) as client:
-            raw = run_prompt_collect_assistant_text(
+            raw = booking_llm_collect(
                 client,
                 prompt,
+                emit=emit,
+                phase_start="Matching trip timing to search dates…",
                 model_id_override=model,
                 **cursor_run_persist_kwargs_for_lane(
                     sid,
@@ -910,6 +922,12 @@ Respond with start_iso and end_iso as YYYY-MM-DD only.
         end_iso=end_d.isoformat(),
         shifted_past_window=shifted,
         rationale=_short(str(parsed.get("rationale") or ""), 200),
+    )
+    booking_progress(
+        f"Trip dates set: {start_d.isoformat()} → {end_d.isoformat()}",
+        step_key="prepare_dates",
+        step_status="done",
+        emit=emit,
     )
     return start_d, end_d
 
@@ -1463,6 +1481,7 @@ def run_booking_search_params_llm(
     end_iso: str,
     trip_nights: int,
     session_id: str,
+    emit: BookingEmitFn | None = None,
 ) -> dict[str, Any] | None:
     if not booking_search_param_llm_enabled():
         return None
@@ -1544,11 +1563,19 @@ Guidance:
   ``trip_nights`` to derive nightly bounds; keep min ~60–75% of max. If the budget pill is missing or unclear,
   omit hotel prices (the server will still apply a coarse overlay from the pill when possible).
 """.strip()
+    booking_progress(
+        "Advisor is tuning Expedia search filters…",
+        step_key="prepare_filters",
+        step_status="active",
+        emit=emit,
+    )
     try:
         with basic_client(key) as client:
-            raw = run_prompt_collect_assistant_text(
+            raw = booking_llm_collect(
                 client,
                 prompt,
+                emit=emit,
+                phase_start="Building flight and hotel filter intent…",
                 model_id_override=model,
                 **cursor_run_persist_kwargs_for_lane(
                     session_id,
@@ -1566,6 +1593,12 @@ Guidance:
     intent = _normalize_booking_search_intent(parsed)
     if not intent:
         return None
+    booking_progress(
+        "Expedia filter preferences ready",
+        step_key="prepare_filters",
+        step_status="done",
+        emit=emit,
+    )
     booking_search_trace(
         "params_llm_ok",
         dest_id=str(dest.get("id") or ""),
@@ -1603,6 +1636,7 @@ def run_booking_unified_bundle_llm(
     itinerary_days: int,
     date_hints: dict[str, Any] | None,
     session_id: str,
+    emit: BookingEmitFn | None = None,
 ) -> dict[str, Any] | None:
     """
     Single structured LLM pass: ``start_iso`` / ``end_iso``, ``adults``, ``stays[]``, and Expedia
@@ -1755,11 +1789,19 @@ Rules:
         session_id_prefix=sid[:12] if len(sid) >= 12 else sid,
         itinerary_days=max(1, int(itinerary_days)),
     )
+    booking_progress(
+        "Advisor is building dates, lodging split, and Expedia filters…",
+        step_key="prepare_bundle",
+        step_status="active",
+        emit=emit,
+    )
     try:
         with basic_client(key) as client:
-            raw = run_prompt_collect_assistant_text(
+            raw = booking_llm_collect(
                 client,
                 prompt,
+                emit=emit,
+                phase_start="Planning your booking bundle (dates + stays + filters)…",
                 model_id_override=model,
                 **cursor_run_persist_kwargs_for_lane(
                     sid,
@@ -1874,6 +1916,12 @@ Rules:
         llm_elapsed_ms=llm_wall_ms,
         total_elapsed_ms=int((time.perf_counter() - t_llm) * 1000),
     )
+    booking_progress(
+        f"Booking bundle ready — {len(rows)} stay(s), {trip_nights} night(s)",
+        step_key="prepare_bundle",
+        step_status="done",
+        emit=emit,
+    )
     return {
         "start_d": start_d,
         "end_d": end_d,
@@ -1901,13 +1949,14 @@ def resolve_booking_hotels_plan(
     if sid and did:
         cached = get_booking_hotels_plan(sid, did)
         if cached:
+            cleaned = _sanitize_hotels_plan_rows(dest, cached)
             booking_search_trace(
                 "booking_hotels_plan",
                 source="session_cache",
-                rows=len(cached),
+                rows=len(cleaned),
                 trip_nights=trip_nights,
             )
-            return cached, "session_cache"
+            return cleaned, "session_cache"
 
     image_fb = _image_fallback_from_dest(dest)
     ex = dest.get("hotels") or []
@@ -1923,7 +1972,7 @@ def resolve_booking_hotels_plan(
         booking_search_trace("booking_hotels_plan", source=src, rows=len(got), trip_nights=trip_nights)
         return got, src
 
-    if len(ex_list) >= 2:
+    if len(ex_list) >= 2 and _card_hotels_look_like_stay_plan(ex_list):
         normalized = _normalize_hotel_rows_from_card(ex_list, image_fb)
         fitted = _fit_stays_to_trip_nights(normalized, trip_nights, image_fallback=image_fb)
         booking_search_trace("booking_hotels_plan", source="card_multi_fitted", rows=len(fitted), trip_nights=trip_nights)
@@ -2074,8 +2123,15 @@ def build_booking_criteria(
     date_hints: dict[str, Any] | None = None,
     session_id: str | None = None,
     skip_parallel_prefetch: bool = False,
+    emit: BookingEmitFn | None = None,
 ) -> dict[str, Any]:
     """Human-readable lines + parsed dates / adults for search steps."""
+    booking_progress(
+        "Reading itinerary and traveler profile…",
+        step_key="prepare",
+        step_status="active",
+        emit=emit,
+    )
     lines: list[str] = []
     who = "2 adults"
     when_s = ""
@@ -2137,6 +2193,13 @@ def build_booking_criteria(
             itinerary_days=n_days,
             date_hints=dh,
             session_id=sid,
+            emit=emit,
+        )
+    elif structured_fast:
+        booking_progress(
+            "Using structured itinerary dates and lodging (fast path)…",
+            step_key="prepare",
+            emit=emit,
         )
 
     start_d: date | None = None
@@ -2188,6 +2251,7 @@ def build_booking_criteria(
                     dest=dest,
                     itinerary_days=n_days,
                     session_id=sid,
+                    emit=emit,
                 )
                 if tw:
                     start_d, end_d = tw
@@ -2415,6 +2479,7 @@ def build_booking_criteria(
                     end_iso=end_iso,
                     trip_nights=trip_nights,
                     session_id=sid,
+                    emit=emit,
                 )
                 if isinstance(generated, dict) and generated:
                     search_intent = generated
@@ -2494,7 +2559,19 @@ def build_booking_criteria(
                     job_count=len(jobs),
                     prefetch_generation=prefetch_gen,
                 )
+                booking_progress(
+                    f"Prefetching {len(jobs)} Expedia page(s) in the background…",
+                    step_key="prefetch",
+                    step_status="active",
+                    emit=emit,
+                )
     build_elapsed_ms = int((time.perf_counter() - t_build) * 1000)
+    booking_progress(
+        "Search criteria ready",
+        step_key="prepare",
+        step_status="done",
+        emit=emit,
+    )
     booking_search_trace(
         "build_booking_criteria_done",
         destination_id=did,
@@ -2629,6 +2706,125 @@ def _profile_pill_value(profile_pills: list[dict[str, Any]], key: str) -> str | 
     return None
 
 
+_OTA_AREA_NOISE_RE = re.compile(
+    r"\d+\.?\d*\s*(?:mi|km|miles?|kilometers?)\s+from\s+(?:address|city|center|centre)",
+    re.I,
+)
+
+
+def _hotel_area_is_ota_result_noise(area: str) -> bool:
+    """Distance-from-address snippets from SRP cards are not valid Expedia destinations."""
+    return bool(_OTA_AREA_NOISE_RE.search((area or "").strip()))
+
+
+def _hotel_option_is_actionable(ho: dict[str, Any]) -> bool:
+    """True when a hotel step result is a real listing (not heuristic/filter-band shell)."""
+    if not isinstance(ho, dict):
+        return False
+    name = str(ho.get("name") or "").strip().lower()
+    if not name or name in ("lodging results", "hotel listing"):
+        return False
+    price = str(ho.get("price") or "").strip()
+    if not price or price.lower() == "see expedia":
+        return False
+    if not str(ho.get("listing_url") or "").strip():
+        return False
+    return True
+
+
+def _lodging_move_rows(dest: dict[str, Any]) -> list[dict[str, Any]]:
+    moves = lodging_moves_for_booking(dest)
+    if moves:
+        return moves
+    tp = dest.get("transport_plan")
+    if isinstance(tp, dict) and isinstance(tp.get("lodging_moves"), list):
+        return [x for x in tp["lodging_moves"] if isinstance(x, dict)]
+    return []
+
+
+def _resolve_hotel_stay_search_area(
+    dest: dict[str, Any],
+    hotels_plan: list[dict[str, Any]],
+    hotel_index: int,
+    card_name: str,
+) -> str:
+    """Expedia ``destination=`` token — never SRP distance snippets stored on prior merges."""
+    if 0 <= hotel_index < len(hotels_plan) and isinstance(hotels_plan[hotel_index], dict):
+        raw = str(hotels_plan[hotel_index].get("area") or "").strip()
+        if raw and not _hotel_area_is_ota_result_noise(raw):
+            return raw
+    moves = _lodging_move_rows(dest)
+    if hotel_index < len(moves):
+        move_area = str(moves[hotel_index].get("area") or "").strip()
+        if move_area and not _hotel_area_is_ota_result_noise(move_area):
+            return move_area
+    return str(card_name or dest.get("name") or "").strip() or "Stay"
+
+
+def _normalize_hotel_result_display_area(
+    ho: dict[str, Any],
+    plan_area: str,
+    dest: dict[str, Any],
+) -> dict[str, Any]:
+    """SRP cards often use '0.53 mi from address' — keep itinerary city for the UI."""
+    out = dict(ho)
+    cur = str(out.get("area") or "").strip()
+    if not _hotel_area_is_ota_result_noise(cur):
+        return out
+    pa = str(plan_area or "").strip()
+    if pa and not _hotel_area_is_ota_result_noise(pa):
+        out["area"] = pa
+        return out
+    for m in _lodging_move_rows(dest):
+        ma = str(m.get("area") or "").strip()
+        if ma and not _hotel_area_is_ota_result_noise(ma):
+            out["area"] = ma
+            return out
+    return out
+
+
+def _sanitize_hotels_plan_rows(
+    dest: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Repair cached plan rows whose ``area`` was overwritten by OTA distance text."""
+    moves = _lodging_move_rows(dest)
+    out: list[dict[str, Any]] = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        r = dict(row)
+        a = str(r.get("area") or "").strip()
+        if _hotel_area_is_ota_result_noise(a):
+            if i < len(moves):
+                ma = str(moves[i].get("area") or "").strip()
+                if ma and not _hotel_area_is_ota_result_noise(ma):
+                    r["area"] = ma
+                else:
+                    r["area"] = str(dest.get("name") or "Stay").strip() or "Stay"
+            else:
+                r["area"] = str(dest.get("name") or "Stay").strip() or "Stay"
+        out.append(r)
+    return out
+
+
+def _card_hotels_look_like_stay_plan(hotels: list[dict[str, Any]]) -> bool:
+    """Card ``hotels[]`` are itinerary placeholders — not prior OTA merges."""
+    for h in hotels:
+        if not isinstance(h, dict):
+            continue
+        if str(h.get("listing_url") or "").strip():
+            return False
+        if h.get("ranked_picks"):
+            return False
+        name = str(h.get("name") or "").strip().lower()
+        if name in ("lodging results", "hotel listing"):
+            return False
+        if _hotel_area_is_ota_result_noise(str(h.get("area") or "")):
+            return False
+    return True
+
+
 def _hotel_search_destination_label(dest: dict[str, Any], hotel_area: str) -> str:
     """
     Expedia ``destination=`` typeahead string: always anchor on the **card** city/region
@@ -2638,6 +2834,8 @@ def _hotel_search_destination_label(dest: dict[str, Any], hotel_area: str) -> st
     name = str(dest.get("name") or "").strip()
     country = str(dest.get("country") or "").strip()
     area = (hotel_area or "").strip()
+    if _hotel_area_is_ota_result_noise(area):
+        area = ""
     core = f"{name}, {country}".strip(", ").strip()
 
     junk = frozenset(
@@ -3674,12 +3872,19 @@ def _run_booking_prefetch_parallel(
     )
 
 
-def _fetch_html(url: str) -> str:
+def _fetch_html(url: str, *, emit: BookingEmitFn | None = None) -> str:
     _ensure_cli_path()
     from expedia_listing_cli.browser_fetch import fetch_page_html
     from expedia_listing_cli.extract_heuristic import extract_candidate_links, extract_price_like_strings
 
     headless = os.environ.get("HEADLESS", "1").strip().lower() not in ("0", "false", "no")
+    if "/Flights-Search?" in url:
+        fetch_label = "Opening Expedia flight results in the browser…"
+    elif "/Hotel-Search?" in url:
+        fetch_label = "Opening Expedia hotel listings in the browser…"
+    else:
+        fetch_label = "Loading Expedia search page…"
+    booking_progress(fetch_label, step_key="html_fetch", step_status="active", emit=emit)
     booking_search_trace("html_fetch_start", url=url, headless=headless)
     t0 = time.perf_counter()
     html = fetch_page_html(url, headless=headless)
@@ -3691,6 +3896,12 @@ def _fetch_html(url: str) -> str:
         html_len=len(html),
         fetch_elapsed_ms=elapsed_ms,
         html_preview=head,
+    )
+    booking_progress(
+        f"Expedia page loaded ({len(html):,} characters)",
+        step_key="html_fetch",
+        step_status="done",
+        emit=emit,
     )
     # Second full Playwright session below is expensive (~tens of seconds). Prefer fixing readiness inside
     # ``fetch_page_html`` (flight poll + linger, hotel poll). Retry uses the **same URL** — improvement is
@@ -4348,6 +4559,7 @@ def run_booking_search_step(
     session_id: str | None = None,
     flight_leg: str | None = None,
     flight_segment_index: int | None = None,
+    emit: BookingEmitFn | None = None,
 ) -> dict[str, Any]:
     """
     ``step``: ``flight`` | ``hotel``.
@@ -4360,6 +4572,20 @@ def run_booking_search_step(
 
     dest_id = str(dest.get("id") or "")
     booking_search_trace("step_begin", destination_id=dest_id, step=step, hotel_index=hotel_index)
+    if step == "flight":
+        booking_progress(
+            "Resolving flight search criteria…",
+            step_key="flight",
+            step_status="active",
+            emit=emit,
+        )
+    elif step == "hotel" and hotel_index is not None:
+        booking_progress(
+            f"Preparing hotel stay {hotel_index + 1}…",
+            step_key=f"hotel_{hotel_index}",
+            step_status="active",
+            emit=emit,
+        )
     t_step = time.perf_counter()
 
     sid = (session_id or "").strip()
@@ -4378,7 +4604,12 @@ def run_booking_search_step(
         crit_src = "snapshot"
     else:
         meta = build_booking_criteria(
-            dest, profile_pills, date_hints=date_hints, session_id=session_id, skip_parallel_prefetch=True
+            dest,
+            profile_pills,
+            date_hints=date_hints,
+            session_id=session_id,
+            skip_parallel_prefetch=True,
+            emit=emit,
         )
         crit_src = "rebuild"
     crit_elapsed_ms = int((time.perf_counter() - t_crit) * 1000)
@@ -4528,7 +4759,7 @@ def run_booking_search_step(
             ck = f"flight:{seg_ix if use_segment else fl_leg}"
             t_html = time.perf_counter()
             ph = pop_booking_prefetch_html(sid, dest_id, ck) if sid else None
-            html = ph if ph else _fetch_html(url)
+            html = ph if ph else _fetch_html(url, emit=emit)
             acquire_ms = int((time.perf_counter() - t_html) * 1000)
             booking_search_trace(
                 "step_html_acquired",
@@ -4553,6 +4784,12 @@ def run_booking_search_step(
             scoring_flight_pair = (f_lo, f_hi) if f_lo is not None and f_hi is not None else None
 
             if flight_llm_parse_enabled():
+                booking_progress(
+                    "Advisor is reading flight fares from the Expedia page…",
+                    step_key="flight_parse",
+                    step_status="active",
+                    emit=emit,
+                )
                 crit_lines = meta.get("criteria_lines") if isinstance(meta.get("criteria_lines"), list) else []
                 fo_llm, prof_llm, llm_meta = run_flight_listing_llm_parse(
                     html,
@@ -4564,6 +4801,7 @@ def run_booking_search_step(
                     session_id=session_id,
                     scoring_price_usd=scoring_flight_pair,
                     scoring_band_source=f_band_src,
+                    emit=emit,
                 )
                 if fo_llm and prof_llm:
                     fo, flight_profile = fo_llm, prof_llm
@@ -4636,6 +4874,12 @@ def run_booking_search_step(
                 parse_field_sources=flight_profile,
                 step_elapsed_ms=int((time.perf_counter() - t_step) * 1000),
             )
+            booking_progress(
+                f"Flight options ready — {fo.get('airline', 'top pick')}",
+                step_key="flight",
+                step_status="done",
+                emit=emit,
+            )
             return out_flight
 
         if step == "hotel":
@@ -4649,7 +4893,7 @@ def run_booking_search_step(
             h = hotels_plan[hotel_index]
             if not isinstance(h, dict):
                 return {"ok": False, "error": "Invalid hotel entry."}
-            area = str(h.get("area") or name)
+            area = _resolve_hotel_stay_search_area(dest, hotels_plan, hotel_index, name)
             nights = max(1, int(h.get("nights") or 1))
             image_fallback = str(h.get("image") or "")
             # Stagger stays across trip
@@ -4725,7 +4969,7 @@ def run_booking_search_step(
                     band_source=str(sc_src)[:80],
                 )
             ph = pop_booking_prefetch_html(sid, dest_id, ck) if sid else None
-            html = ph if ph else _fetch_html(url)
+            html = ph if ph else _fetch_html(url, emit=emit)
             _maybe_save_hotel_debug_html(
                 html,
                 dest_id=dest_id,
@@ -4766,6 +5010,12 @@ def run_booking_search_step(
             used_llm_hotel_card = False
             crit_lines = meta.get("criteria_lines") if isinstance(meta.get("criteria_lines"), list) else []
             if hotel_llm_parse_enabled():
+                booking_progress(
+                    f"Advisor is ranking hotels for {area}…",
+                    step_key=f"hotel_{hotel_index}_parse",
+                    step_status="active",
+                    emit=emit,
+                )
                 ho_llm, prof_llm, h_llm_meta = run_hotel_listing_llm_parse(
                     html,
                     search_url=url,
@@ -4778,6 +5028,7 @@ def run_booking_search_step(
                     image_fallback=image_fallback,
                     scoring_nightly_usd=scoring_nightly_pair,
                     scoring_band_source=sc_src,
+                    emit=emit,
                 )
                 if ho_llm and prof_llm:
                     ho, hotel_profile = ho_llm, prof_llm
@@ -4879,6 +5130,30 @@ def run_booking_search_step(
                 heuristic_diag=hotel_heuristic_diag,
                 page_anchor_candidates=hotel_page_anchor_rows,
             )
+            ho = _normalize_hotel_result_display_area(ho, area, dest)
+
+            if not _hotel_option_is_actionable(ho):
+                booking_search_trace(
+                    "step_hotel_not_actionable",
+                    destination_id=dest_id,
+                    step=step,
+                    hotel_index=hotel_index,
+                    search_url=url,
+                    result_hotel=ho,
+                    used_llm_hotel_card=bool(used_llm_hotel_card),
+                )
+                return {
+                    "ok": False,
+                    "error": (
+                        "Expedia results did not yield a complete bookable hotel listing for this stay. "
+                        "Try adjusting dates or the stay area."
+                    ),
+                    "step": step,
+                    "hotel_index": hotel_index,
+                    "hotel": ho,
+                    "search_url": url,
+                }
+
             out_hotel: dict[str, Any] = {
                 "ok": True,
                 "step": step,
@@ -4910,6 +5185,12 @@ def run_booking_search_step(
                 result_hotel=ho,
                 parse_field_sources=hotel_profile,
                 step_elapsed_ms=int((time.perf_counter() - t_step) * 1000),
+            )
+            booking_progress(
+                f"Hotel pick ready — {ho.get('name', area)}",
+                step_key=f"hotel_{hotel_index}",
+                step_status="done",
+                emit=emit,
             )
             return out_hotel
 

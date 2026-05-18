@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Port Renfrew — Itinerary</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      color: #1a1a2e;
+      margin: 0;
+      background: #fff;
+    }
+    .page { max-width: 720px; margin: 0 auto; }
+    .cover { position: relative; margin: 0 0 16px; border-radius: 12px; overflow: hidden;
+      height: 200px; break-inside: avoid; }
+    .cover-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cover-overlay { position: absolute; inset: 0; display: flex; flex-direction: column;
+      justify-content: flex-end; padding: 16px 18px;
+      background: linear-gradient(180deg, rgba(15,23,42,0.05) 0%, rgba(15,23,42,0.72) 68%, rgba(15,23,42,0.88) 100%); }
+    .cover-brand { color: #c7d2fe; }
+    .cover-title { font-size: 22pt; margin: 4px 0 2px; font-weight: 700; color: #fff; }
+    .cover-meta { margin: 0; color: #e2e8f0; font-size: 10pt; }
+    .cover-hook { margin: 6px 0 0; font-size: 10pt; color: #f1f5f9; max-width: 58ch; line-height: 1.35; }
+    .cover-tags .tag { background: rgba(255,255,255,0.15); color: #f8fafc; }
+    .cover .score { background: rgba(255,255,255,0.2); color: #fff; }
+    .brand { font-size: 9pt; letter-spacing: 0.12em; text-transform: uppercase; color: #6366f1; font-weight: 600; }
+    .hero { margin: 8px 0 16px; padding-bottom: 14px; border-bottom: 2px solid #e8e8f4; }
+    h1 { font-size: 22pt; margin: 4px 0 6px; font-weight: 700; color: #0f172a; }
+    .meta { color: #64748b; font-size: 10pt; }
+    .hook { margin: 10px 0 0; font-size: 11pt; color: #334155; max-width: 62ch; }
+    .score { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px;
+      background: #eef2ff; color: #4338ca; font-size: 9pt; font-weight: 600; vertical-align: middle; }
+    .tags { margin-top: 8px; }
+    .tag { display: inline-block; margin-right: 6px; padding: 2px 10px; border-radius: 999px;
+      background: #f1f5f9; font-size: 9pt; color: #475569; }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0; }
+    .pill { display: inline-flex; align-items: baseline; gap: 4px; padding: 5px 10px;
+      border: 1px solid #e2e8f0; border-radius: 8px; font-size: 9pt; background: #f8fafc; }
+    .pill-val { font-weight: 600; color: #0f172a; }
+    .section { margin: 18px 0; }
+    h2 { font-size: 11pt; text-transform: uppercase; letter-spacing: 0.06em;
+      color: #6366f1; margin: 0 0 8px; font-weight: 700; }
+    .subhead { font-size: 10pt; color: #475569; margin: 12px 0 6px; font-weight: 600; }
+    .mode-pill { display: inline-block; margin-bottom: 6px; padding: 2px 8px; border-radius: 6px;
+      background: #eef2ff; color: #4338ca; font-size: 8.5pt; text-transform: uppercase; }
+    .transport-summary { margin: 0; color: #334155; }
+    .lodging-moves { margin: 0; padding-left: 18px; color: #475569; font-size: 10pt; }
+    dl.budget { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0;
+      padding: 12px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; font-size: 9.5pt; }
+    dl.budget dt { font-weight: 600; color: #64748b; }
+    dl.budget dd { margin: 0; color: #1e293b; }
+  .budget-notes { grid-column: 1 / -1; margin-top: 4px; color: #64748b; }
+    .day-card.compact { break-inside: avoid; margin-bottom: 8px; padding: 8px 10px;
+      border: 1px solid #e2e8f0; border-radius: 8px; background: #fafbfc; }
+    .day-head { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 4px; }
+    .day-card.compact .day-num { width: 24px; height: 24px; font-size: 10pt; border-radius: 6px;
+      flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+      background: #e0e7ff; color: #3730a3; font-weight: 700; }
+    .day-card.compact .day-label { margin: 0; font-size: 10.5pt; line-height: 1.25; color: #0f172a; }
+    .day-meta { margin: 2px 0 0; font-size: 8pt; color: #64748b; }
+    .route-line, .stay-line { margin: 0 0 3px; padding: 3px 6px; border-radius: 4px;
+      font-size: 7.5pt; line-height: 1.35; color: #475569; background: #fff; border: 1px solid #eef2f7; }
+    .stay-line { background: #fffbeb; border-color: #fde68a; color: #713f12; }
+    .day-items.compact { margin: 4px 0 0; padding-left: 16px; font-size: 9pt; color: #1e293b; }
+    .day-items.compact li { margin-bottom: 2px; line-height: 1.3; }
+    .day-card { break-inside: avoid; margin-bottom: 14px; padding: 12px 14px;
+      border: 1px solid #e2e8f0; border-radius: 12px; background: #fafbfc; }
+    .day-header { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 8px; }
+    .day-num { flex-shrink: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+      border-radius: 8px; background: #e0e7ff; color: #3730a3; font-weight: 700; font-size: 12pt; }
+    .day-label { margin: 0; font-size: 12pt; color: #0f172a; }
+    .day-base, .day-transport { margin: 4px 0 0; font-size: 9pt; color: #64748b; }
+    .legs { list-style: none; margin: 8px 0; padding: 0; }
+    .leg { display: flex; gap: 8px; margin-bottom: 6px; padding: 8px 10px; border-radius: 8px;
+      background: #fff; border: 1px solid #e8ecf4; font-size: 9pt; }
+    .leg-stay { border-color: #fde68a; background: #fffbeb; }
+    .leg-ferry { border-color: #bae6fd; background: #f0f9ff; }
+    .leg-icon { font-size: 12pt; line-height: 1; }
+    .leg-kind { text-transform: uppercase; font-size: 8pt; letter-spacing: 0.05em; color: #94a3b8; font-weight: 600; }
+    .leg-route { color: #334155; margin-top: 2px; }
+    .arrow { color: #cbd5e1; }
+    .leg-op, .stay-meta, .stay-area { font-size: 8.5pt; color: #64748b; margin-top: 2px; }
+    .day-items { margin: 8px 0 0; padding-left: 20px; color: #1e293b; font-size: 10pt; }
+    .day-items li { margin-bottom: 4px; }
+    footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e2e8f0;
+      font-size: 8.5pt; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="cover"><img class="cover-img" src="https://images.unsplash.com/photo-1566438503908-4f8377461f58?crop=entropy&amp;cs=srgb&amp;fm=jpg&amp;ixid=M3w5NDAzNTl8MHwxfHNlYXJjaHwxfHxQb3J0JTIwUmVuZnJldyUyMENhbmFkYXxlbnwwfHx8fDE3Nzg5ODMyMDF8MA&amp;ixlib=rb-4.1.0&amp;q=85" alt="Port Renfrew"/><div class="cover-overlay"><div class="brand cover-brand">Wanderly</div><h1 class="cover-title">Port Renfrew<span class="score">Match 94%</span></h1><p class="cover-meta">Canada · 4 days</p><p class="cover-hook">A quieter wild-coast alternative to Tofino, now paced with a practical Surrey lunch-and-grocery stop before the island crossing.</p><div class="tags cover-tags"><span class="tag">Explorer</span></div></div></div>
+    
+    <div class="pills"><span class="pill"><span class="pill-em">📅</span><span class="pill-lbl">When</span> <span class="pill-val">May 21–24 (Memorial Day weekend) · return May 24</span></span><span class="pill"><span class="pill-em">👥</span><span class="pill-lbl">Who</span> <span class="pill-val">Travelers + dog</span></span><span class="pill"><span class="pill-em">✈️</span><span class="pill-lbl">Flying from</span> <span class="pill-val">Seattle, WA (road trip start)</span></span><span class="pill"><span class="pill-em">✨</span><span class="pill-lbl">Vibe</span> <span class="pill-val">Quiet rugged coast, little-touristy, scenic outdoor time</span></span><span class="pill"><span class="pill-em">💰</span><span class="pill-lbl">Budget</span> <span class="pill-val">Not specified</span></span><span class="pill"><span class="pill-em">⏱</span><span class="pill-lbl">Duration</span> <span class="pill-val">4 days · 3 nights</span></span></div>
+    <section class="section"><h2>Budget</h2><dl class="budget"><dt>Trip estimate</dt><dd>≈ $550–950 pp · 4d road</dd><dt>Lodging</dt><dd>cabin/motel ~$120–220/n</dd><dt>Flights</dt><dd>N/A — drive + ferry only</dd><dt>Notes</dt><dd class="budget-notes">Holiday weekend ferry reservations and limited Port Renfrew inventory tighten costs; Surrey stock-up reduces pricey island dining but adds a modest grocery line. Dog fees and ferry surcharges can add $80–150 trip-wide.</dd></dl></section>
+    <section class="section transport"><h2>Getting there</h2><span class="mode-pill">ground_only</span><p class="transport-summary">Seattle road trip: cross into BC, practical Surrey lunch-and-grocery stop before Tsawwassen–Nanaimo ferry, then Hwy 14 to Port Renfrew for three nights. May 24 return reverses ferry and highway with an optional Surrey buffer before Seattle — no commercial air.</p><h3 class="subhead">Where you stay</h3><ul class="lodging-moves"><li><strong>Port Renfrew</strong> (1-3) — One wild-coast base; Surrey is a transit provisioning stop only, not an overnight</li></ul></section>
+    <section class="section">
+      <h2>Day by day</h2>
+      <article class="day-card compact"><header class="day-head"><span class="day-num">1</span><div><h3 class="day-label">Seattle → Surrey → island → coast</h3><p class="day-meta">Base: Port Renfrew · mixed · Drive + Surrey stop + BC Ferries positioning</p></div></header><p class="route-line">🚗 Seattle → Surrey · 🚶 Surrey · 🚗 Surrey → Tsawwassen · ⛴ Tsawwassen → Nanaimo · 🚗 Nanaimo → Port Renfrew</p><p class="stay-line">🏨 Port Renfrew · in 2026-05-21 · out 2026-05-22</p><ul class="day-items compact"><li>Early depart Seattle; I-5 north with NEXUS or standard border timing in mind</li><li>Surrey stop: lunch and grocery run (Costco, T&amp;T, or local strip) before the ferry rush</li><li>BC Ferries Tsawwassen → Nanaimo; reserve Memorial Day sailing with pet-friendly vehicle terms</li><li>Island drive Duncan → Lake Cowichan → Hwy 14 west into Port Renfrew</li><li>Check in; short leash walk at harbour or Pacheedaht Beach — dinner from groceries</li></ul></article><article class="day-card compact"><header class="day-head"><span class="day-num">2</span><div><h3 class="day-label">Old-growth giants → Avatar Grove</h3><p class="day-meta">Base: Port Renfrew</p></div></header><p class="route-line">🚗 Port Renfrew → Avatar Grove area · 🚶 Avatar Grove trailhead → Avatar Grove area · 🚗 Avatar Grove area → Port Renfrew</p><p class="stay-line">🏨 Port Renfrew · in 2026-05-22 · out 2026-05-23</p><ul class="day-items compact"><li>Village coffee; pack layers, water, and day snacks from Surrey haul</li><li>Drive toward Avatar Grove / Big Lonely Doug near Lake Cowichan (watch for rough gravel)</li><li>Forest loops among ancient cedar and Douglas fir; dog leashed in sensitive stands</li><li>Optional Harris Creek Spruce or viewpoint pullouts on the return leg</li><li>Easy evening: Sombrio or Jones Beach sunset if weather cooperates</li></ul></article><article class="day-card compact"><header class="day-head"><span class="day-num">3</span><div><h3 class="day-label">Botanical Beach tide pools → Avatar Grove</h3><p class="day-meta">Base: Port Renfrew</p></div></header><p class="route-line">🚗 Port Renfrew → Botanical Beach Provincial Park · 🚶 Botanical Beach trailhead → Botanical Beach Provincial Park · 🚗 Botanical Beach Provincial Park → Port Renfrew</p><p class="stay-line">🏨 Port Renfrew · in 2026-05-23 · out 2026-05-24</p><ul class="day-items compact"><li>Check tide tables — plan low tide at Botanical Beach Provincial Park</li><li>Sandstone shelves, surge channels, and pools (avoid slick black rock when waves run)</li><li>Picnic from stocked groceries; respect leash rules and any closed wildlife zones</li><li>Afternoon: China Beach or Parkinson Creek for a second coastal mood</li><li>Pack road snacks for tomorrow’s ferry-and-border day</li></ul></article><article class="day-card compact"><header class="day-head"><span class="day-num">4</span><div><h3 class="day-label">Coast out → Avatar Grove</h3><p class="day-meta">Base: Port Renfrew · mixed · Island drive + ferry; optional Surrey on homeward leg</p></div></header><p class="route-line">🚗 Port Renfrew → Nanaimo · ⛴ Nanaimo → Tsawwassen · 🚗 Tsawwassen → Surrey · 🚗 Surrey → Seattle</p><ul class="day-items compact"><li>Breakfast and pack-out; final leash walk on the beach</li><li>Hwy 14 east to Nanaimo ferry — Memorial Day sailing buffer</li><li>BC Ferries to Tsawwassen; optional quick Surrey pit stop for fuel or snacks</li><li>Border re-entry and I-5 south to Seattle for May 24 return</li></ul></article>
+    </section>
+    <footer>
+      Generated May 18, 2026 · Draft itinerary for planning — verify ferry times, tides, and bookings before travel.
+    </footer>
+  </div>
+</body>
+</html>
