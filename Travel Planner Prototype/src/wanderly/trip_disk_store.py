@@ -326,6 +326,50 @@ def ensure_manifest_with_trip(
     return tid, sid, manifest
 
 
+def reconcile_manifest_orphan_trip_files() -> bool:
+    """
+    Re-register ``trip-*.json`` files that exist on disk but are missing from ``manifest.json``.
+
+    This can happen after a partial delete (file locked by sync tools) or a manifest overwrite.
+    Returns True when the manifest was updated.
+    """
+    manifest = read_manifest()
+    trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+    known = {str(t.get("trip_id") or "").strip() for t in trips}
+    root = trips_root()
+    if not root.is_dir():
+        return False
+    changed = False
+    for path in sorted(root.glob("trip-*.json")):
+        tid = path.stem
+        if not tid or tid in known:
+            continue
+        blob = read_trip_file(tid)
+        if not isinstance(blob, dict):
+            continue
+        sid = str(blob.get("session_id") or "").strip()
+        if not sid:
+            continue
+        name = str(blob.get("trip_name") or _default_trip_name())[:120] or _default_trip_name()
+        ms = blob.get("updated_at_ms")
+        updated = int(ms) if isinstance(ms, (int, float)) else int(path.stat().st_mtime * 1000)
+        trips.append(
+            {
+                "trip_id": tid,
+                "trip_name": name,
+                "session_id": sid,
+                "updated_at_ms": updated,
+            }
+        )
+        known.add(tid)
+        changed = True
+    if not changed:
+        return False
+    manifest["trips"] = trips
+    write_manifest(manifest)
+    return True
+
+
 def resolve_bootstrap_trip(
     manifest: dict[str, Any],
     hint_trip_id: str | None,
@@ -363,6 +407,7 @@ def bootstrap(
     hint_trip_id: str | None,
     get_session: Any,
 ) -> dict[str, Any]:
+    reconcile_manifest_orphan_trip_files()
     tid, sid_hint, manifest = ensure_manifest_with_trip(hint_session_id, get_session)
     chosen_id, blob = resolve_bootstrap_trip(manifest, hint_trip_id, hint_session_id)
     if not chosen_id:

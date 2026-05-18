@@ -22,7 +22,16 @@ from src.wanderly.cursor_advisor import (
     run_profile_listener_cursor,
 )
 from src.wanderly.itinerary_debug_log import itinerary_file_log_enabled, log_itinerary_build
+from src.wanderly.llm_telemetry import (
+    ACTIVITY_ITINERARY_BUILDER,
+    ACTIVITY_ITINERARY_REFINEMENT,
+    telemetry_meta,
+)
 from src.wanderly.itinerary_lazy import _normalize_needs_commercial_flight, ensure_transport_plan_after_extract
+from src.wanderly.parallel_post_refine import (
+    PROFILE_LISTENER_THREAD_KEY,
+    parallel_post_refine_enabled,
+)
 from src.wanderly.refinement_cursor import refinement_model_id
 from src.wanderly.schemas import SmokeDestDTO, SmokeProfilePillDTO, WanderlyWorkspaceDTO, coerce_profile_pill
 from src.wanderly.session_store import (
@@ -702,6 +711,74 @@ def _run_profile_listener_after_planner(session_id: str, user_message: str) -> t
     )
 
 
+def _profile_listener_background(
+    session_id: str,
+    user_message: str,
+    out: dict[str, Any],
+    safe_emit: Callable[[dict[str, Any]], None] | None,
+) -> None:
+    """Run profile_listener off the refine/smoke critical path; merge session + optional SSE."""
+    try:
+        listener = _run_profile_listener_after_planner(session_id, user_message)
+        if safe_emit and listener and listener[0]:
+            safe_emit(
+                {
+                    "type": "advisor_profile",
+                    "profile_pills": listener[0],
+                    "advisor_note": listener[1] or "",
+                }
+            )
+        _merge_advisor_listener_tuple(session_id, out, listener)
+    except Exception as exc:
+        log_itinerary_build(
+            f"path=profile_listener.background_error sid={session_id[:12]!r} err={exc!r}",
+        )
+
+
+def _attach_parallel_profile_listener(
+    session_id: str,
+    user_message: str,
+    out: dict[str, Any],
+    safe_emit: Callable[[dict[str, Any]], None] | None,
+) -> dict[str, Any]:
+    """Start background profile_listener; caller emits SSE ``done`` before ``join`` on the thread."""
+    if safe_emit:
+        safe_emit({"type": "phase", "message": "Sidebar advisor (profile) — in background…"})
+    thread = threading.Thread(
+        target=_profile_listener_background,
+        args=(session_id, user_message, out, safe_emit),
+        daemon=True,
+    )
+    thread.start()
+    return {**out, PROFILE_LISTENER_THREAD_KEY: thread}
+
+
+def _finish_profile_listener_sync(
+    session_id: str,
+    user_message: str,
+    out: dict[str, Any],
+    safe_emit: Callable[[dict[str, Any]], None] | None,
+    *,
+    freeze_profile: bool,
+) -> dict[str, Any]:
+    if freeze_profile:
+        return out
+    if parallel_post_refine_enabled():
+        return _attach_parallel_profile_listener(session_id, user_message, out, safe_emit)
+    if safe_emit:
+        safe_emit({"type": "phase", "message": "Sidebar advisor (profile)…"})
+    listener = _run_profile_listener_after_planner(session_id, user_message)
+    if safe_emit and listener and listener[0]:
+        safe_emit(
+            {
+                "type": "advisor_profile",
+                "profile_pills": listener[0],
+                "advisor_note": listener[1] or "",
+            }
+        )
+    return _merge_advisor_listener_tuple(session_id, out, listener)
+
+
 def _normalize_parsed(raw: dict[str, Any]) -> WanderlyWorkspaceDTO:
     md = str(raw.get("assistant_markdown") or raw.get("summary") or "").strip()
     pills_in = raw.get("profile_pills") or []
@@ -776,9 +853,19 @@ def run_smoke_turn(user_message: str, session_id: str) -> dict[str, Any]:
             client,
             prompt,
             persistent_instruction_prefix=_JSON_INSTRUCTIONS + "\n\nUser request:\n",
+            llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+            llm_telemetry_sub_activity="smoke_turn",
+            llm_telemetry_meta=telemetry_meta(session_id=session_id),
             **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.json"),
         )
     out = _complete_smoke_turn(session_id, user_message, raw_text)
+    if parallel_post_refine_enabled():
+        threading.Thread(
+            target=_profile_listener_background,
+            args=(session_id, um, out, None),
+            daemon=True,
+        ).start()
+        return out
     listener = _run_profile_listener_after_planner(session_id, um)
     return _merge_advisor_listener_tuple(session_id, out, listener)
 
@@ -807,23 +894,15 @@ def run_smoke_turn_streaming(
             prompt,
             emit=safe_emit,
             persistent_instruction_prefix=_JSON_INSTRUCTIONS + "\n\nUser request:\n",
+            llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+            llm_telemetry_sub_activity="smoke_turn_stream",
+            llm_telemetry_meta=telemetry_meta(session_id=session_id),
             **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.sse"),
         )
     if emit:
         safe_emit({"type": "phase", "message": "Parsing JSON and building cards…"})
     out = _complete_smoke_turn(session_id, user_message, raw_text)
-    if emit:
-        safe_emit({"type": "phase", "message": "Sidebar advisor (profile)…"})
-    listener = _run_profile_listener_after_planner(session_id, um)
-    if emit and listener and listener[0]:
-        safe_emit(
-            {
-                "type": "advisor_profile",
-                "profile_pills": listener[0],
-                "advisor_note": listener[1] or "",
-            }
-        )
-    return _merge_advisor_listener_tuple(session_id, out, listener)
+    return _finish_profile_listener_sync(session_id, um, out, safe_emit, freeze_profile=False)
 
 
 def _complete_refine_turn(
@@ -900,6 +979,9 @@ def run_refine_turn(
             prompt,
             model_id_override=mod,
             persistent_instruction_prefix=_REFINE_INSTRUCTIONS + "\n",
+            llm_telemetry_activity=ACTIVITY_ITINERARY_REFINEMENT,
+            llm_telemetry_sub_activity="refine",
+            llm_telemetry_meta=telemetry_meta(session_id=session_id),
             **persist,
         )
     out = _complete_refine_turn(
@@ -910,9 +992,17 @@ def run_refine_turn(
         allow_shortlist_shrink=confirm_workspace_drop,
         profile_pills_freeze=pills_freeze if freeze_profile else None,
     )
-    listener = (
-        None if freeze_profile else _run_profile_listener_after_planner(session_id, um)
-    )
+    if freeze_profile:
+        return out
+    if parallel_post_refine_enabled():
+        thread = threading.Thread(
+            target=_profile_listener_background,
+            args=(session_id, um, out, None),
+            daemon=True,
+        )
+        thread.start()
+        return out
+    listener = _run_profile_listener_after_planner(session_id, um)
     return _merge_advisor_listener_tuple(session_id, out, listener)
 
 
@@ -951,6 +1041,9 @@ def run_refine_turn_streaming(
             emit=safe_emit,
             model_id_override=mod,
             persistent_instruction_prefix=_REFINE_INSTRUCTIONS + "\n",
+            llm_telemetry_activity=ACTIVITY_ITINERARY_REFINEMENT,
+            llm_telemetry_sub_activity="refine_stream",
+            llm_telemetry_meta=telemetry_meta(session_id=session_id),
             **persist,
         )
     if emit:
@@ -970,17 +1063,6 @@ def run_refine_turn_streaming(
                 "destination_ids": out.get("model_omitted_destination_ids") or [],
             }
         )
-    if emit:
-        safe_emit({"type": "phase", "message": "Sidebar advisor (profile)…"})
-    listener = (
-        None if freeze_profile else _run_profile_listener_after_planner(session_id, um)
+    return _finish_profile_listener_sync(
+        session_id, um, out, safe_emit, freeze_profile=freeze_profile
     )
-    if emit and listener and listener[0]:
-        safe_emit(
-            {
-                "type": "advisor_profile",
-                "profile_pills": listener[0],
-                "advisor_note": listener[1] or "",
-            }
-        )
-    return _merge_advisor_listener_tuple(session_id, out, listener)

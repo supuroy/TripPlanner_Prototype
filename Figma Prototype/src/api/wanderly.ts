@@ -51,7 +51,15 @@ export async function smokeTurnStream(
   sessionId: string,
   message: string,
   onEvent: (e: Record<string, unknown>) => void,
-  opts?: { signal?: AbortSignal },
+  opts?: {
+    signal?: AbortSignal;
+    /** Fires when SSE ``done`` arrives (before stream close). Used for parallel post-refine prefetch. */
+    onWorkspaceReady?: (res: {
+      session_id: string;
+      wanderly: WanderlyWorkspaceDTO;
+      parse_ok?: boolean;
+    }) => void;
+  },
 ): Promise<{ session_id: string; wanderly: WanderlyWorkspaceDTO; parse_ok?: boolean }> {
   let result: { session_id: string; wanderly: WanderlyWorkspaceDTO; parse_ok?: boolean } | undefined;
   await apiPostSseJson(
@@ -63,11 +71,13 @@ export async function smokeTurnStream(
         throw new Error(String((obj as { message?: string }).message || "Stream error"));
       }
       if (obj.type === "done" && obj.session_id != null && obj.wanderly != null) {
-        result = {
+        const ready = {
           session_id: String(obj.session_id),
           wanderly: obj.wanderly as WanderlyWorkspaceDTO,
           parse_ok: Boolean(obj.parse_ok),
         };
+        result = ready;
+        opts?.onWorkspaceReady?.(ready);
       }
     },
     opts?.signal ? { signal: opts.signal } : undefined,
@@ -102,7 +112,12 @@ export async function refineTurnStream(
   sessionId: string,
   message: string,
   onEvent: (e: Record<string, unknown>) => void,
-  opts?: { confirmWorkspaceDrop?: boolean; signal?: AbortSignal },
+  opts?: {
+    confirmWorkspaceDrop?: boolean;
+    signal?: AbortSignal;
+    /** Fires when SSE ``done`` arrives (before stream close). Used for parallel post-refine prefetch. */
+    onWorkspaceReady?: (res: WanderlyRefineResponse) => void;
+  },
 ): Promise<WanderlyRefineResponse> {
   let result: WanderlyRefineResponse | undefined;
   const body: Record<string, unknown> = { session_id: sessionId, message };
@@ -116,7 +131,7 @@ export async function refineTurnStream(
         throw new Error(String((obj as { message?: string }).message || "Stream error"));
       }
       if (obj.type === "done" && obj.session_id != null && obj.wanderly != null) {
-        result = {
+        const ready: WanderlyRefineResponse = {
           session_id: String(obj.session_id),
           wanderly: obj.wanderly as WanderlyWorkspaceDTO,
           parse_ok: Boolean(obj.parse_ok),
@@ -125,6 +140,8 @@ export async function refineTurnStream(
             ? (obj.model_omitted_destination_ids as string[])
             : undefined,
         };
+        result = ready;
+        opts?.onWorkspaceReady?.(ready);
       }
     },
     opts?.signal ? { signal: opts.signal } : undefined,

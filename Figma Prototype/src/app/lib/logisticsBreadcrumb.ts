@@ -102,9 +102,15 @@ function collectFlightSegmentsFromItinerary(
   return out;
 }
 
+/** BC / PNW destinations commonly reached by ferry + drive without a commercial flight leg. */
+const CANADA_GROUND_TRIP_HINT =
+  /\b(british columbia|bc\b|vancouver|victoria|vancouver island|tofino|ucluelet|nanaimo|cowichan|sunshine coast|gulf islands|pender|saltspring|salt spring|whistler|squamish|pemberton|kelowna|okanagan|calgary|banff|alberta|fernie|revelstoke)\b/i;
+
 function inferInternationalAirOutline(dest: DestCard, tp: WanderlyTransportPlan | undefined): boolean {
   const mode = String(tp?.primary_mode || "").toLowerCase();
   const segs = tp?.commercial_flight_segments || [];
+  if (mode === "ground_only") return false;
+  if (dest.needs_commercial_flight === false) return false;
   if (segs.length > 0) return false;
   if (collectFlightSegmentsFromItinerary(dest.itinerary).length > 0) return false;
   if (dest.needs_commercial_flight === true) return false;
@@ -115,7 +121,7 @@ function inferInternationalAirOutline(dest: DestCard, tp: WanderlyTransportPlan 
   /* Canada/Mexico can be road trips from the US — only infer air when the card id hints long-haul regions. */
   if (c === "Canada" || c === "Mexico") {
     const id = `${dest.id || ""} ${dest.name || ""}`.toLowerCase();
-    if (c === "Canada" && !/\b(british columbia|vancouver|victoria|whistler|calgary|banff|alberta)\b/i.test(id)) {
+    if (c === "Canada" && !CANADA_GROUND_TRIP_HINT.test(id)) {
       return true;
     }
     if (c === "Mexico" && !/\b(tijuana|baja|sonora|nuevo leon|monterrey)\b/i.test(id)) {
@@ -179,13 +185,13 @@ export function buildLogisticsBreadcrumb(dest: DestCard): LogisticsCrumb[] {
   const airOff = dest.needs_commercial_flight === false && !syntheticInternational;
 
   const treatAsAir =
+    mode !== "ground_only" &&
     !airOff &&
     (segs.length > 0 || syntheticInternational) &&
     (syntheticInternational ||
       mode === "commercial_air" ||
       mode === "mixed" ||
-      (!mode && segs.length > 0) ||
-      (mode === "ground_only" && segs.length > 0));
+      (!mode && segs.length > 0));
 
   const { hasDrive, hasFerry, hasTrain } = scanSurfaceModes(dest.itinerary);
   const stays = collectLodgingStayBlocks(dest.itinerary);

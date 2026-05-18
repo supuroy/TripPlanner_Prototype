@@ -149,6 +149,45 @@ def test_delete_trip_switches_active(trips_dir: Path) -> None:
     assert not (trips_dir / f"{tid_a}.json").is_file()
 
 
+def test_reconcile_manifest_orphan_trip_files(trips_dir: Path) -> None:
+    orphan_tid = "trip-orphanabc123"
+    orphan_path = trips_dir / f"{orphan_tid}.json"
+    orphan_path.write_text(
+        json.dumps(
+            {
+                "v": 1,
+                "trip_id": orphan_tid,
+                "trip_name": "Memorial Day",
+                "session_id": "sess-orphan-1",
+                "updated_at_ms": 1_700_000_000_000,
+                "session": {"chat": [], "last_destinations": [], "mode": "idle"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    trips_dir.joinpath("manifest.json").write_text(
+        json.dumps({"v": 1, "active_trip_id": "trip-main1", "trips": []}),
+        encoding="utf-8",
+    )
+    (trips_dir / "trip-main1.json").write_text(
+        json.dumps(
+            {
+                "v": 1,
+                "trip_id": "trip-main1",
+                "trip_name": "Summer",
+                "session_id": "sess-main-1",
+                "session": {"chat": [], "last_destinations": [], "mode": "idle"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert trip_disk_store.reconcile_manifest_orphan_trip_files() is True
+    m = trip_disk_store.read_manifest()
+    ids = {str(t.get("trip_id")) for t in m.get("trips") or []}
+    assert orphan_tid in ids
+    assert "trip-main1" in ids
+
+
 def test_delete_last_trip_creates_fresh_default(trips_dir: Path) -> None:
     store: dict = {}
     gs = _fake_get_session(store)

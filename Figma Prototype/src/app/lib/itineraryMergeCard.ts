@@ -1,5 +1,6 @@
 import type { DestCard, ItinDay } from "../components/TripStore";
 import type { ItineraryBudgetGuidance, WanderlyBookingHooks, WanderlyTransportPlan } from "../../types/workspace";
+import { syncCardLogisticsFromItinerary } from "./syncCardLogisticsFromItinerary";
 
 /** Merge lazy itinerary rows + optional LLM budget bands (+ optional booking URL hints) onto a destination card. */
 export function mergeItineraryBuildIntoDest(
@@ -23,8 +24,6 @@ export function mergeItineraryBuildIntoDest(
     ballpark || ballparkShort || flightB || flightShort || lodging || lodgingShort || notes,
   );
   const costLine = ballparkShort || ballpark || "";
-  const flightLine = flightShort || flightB || "";
-  const lodgingLine = lodgingShort || lodging || "";
   let next: DestCard = {
     ...card,
     itinerary: rows,
@@ -50,11 +49,5 @@ export function mergeItineraryBuildIntoDest(
       },
     };
   }
-  if (flightLine && next.flights?.length) {
-    next = { ...next, flights: next.flights.map((f, i) => (i === 0 ? { ...f, price: flightLine } : f)) };
-  }
-  if (lodgingLine && next.hotels?.length) {
-    next = { ...next, hotels: next.hotels.map((h, i) => (i === 0 ? { ...h, price: lodgingLine } : h)) };
-  }
-  return next;
+  return syncCardLogisticsFromItinerary(next, card);
 }

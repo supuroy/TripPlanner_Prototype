@@ -14,6 +14,11 @@ import re
 from typing import Any
 
 from src.integrations.cursor_agent_client import basic_client, get_api_key, load_env_from_roots, run_prompt_collect_assistant_text
+from src.wanderly.llm_telemetry import (
+    ACTIVITY_ADVISOR,
+    ACTIVITY_DESTINATION_FOLLOWUP,
+    telemetry_meta,
+)
 from src.wanderly.refinement_cursor import refinement_model_id
 from src.wanderly.schemas import coerce_profile_pill
 from src.wanderly.itinerary_debug_log import log_itinerary_build
@@ -192,6 +197,9 @@ def run_profile_listener_cursor(
                 prompt,
                 model_id_override=mid,
                 persistent_instruction_prefix=_PROFILE_LISTENER_PROMPT,
+                llm_telemetry_activity=ACTIVITY_ADVISOR,
+                llm_telemetry_sub_activity="profile_listener",
+                llm_telemetry_meta=telemetry_meta(session_id=session_id),
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_PROFILE_LISTENER, trace_path="cursor_advisor.profile_listener"
                 ),
@@ -277,6 +285,9 @@ def run_plan_review_cursor(
                 prompt,
                 model_id_override=mid,
                 persistent_instruction_prefix=_PLAN_REVIEW_PROMPT,
+                llm_telemetry_activity=ACTIVITY_ADVISOR,
+                llm_telemetry_sub_activity="plan_review",
+                llm_telemetry_meta=telemetry_meta(session_id=session_id),
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_PLAN_REVIEW, trace_path="cursor_advisor.plan_review"
                 ),
@@ -604,6 +615,12 @@ def run_advisor_chat_cursor(
                 prompt,
                 model_id_override=mid,
                 persistent_instruction_prefix=_ADVISOR_CHAT_PROMPT,
+                llm_telemetry_activity=ACTIVITY_DESTINATION_FOLLOWUP,
+                llm_telemetry_sub_activity="advisor_feed",
+                llm_telemetry_meta=telemetry_meta(
+                    session_id=session_id,
+                    focus_destination_id=focus_destination_id,
+                ),
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_ADVISOR_FEED, trace_path="cursor_advisor.advisor_feed"
                 ),
@@ -736,6 +753,9 @@ def run_profile_change_advisor_cursor(
                 prompt,
                 model_id_override=mid,
                 persistent_instruction_prefix=_PROFILE_CHANGE_PROMPT + "\n\nContext JSON:\n",
+                llm_telemetry_activity=ACTIVITY_ADVISOR,
+                llm_telemetry_sub_activity="profile_change",
+                llm_telemetry_meta=telemetry_meta(session_id=session_id, pill_key=pill_key),
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_PROFILE_CHANGE, trace_path="cursor_advisor.profile_change"
                 ),

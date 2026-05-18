@@ -13,13 +13,10 @@ import {
 } from "../../api/wanderly";
 import {
   applyWanderlyWorkspace,
-  buildItineraryStalePlan,
   destinationsFromWorkspace,
-  explainItineraryInvalidate,
   formatProfileProposalDiffLines,
   isBlankTravelerProfile,
   isItineraryPrimaryRefineMessage,
-  isPlanCompareOnlyQuestion,
   mergeHeroImagesFromEnriched,
   mergeProfilePillsConservative,
   mergeProfilePillsFromDto,
@@ -28,7 +25,8 @@ import {
   workspaceUserExplicitTravelerProfileEditMessage,
 } from "../lib/applyWorkspaceDto";
 import { logItin } from "../lib/itineraryDebug";
-import { scheduleWorkspaceItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
+import { parallelPostRefineEnabled } from "../lib/parallelPostRefine";
+import { runPostRefineWorkspaceEffects } from "../lib/postRefineWorkspaceEffects";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
 import type { WanderlyOrchestrateResponse } from "../../api/wanderly";
 import { newWanderlyTraceId, setWanderlyTurnTrace } from "../../api/traceContext";
@@ -203,6 +201,32 @@ export function CommandBar() {
 
         setWanderlyTurnTrace(newWanderlyTraceId());
         const prior = priorDestinations;
+        const parallelPost = parallelPostRefineEnabled();
+        let workspaceEffectsApplied = false;
+        const profilePillMergeMode = workspaceProfilePillMergeModeForTurn(priorProfile, text);
+        const applyWorkspaceEffects = (ready: Awaited<ReturnType<typeof refineTurnStream>>) => {
+          if (workspaceEffectsApplied) return;
+          workspaceEffectsApplied = true;
+          if (ready.session_id) setSessionId(ready.session_id);
+          runPostRefineWorkspaceEffects({
+            out: ready,
+            text,
+            priorDestinations: prior,
+            priorProfile,
+            orch,
+            expandedDest: expandedDest ?? null,
+            sessionId,
+            setProfile,
+            setDestinations,
+            addResponse,
+            setEnrichmentPending,
+            profilePillMergeMode,
+            stageAgentProfileProposal,
+            queuePlanReviewAfterItineraries,
+            scheduleHero: (a) => scheduleHeroEnrichment({ ...a, setDestinations }),
+            maybeStageAgentProfile: maybeStageAgentProfileAfterWorkspace,
+          });
+        };
         const out = useGeminiFirst
           ? await refineTurn(sessionId, text, { confirmWorkspaceDrop: confirmWorkspaceDrop })
           : await refineTurnStream(
@@ -233,70 +257,15 @@ export function CommandBar() {
                 const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
                 if (cap) setAgentStreamCaption(cap);
               },
-              { confirmWorkspaceDrop: confirmWorkspaceDrop, signal: ac.signal },
+              {
+                confirmWorkspaceDrop: confirmWorkspaceDrop,
+                signal: ac.signal,
+                onWorkspaceReady: parallelPost ? applyWorkspaceEffects : undefined,
+              },
             );
-        if (out.session_id) setSessionId(out.session_id);
-        const incomingCardIds = (out.wanderly.destinations ?? [])
-          .map((row) => {
-            const id = (row as { id?: unknown })?.id;
-            return id != null ? String(id).trim() : "";
-          })
-          .filter((id) => id.length > 0);
-        const validIds = new Set<string>([
-          ...priorDestinations.map((d) => String(d.id)),
-          ...incomingCardIds,
-        ]);
-        const stalePlan = buildItineraryStalePlan(
-          text,
-          priorProfile,
-          out.wanderly.profile_pills,
-          orch ?? null,
-          validIds,
-          expandedDest ?? null,
-        );
-        const invExplain = explainItineraryInvalidate(text, priorProfile, out.wanderly.profile_pills);
-        logItin("refine_apply_workspace", {
-          itineraryStalePlan: stalePlan,
-          compareOnlyBypass: isPlanCompareOnlyQuestion(text),
-          invalidateReasons: invExplain.reasons,
-          messagePreview: text.slice(0, 160),
-        });
-        const profilePillMergeMode = workspaceProfilePillMergeModeForTurn(priorProfile, text);
-        applyWanderlyWorkspace(out.wanderly, {
-          setProfile,
-          setDestinations,
-          addResponse,
-          setEnrichmentPending,
-          priorDestinations: prior,
-          priorProfile: priorProfile,
-          itineraryStalePlan: stalePlan,
-          profilePillMergeMode,
-        });
-        maybeStageAgentProfileAfterWorkspace({
-          priorProfile,
-          message: text,
-          wanderly: out.wanderly,
-          stageAgentProfileProposal,
-          addResponse,
-        });
-        /* Hero fetch + prefetch: run even when we may prompt for shortlist shrink confirmation. */
-        scheduleHeroEnrichment({
-          sessionId: out.session_id || sessionId,
-          wanderly: out.wanderly,
-          priorDestinations: prior,
-          setDestinations,
-        });
-        scheduleWorkspaceItineraryPrefetch({
-          sessionId: out.session_id || sessionId,
-          wanderly: out.wanderly,
-          priorDestinations: prior,
-          priorProfile: priorProfile,
-          setDestinations,
-          excludeDestinationId: expandedDest ?? null,
-          delayMs: 400,
-        });
-        const sidR = out.session_id || sessionId;
-        queuePlanReviewAfterItineraries(sidR);
+        if (!workspaceEffectsApplied) {
+          applyWorkspaceEffects(out);
+        }
 
         if (
           !confirmWorkspaceDrop &&
@@ -521,63 +490,68 @@ export function CommandBar() {
         });
         queuePlanReviewAfterItineraries(out.session_id || sessionId);
       } else {
-        const out = await smokeTurnStream(sessionId, text, (ev) => {
-          if (ev.type === "advisor_profile") {
-            const pills = (ev as { profile_pills?: unknown }).profile_pills;
-            if (Array.isArray(pills)) {
-              const allowStreamProfile =
-                workspaceUserExplicitTravelerProfileEditMessage(text) ||
-                isBlankTravelerProfile(priorProfileForPlanner);
-              if (allowStreamProfile) {
-                const sans = pills.filter(
-                  (p) =>
-                    p &&
-                    typeof p === "object" &&
-                    String((p as { key?: unknown }).key ?? "").trim() !== "tags",
-                );
-                setProfile((cur) => mergeProfilePillsConservative(cur, sans as WanderlyWorkspaceDTO["profile_pills"]));
-              }
-            }
-            const note = (ev as { advisor_note?: unknown }).advisor_note;
-            if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
-          }
-          const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
-          if (cap) setAgentStreamCaption(cap);
-        }, { signal: plannerAbort.signal });
-        if (out.session_id) setSessionId(out.session_id);
+        const parallelPost = parallelPostRefineEnabled();
+        let workspaceEffectsApplied = false;
         const smokeMerge = workspaceProfilePillMergeModeForTurn(priorProfileForPlanner, text);
-        applyWanderlyWorkspace(out.wanderly, {
-          setProfile,
-          setDestinations,
-          addResponse,
-          setEnrichmentPending,
-          priorProfile: priorProfileForPlanner,
-          profilePillMergeMode: smokeMerge,
-        });
-        maybeStageAgentProfileAfterWorkspace({
-          priorProfile: priorProfileForPlanner,
-          message: text,
-          wanderly: out.wanderly,
-          stageAgentProfileProposal,
-          addResponse,
-        });
-        /* Hero fetch is async and does not block smoke response or itinerary prefetch. */
-        scheduleHeroEnrichment({
-          sessionId: out.session_id || sessionId,
-          wanderly: out.wanderly,
-          setDestinations,
-        });
-        scheduleWorkspaceItineraryPrefetch({
-          sessionId: out.session_id || sessionId,
-          wanderly: out.wanderly,
-          priorDestinations: destinations,
-          priorProfile: priorProfileForPlanner,
-          setDestinations,
-          excludeDestinationId: expandedDest ?? null,
-          delayMs: 400,
-        });
-        const sidS = out.session_id || sessionId;
-        queuePlanReviewAfterItineraries(sidS);
+        const applySmokeWorkspaceEffects = (ready: Awaited<ReturnType<typeof smokeTurnStream>>) => {
+          if (workspaceEffectsApplied) return;
+          workspaceEffectsApplied = true;
+          if (ready.session_id) setSessionId(ready.session_id);
+          runPostRefineWorkspaceEffects({
+            out: ready,
+            text,
+            priorDestinations: destinations,
+            priorProfile: priorProfileForPlanner,
+            orch: null,
+            expandedDest: expandedDest ?? null,
+            sessionId,
+            setProfile,
+            setDestinations,
+            addResponse,
+            setEnrichmentPending,
+            profilePillMergeMode: smokeMerge,
+            stageAgentProfileProposal,
+            queuePlanReviewAfterItineraries,
+            scheduleHero: (a) => scheduleHeroEnrichment({ ...a, setDestinations }),
+            maybeStageAgentProfile: maybeStageAgentProfileAfterWorkspace,
+          });
+        };
+        const out = await smokeTurnStream(
+          sessionId,
+          text,
+          (ev) => {
+            if (ev.type === "advisor_profile") {
+              const pills = (ev as { profile_pills?: unknown }).profile_pills;
+              if (Array.isArray(pills)) {
+                const allowStreamProfile =
+                  workspaceUserExplicitTravelerProfileEditMessage(text) ||
+                  isBlankTravelerProfile(priorProfileForPlanner);
+                if (allowStreamProfile) {
+                  const sans = pills.filter(
+                    (p) =>
+                      p &&
+                      typeof p === "object" &&
+                      String((p as { key?: unknown }).key ?? "").trim() !== "tags",
+                  );
+                  setProfile((cur) =>
+                    mergeProfilePillsConservative(cur, sans as WanderlyWorkspaceDTO["profile_pills"]),
+                  );
+                }
+              }
+              const note = (ev as { advisor_note?: unknown }).advisor_note;
+              if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
+            }
+            const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
+            if (cap) setAgentStreamCaption(cap);
+          },
+          {
+            signal: plannerAbort.signal,
+            onWorkspaceReady: parallelPost ? applySmokeWorkspaceEffects : undefined,
+          },
+        );
+        if (!workspaceEffectsApplied) {
+          applySmokeWorkspaceEffects(out);
+        }
       }
       } finally {
         setPlannerAbortController(null);

@@ -15,6 +15,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from src.integrations.cursor_agent_client import basic_client, get_api_key, load_env_from_roots, run_prompt_collect_assistant_text
+from src.wanderly.llm_telemetry import ACTIVITY_DESTINATION_FOLLOWUP, telemetry_meta
 from src.wanderly.cursor_advisor import advisor_model_id, structured_followup_model_id
 from src.wanderly.itinerary_debug_log import log_itinerary_build
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
@@ -147,6 +148,12 @@ def classify_user_intent_llm(
                 prompt,
                 model_id_override=mid,
                 persistent_instruction_prefix=_INTENT_PROMPT,
+                llm_telemetry_activity=ACTIVITY_DESTINATION_FOLLOWUP,
+                llm_telemetry_sub_activity="user_intent",
+                llm_telemetry_meta=telemetry_meta(
+                    session_id=session_id,
+                    focus_destination_id=focus_destination_id,
+                ),
                 **cursor_run_persist_kwargs_for_lane(
                     session_id or "", _CURSOR_LANE_INTENT, trace_path="wanderly.user_intent_llm"
                 ),

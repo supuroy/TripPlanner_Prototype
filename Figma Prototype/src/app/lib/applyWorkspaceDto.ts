@@ -6,6 +6,7 @@ import {
 } from "./bookingProgressIds";
 import { logItin } from "./itineraryDebug";
 import { resetDestinationBookingState } from "./resetDestinationBooking";
+import { itineraryLogisticsSignature, syncCardLogisticsFromItinerary } from "./syncCardLogisticsFromItinerary";
 
 function asDestCards(raw: unknown[]): DestCard[] {
   return raw.filter(Boolean).map((d) => {
@@ -29,15 +30,7 @@ function inferItineraryDirtyFromPayload(d: DestCard): boolean {
 
 /** Canonical signature so LLM JSON churn (ordering/whitespace) does not force redundant builds. */
 function itineraryCanonicalSignature(itin: ItinDay[] | undefined): string {
-  if (!itin?.length) return "";
-  return JSON.stringify(
-    itin.map((d) => ({
-      day: d.day,
-      label: String(d.label || "").trim(),
-      items: (d.items || []).map((x) => String(x).trim()),
-      accent: d.accent ? String(d.accent).trim() : undefined,
-    })),
-  );
+  return itineraryLogisticsSignature(itin);
 }
 
 function isPlaceholderishImage(url: string): boolean {
@@ -122,7 +115,9 @@ export function mergeDestinationUiState(
         itinerary_dirty = false;
       }
     }
-    return { ...row, pinned, dismissed, itinerary_dirty };
+    let merged = { ...row, pinned, dismissed, itinerary_dirty };
+    merged = syncCardLogisticsFromItinerary(merged, p);
+    return merged;
   });
 }
 

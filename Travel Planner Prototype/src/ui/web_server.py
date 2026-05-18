@@ -44,6 +44,7 @@ from src.wanderly.session_store import (
 )
 from src.wanderly import trip_disk_store
 from src.wanderly.legacy_session_snapshots import maybe_hydrate_empty_session_from_snapshots
+from src.wanderly.parallel_post_refine import PROFILE_LISTENER_THREAD_KEY
 from src.wanderly.smoke_service import (
     run_refine_turn,
     run_refine_turn_streaming,
@@ -51,6 +52,18 @@ from src.wanderly.smoke_service import (
     run_smoke_turn_streaming,
 )
 from src.wanderly.user_intent_llm import run_orchestrate_turn
+
+
+def _pop_profile_listener_thread(out: dict[str, Any] | None) -> threading.Thread | None:
+    if not isinstance(out, dict):
+        return None
+    job = out.pop(PROFILE_LISTENER_THREAD_KEY, None)
+    return job if isinstance(job, threading.Thread) else None
+
+
+def _join_profile_listener_thread(job: threading.Thread | None, *, timeout_s: float = 180.0) -> None:
+    if job is not None:
+        job.join(timeout=timeout_s)
 
 
 def _itinerary_request_id(handler: BaseHTTPRequestHandler) -> str:
@@ -326,6 +339,7 @@ def run_web_server(
                         )
                         try:
                             out = run_smoke_turn_streaming(msg, sid, emit=emit)
+                            profile_job = _pop_profile_listener_thread(out)
                             emit(
                                 {
                                     "type": "done",
@@ -334,6 +348,7 @@ def run_web_server(
                                     "parse_ok": out.get("parse_ok"),
                                 }
                             )
+                            _join_profile_listener_thread(profile_job)
                         finally:
                             nd = -1
                             if isinstance(out, dict):
@@ -422,6 +437,7 @@ def run_web_server(
                             out_r = run_refine_turn_streaming(
                                 msg, sid, emit=emit_r, confirm_workspace_drop=confirm_drop_rs
                             )
+                            profile_job = _pop_profile_listener_thread(out_r)
                             done_payload: dict[str, Any] = {
                                 "type": "done",
                                 "session_id": sid,
@@ -434,6 +450,7 @@ def run_web_server(
                                     out_r.get("model_omitted_destination_ids") or []
                                 )
                             emit_r(done_payload)
+                            _join_profile_listener_thread(profile_job)
                         finally:
                             nd_rs = -1
                             if isinstance(out_r, dict):
@@ -1505,6 +1522,33 @@ def run_web_server(
 
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"Web UI running at http://{host}:{port}")
+    try:
+        from src.wanderly.llm_telemetry import llm_telemetry_enabled, telemetry_log_path
+
+        if llm_telemetry_enabled():
+            print(f"LLM telemetry enabled → {telemetry_log_path()}")
+        else:
+            print("LLM telemetry disabled (WANDERLY_LLM_TELEMETRY=0)")
+    except Exception as exc:
+        print(f"LLM telemetry unavailable: {exc!r}")
+    try:
+        from src.wanderly.parallel_post_refine import parallel_post_refine_enabled
+
+        if parallel_post_refine_enabled():
+            print("Parallel post-refine enabled (WANDERLY_PARALLEL_POST_REFINE=1)")
+        else:
+            print("Parallel post-refine disabled (set WANDERLY_PARALLEL_POST_REFINE=1 to overlap listener / prefetch)")
+    except Exception as exc:
+        print(f"Parallel post-refine flag unavailable: {exc!r}")
+    try:
+        from src.wanderly.itinerary_prompt_variants import itinerary_compact_prompt_enabled
+
+        if itinerary_compact_prompt_enabled():
+            print("Itinerary compact prompt enabled (WANDERLY_ITINERARY_COMPACT_PROMPT=1)")
+        else:
+            print("Itinerary compact prompt disabled (set WANDERLY_ITINERARY_COMPACT_PROMPT=1 to shorten builds)")
+    except Exception as exc:
+        print(f"Itinerary compact prompt flag unavailable: {exc!r}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

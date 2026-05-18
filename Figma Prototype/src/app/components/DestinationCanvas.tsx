@@ -43,6 +43,11 @@ import { syncUi, buildItineraryStream } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { buildLogisticsBreadcrumb, type LogisticsCrumb } from "../lib/logisticsBreadcrumb";
+import {
+  cardTripDaysLabel,
+  itineraryLogisticsSignature,
+  totalLodgingNights,
+} from "../lib/syncCardLogisticsFromItinerary";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
 import { streamEventToCaption } from "../lib/streamCaption";
 import { ConversationPanel } from "./ConversationPanel";
@@ -143,7 +148,22 @@ function LogisticsCrumbIcon({ crumb }: { crumb: LogisticsCrumb }) {
 
 /** Compact outline of bookable logistics (replaces weather + generic flight line on cards). */
 function LogisticsBreadcrumbRow({ dest }: { dest: DestCard }) {
-  const crumbs = useMemo(() => buildLogisticsBreadcrumb(dest), [dest]);
+  const logisticsSig = useMemo(
+    () => itineraryLogisticsSignature(dest.itinerary),
+    [dest.itinerary],
+  );
+  const crumbs = useMemo(
+    () => buildLogisticsBreadcrumb(dest),
+    [
+      dest.id,
+      logisticsSig,
+      dest.transport_plan,
+      dest.booking_hooks?.transport,
+      dest.needs_commercial_flight,
+      dest.country,
+      dest.name,
+    ],
+  );
   return (
     <span
       className="inline-flex flex-wrap items-center gap-x-0.5 gap-y-0.5 min-w-0 max-w-[58%] sm:max-w-[64%]"
@@ -155,6 +175,17 @@ function LogisticsBreadcrumbRow({ dest }: { dest: DestCard }) {
           <LogisticsCrumbIcon crumb={c} />
         </Fragment>
       ))}
+    </span>
+  );
+}
+
+function CardTripCostLine({ dest }: { dest: DestCard }) {
+  const tripDays = cardTripDaysLabel(dest.itinerary);
+  return (
+    <span className="flex items-center gap-1 shrink-0">
+      <DollarSign className="w-3 h-3" aria-hidden />
+      {estimateOrDash(dest.cost)}
+      {tripDays ? <span className="text-white/25"> · {tripDays}</span> : null}
     </span>
   );
 }
@@ -372,6 +403,8 @@ function ComparisonMiniCard({
   const { src: heroSrc, count: heroCount, index: heroIndex } = useRotatingHeroSrc(dest, HERO_SLIDE_MS);
   const bestFlight = dest.flights?.find(f => f.best) || dest.flights?.[0];
   const bestHotel = dest.hotels?.find(h => h.best) || dest.hotels?.[0];
+  const lodgingNights = totalLodgingNights(dest.itinerary);
+  const displayHotelNights = lodgingNights > 0 ? lodgingNights : bestHotel?.nights;
 
   return (
     <motion.div
@@ -449,7 +482,9 @@ function ComparisonMiniCard({
               <p className="text-[9px] leading-snug text-white/55 line-clamp-3 break-words">
                 {bestHotel?.price?.trim() || "-"}
               </p>
-              <p className="mt-0.5 text-[9px] text-white/35">{bestHotel?.nights != null ? `${bestHotel.nights}n` : "-"}</p>
+              <p className="mt-0.5 text-[9px] text-white/35">
+                {displayHotelNights != null ? `${displayHotelNights}n` : "-"}
+              </p>
             </div>
           </div>
           <div className="flex min-w-0 flex-col items-stretch gap-1 px-1 py-1.5 rounded-lg bg-white/[0.03]">
@@ -749,7 +784,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   }, [dest.itinerary]);
 
   const hasLogisticsFlip = (dest.itinerary?.length ?? 0) > 0;
-  const showLiveCostBreakdown = liveBookingExtractLooksActionable(dest);
+  const showLiveCostBreakdown =
+    Boolean(dest.liveBookingEstimates) && liveBookingExtractLooksActionable(dest);
 
   useEffect(() => {
     if (showLiveCostBreakdown) prefetchBookingCostBreakdown();
@@ -1028,10 +1064,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           {/* Logistics outline + budget (weather removed — use itinerary logistics) */}
           <div className="flex items-center justify-between gap-2 mt-3 text-[11px] text-white/30">
             <LogisticsBreadcrumbRow dest={dest} />
-            <span className="flex items-center gap-1 shrink-0">
-              <DollarSign className="w-3 h-3" aria-hidden />
-              {estimateOrDash(dest.cost)}
-            </span>
+            <CardTripCostLine dest={dest} />
           </div>
 
           {/* Vibes */}
@@ -1404,10 +1437,7 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
         {/* Logistics outline + budget */}
         <div className="flex items-center justify-between gap-2 mt-3 text-[11px] text-white/30">
           <LogisticsBreadcrumbRow dest={dest} />
-          <span className="flex items-center gap-1 shrink-0">
-            <DollarSign className="w-3 h-3" aria-hidden />
-            {estimateOrDash(dest.cost)}
-          </span>
+          <CardTripCostLine dest={dest} />
         </div>
         {dest.weather_summary && (
           <p className="text-[10px] text-sky-300/80 mt-2 leading-snug">{dest.weather_summary}</p>

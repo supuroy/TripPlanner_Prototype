@@ -17,11 +17,18 @@ from src.integrations.cursor_agent_client import (
     run_prompt_collect_assistant_text_streaming,
 )
 from src.wanderly.day_logistics import enrich_itinerary_rows_lodging_from_profile, normalize_day_logistics
+from src.wanderly.llm_telemetry import ACTIVITY_ITINERARY_BUILDER, telemetry_meta
 from src.wanderly.itinerary_debug_log import (
     itinerary_debug_verbose,
     itinerary_file_log_enabled,
     logistics_debug_enabled,
     log_itinerary_build,
+)
+from src.wanderly.itinerary_prompt_variants import (
+    _ITINERARY_PROMPT_COMPACT,
+    _ITINERARY_TAIL_COMPACT,
+    build_itinerary_context_json,
+    itinerary_compact_prompt_enabled,
 )
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane, get_cursor_agent_id
 
@@ -1051,30 +1058,30 @@ def _vibe_list_for_prompt(raw: object) -> list[str]:
     return out
 
 
+def _itinerary_persistent_prefix() -> str:
+    if itinerary_compact_prompt_enabled():
+        return _ITINERARY_PROMPT_COMPACT
+    return _ITINERARY_PROMPT
+
+
+def _itinerary_prompt_tail() -> str:
+    if itinerary_compact_prompt_enabled():
+        return _ITINERARY_TAIL_COMPACT
+    return _ITINERARY_TAIL_ALWAYS
+
+
 def _itinerary_prompt_and_days(
     *,
     destination: dict[str, Any],
     profile_pills: list[dict[str, Any]],
     days: int,
-) -> tuple[str, int]:
+) -> tuple[str, int, str]:
     n = max(3, min(int(days), 14))
-    hook = str(destination.get("hook") or "").strip()
-    ctx = json.dumps(
-        {
-            "destination": {
-                "id": destination.get("id"),
-                "name": destination.get("name"),
-                "country": destination.get("country"),
-                "hook": hook[:320],
-                "vibe": _vibe_list_for_prompt(destination.get("vibe")),
-            },
-            "profile_pills": profile_pills[:24],
-        },
-        ensure_ascii=True,
-        separators=(",", ":"),
-    )
-    prompt = _ITINERARY_PROMPT + f" {n}\n\nContext JSON:\n{ctx}\n\n" + _ITINERARY_TAIL_ALWAYS
-    return prompt, n
+    prefix = _itinerary_persistent_prefix()
+    tail = _itinerary_prompt_tail()
+    ctx = build_itinerary_context_json(destination=destination, profile_pills=profile_pills)
+    prompt = prefix + f" {n}\n\nContext JSON:\n{ctx}\n\n" + tail
+    return prompt, n, prefix
 
 
 def _itinerary_client_response(
@@ -1121,10 +1128,13 @@ def build_itinerary_for_destination(
     did = str(destination.get("id") or "")
     load_env_from_roots()
     key = get_api_key()
-    prompt, n = _itinerary_prompt_and_days(destination=destination, profile_pills=profile_pills, days=days)
+    prompt, n, itin_prefix = _itinerary_prompt_and_days(
+        destination=destination, profile_pills=profile_pills, days=days
+    )
     light = (os.environ.get("CURSOR_LIGHT_MODEL_FOR_ITINERARY") or os.environ.get("CURSOR_LIGHT_MODEL_FOR_IMAGES") or "").strip() or None
     log_itinerary_build(
         f"BEGIN rid={rid} mode=json sid={(session_id or '')[:12]!r} dest_id={did!r} days={days} n={n} "
+        f"compact={1 if itinerary_compact_prompt_enabled() else 0} prompt_chars={len(prompt)} "
         f"light_model={light!r} {_itin_reuse_hint(session_id, light, did)}"
     )
     t0 = time.perf_counter()
@@ -1137,7 +1147,16 @@ def build_itinerary_for_destination(
                 client,
                 prompt,
                 model_id_override=light,
-                persistent_instruction_prefix=_ITINERARY_PROMPT,
+                persistent_instruction_prefix=itin_prefix,
+                llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                llm_telemetry_sub_activity="build_itinerary",
+                llm_telemetry_meta=telemetry_meta(
+                    session_id=session_id,
+                    destination_id=did,
+                    request_id=rid,
+                    days=days,
+                    compact_prompt=itinerary_compact_prompt_enabled(),
+                ),
                 **cursor_run_persist_kwargs_for_lane(session_id or "", _lane, trace_path=_tp),
             )
     except Exception as e:
@@ -1177,7 +1196,15 @@ def build_itinerary_for_destination(
                     client,
                     repair,
                     model_id_override=light,
-                    persistent_instruction_prefix=_ITINERARY_PROMPT,
+                    persistent_instruction_prefix=itin_prefix,
+                    llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                    llm_telemetry_sub_activity="build_itinerary_logistics_retry",
+                    llm_telemetry_meta=telemetry_meta(
+                        session_id=session_id,
+                        destination_id=did,
+                        request_id=rid,
+                        days=days,
+                    ),
                     **cursor_run_persist_kwargs_for_lane(
                         session_id or "",
                         _lane,
@@ -1282,7 +1309,9 @@ def build_itinerary_for_destination_streaming(
     did = str(destination.get("id") or "")
     load_env_from_roots()
     key = get_api_key()
-    prompt, n = _itinerary_prompt_and_days(destination=destination, profile_pills=profile_pills, days=days)
+    prompt, n, itin_prefix = _itinerary_prompt_and_days(
+        destination=destination, profile_pills=profile_pills, days=days
+    )
     light = (os.environ.get("CURSOR_LIGHT_MODEL_FOR_ITINERARY") or os.environ.get("CURSOR_LIGHT_MODEL_FOR_IMAGES") or "").strip() or None
 
     def _safe_emit(ev: dict[str, Any]) -> None:
@@ -1294,6 +1323,7 @@ def build_itinerary_for_destination_streaming(
 
     log_itinerary_build(
         f"BEGIN rid={rid} mode=sse sid={(session_id or '')[:12]!r} dest_id={did!r} days={days} n={n} "
+        f"compact={1 if itinerary_compact_prompt_enabled() else 0} prompt_chars={len(prompt)} "
         f"light_model={light!r} {_itin_reuse_hint(session_id, light, did)}"
     )
     t0 = time.perf_counter()
@@ -1307,7 +1337,15 @@ def build_itinerary_for_destination_streaming(
                 prompt,
                 emit=_safe_emit if emit else None,
                 model_id_override=light,
-                persistent_instruction_prefix=_ITINERARY_PROMPT,
+                persistent_instruction_prefix=itin_prefix,
+                llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                llm_telemetry_sub_activity="build_itinerary_stream",
+                llm_telemetry_meta=telemetry_meta(
+                    session_id=session_id,
+                    destination_id=did,
+                    request_id=rid,
+                    days=days,
+                ),
                 **cursor_run_persist_kwargs_for_lane(session_id or "", _lane, trace_path=_tp),
             )
     except Exception as e:
@@ -1348,7 +1386,15 @@ def build_itinerary_for_destination_streaming(
                     repair,
                     emit=_safe_emit if emit else None,
                     model_id_override=light,
-                    persistent_instruction_prefix=_ITINERARY_PROMPT,
+                    persistent_instruction_prefix=itin_prefix,
+                    llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                    llm_telemetry_sub_activity="build_itinerary_logistics_retry_stream",
+                    llm_telemetry_meta=telemetry_meta(
+                        session_id=session_id,
+                        destination_id=did,
+                        request_id=rid,
+                        days=days,
+                    ),
                     **cursor_run_persist_kwargs_for_lane(
                         session_id or "",
                         _lane,

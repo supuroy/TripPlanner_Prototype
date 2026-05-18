@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { DestCard, ItinDay, ProfilePill, HotelOption, FlightOption } from "./TripStore";
 import { useTrip } from "./TripStore";
+import { cardTripDaysLabel, deriveWhenRangeFromItinerary } from "../lib/syncCardLogisticsFromItinerary";
 import {
   bookingPaxFromProfile,
   runSingleHotelBookingSearch,
@@ -737,6 +738,8 @@ export function LogisticsPlanFlipFace({ dest, profile }: { dest: DestCard; profi
   const pax = bookingPaxFromProfile(profile);
   const fromPill = profile.find((p) => p.key === "from")?.value?.trim() || "";
   const whenPill = profile.find((p) => p.key === "when")?.value?.trim() || "";
+  const whenDisplay = deriveWhenRangeFromItinerary(itinerary) || whenPill;
+  const tripDaysLabel = cardTripDaysLabel(itinerary);
   const tp = transportFromDest(dest);
   const modeLabel = formatTransportMode(tp?.primary_mode);
   const summary = transportPlanSummary(dest);
@@ -760,7 +763,7 @@ export function LogisticsPlanFlipFace({ dest, profile }: { dest: DestCard; profi
         <div className="mt-3 flex flex-wrap gap-1.5">
           <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/70">
             <Calendar className="h-3 w-3 shrink-0 text-white/35" aria-hidden />
-            {itinerary.length} days
+            {tripDaysLabel ?? `${itinerary.length} days`}
           </span>
           <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/70">
             <Users className="h-3 w-3 shrink-0 text-white/35" aria-hidden />
@@ -772,9 +775,9 @@ export function LogisticsPlanFlipFace({ dest, profile }: { dest: DestCard; profi
               From {fromPill}
             </span>
           ) : null}
-          {whenPill ? (
+          {whenDisplay ? (
             <span className="inline-flex max-w-[200px] items-center gap-1 truncate rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/60">
-              {whenPill}
+              {whenDisplay}
             </span>
           ) : null}
           <span className="inline-flex items-center gap-1 rounded-full border border-indigo-500/25 bg-indigo-500/10 px-2.5 py-1 text-[10px] text-indigo-200/90">
@@ -822,9 +825,6 @@ export function LogisticsPlanFlipFace({ dest, profile }: { dest: DestCard; profi
           ))}
         </div>
 
-        <p className="mt-4 rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-[10px] leading-relaxed text-white/35">
-          Planner view only — live Expedia price search and one-tap booking will ship in a later update.
-        </p>
       </div>
     </div>
   );

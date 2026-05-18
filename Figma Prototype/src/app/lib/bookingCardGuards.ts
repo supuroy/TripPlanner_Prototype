@@ -8,6 +8,22 @@ export function parsePriceDigits(s: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * True for a single OTA-style dollar amount — not planning bands like ``$360–660/n``
+ * (which ``parsePriceDigits`` would misread as 360660).
+ */
+export function priceLooksLikeLiveBookableAmount(s: string | undefined): boolean {
+  const raw = (s ?? "").trim();
+  if (!raw || raw === "-" || /^tbd/i.test(raw) || /^see expedia$/i.test(raw)) return false;
+  if (/[–—]/.test(raw)) return false;
+  if (/\$?\s*[\d,.]+\s*-\s*\$?\s*[\d,.]+/.test(raw)) return false;
+  if (/~\s*\$/.test(raw) && /-\s*\$?[\d]/.test(raw)) return false;
+  if (/\bpp\b/i.test(raw) || /ballpark|estimate|\/night/i.test(raw)) return false;
+  const n = parsePriceDigits(raw);
+  if (n <= 0 || n > 50_000) return false;
+  return true;
+}
+
 export function liveBookingExtractLooksActionable(dest: DestCard): boolean {
   const flights = dest.flights || [];
   const hotels = dest.hotels || [];
@@ -17,7 +33,7 @@ export function liveBookingExtractLooksActionable(dest: DestCard): boolean {
     for (const f of flights) {
       const route = (f.route || "").trim();
       if (!route || /^tbd$/i.test(route)) return false;
-      if (parsePriceDigits(f.price) <= 0) return false;
+      if (!priceLooksLikeLiveBookableAmount(f.price)) return false;
     }
     return true;
   };
@@ -29,7 +45,7 @@ export function liveBookingExtractLooksActionable(dest: DestCard): boolean {
       if (nm === "lodging results" || nm === "hotel listing" || nm === "") return false;
       const pr = (h.price || "").trim();
       if (/^see expedia$/i.test(pr)) return false;
-      if (parsePriceDigits(pr) <= 0) return false;
+      if (!priceLooksLikeLiveBookableAmount(pr)) return false;
     }
     return true;
   };
@@ -85,6 +101,7 @@ export function bookingPaxFromProfile(profile: ProfilePill[]): number {
 }
 
 export function hotelStayTotal(h: HotelOption): number {
+  if (!priceLooksLikeLiveBookableAmount(h.price)) return 0;
   const per = parsePriceDigits(h.price);
   return per * (h.nights || 0);
 }

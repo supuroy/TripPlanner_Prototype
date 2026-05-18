@@ -25,6 +25,7 @@ export { computeTripDestDiskSig } from "../lib/tripPersistSig";
 import { logItin } from "../lib/itineraryDebug";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
+import { parallelPostRefineEnabled } from "../lib/parallelPostRefine";
 import { planReviewMarkdownForUi } from "../lib/planReviewMarkdown";
 import {
   clearTripMetaForSession,
@@ -1292,10 +1293,13 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       const gen = ++planReviewGenRef.current;
       void (async () => {
         logItin("plan_review_defer_wait_begin", { sessionId: sid.slice(0, 12) });
-        await waitForItinerariesBeforePlanReview(() => ({
-          destinations: destinationsRef.current,
-          itineraryLaneQueueDepth: itineraryLaneDepthRef.current,
-        }));
+        await waitForItinerariesBeforePlanReview(
+          () => ({
+            destinations: destinationsRef.current,
+            itineraryLaneQueueDepth: itineraryLaneDepthRef.current,
+          }),
+          parallelPostRefineEnabled() ? { skipItineraryWait: true } : undefined,
+        );
         if (gen !== planReviewGenRef.current) return;
         logItin("plan_review_defer_wait_done", { sessionId: sid.slice(0, 12) });
         try {

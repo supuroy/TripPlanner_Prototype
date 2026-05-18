@@ -20,8 +20,12 @@ export type PlanReviewReadinessSnapshot = {
  */
 export async function waitForItinerariesBeforePlanReview(
   getSnapshot: () => PlanReviewReadinessSnapshot,
-  opts?: { pollMs?: number; maxWaitMs?: number },
+  opts?: { pollMs?: number; maxWaitMs?: number; /** When true (parallel post-refine), plan review may run while builds continue. */ skipItineraryWait?: boolean },
 ): Promise<void> {
+  if (opts?.skipItineraryWait) {
+    await yieldToReactCommit();
+    return;
+  }
   const pollMs = opts?.pollMs ?? 450;
   const maxWaitMs = opts?.maxWaitMs ?? 600_000;
   await yieldToReactCommit();

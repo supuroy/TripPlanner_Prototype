@@ -44,49 +44,13 @@ import {
   type PlannedFlightSegment,
 } from "../lib/bookingFlightPlan";
 
-export function parsePriceDigits(s: string | undefined): number {
-  const n = parseInt(String(s ?? "").replace(/[^\d]/g, ""), 10);
-  return Number.isFinite(n) ? n : 0;
-}
+import {
+  parsePriceDigits,
+  priceLooksLikeLiveBookableAmount,
+  liveBookingExtractLooksActionable,
+} from "../lib/bookingCardGuards";
 
-/**
- * True when live OTA merge looks like a real parse (not heuristic placeholders).
- * Used to avoid showing a cost breakdown on scraped noise.
- */
-export function liveBookingExtractLooksActionable(dest: DestCard): boolean {
-  const flights = dest.flights || [];
-  const hotels = dest.hotels || [];
-
-  const flightsPass = (): boolean => {
-    if (!flights.length) return false;
-    for (const f of flights) {
-      const route = (f.route || "").trim();
-      if (!route || /^tbd$/i.test(route)) return false;
-      if (parsePriceDigits(f.price) <= 0) return false;
-    }
-    return true;
-  };
-
-  const hotelsPass = (): boolean => {
-    if (!hotels.length) return false;
-    for (const h of hotels) {
-      const nm = (h.name || "").trim().toLowerCase();
-      if (nm === "lodging results" || nm === "hotel listing" || nm === "") return false;
-      const pr = (h.price || "").trim();
-      if (/^see expedia$/i.test(pr)) return false;
-      if (parsePriceDigits(pr) <= 0) return false;
-    }
-    return true;
-  };
-
-  const fp = flightsPass();
-  const hp = hotelsPass();
-  /* Ground / hotel-only: previously required ≥1 flight row, so live hotels never counted as “actionable”. */
-  if (!flights.length && hp) return true;
-  if (fp && !hotels.length) return true;
-  if (fp && hp) return true;
-  return false;
-}
+export { parsePriceDigits, priceLooksLikeLiveBookableAmount, liveBookingExtractLooksActionable };
 
 /** True when this card still has merged live / restored OTA rows worth clearing manually. */
 export function destHasPersistentBookingSummary(dest: DestCard): boolean {

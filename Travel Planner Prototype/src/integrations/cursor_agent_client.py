@@ -726,6 +726,75 @@ def _assistant_text_or_retry_sse(
     return retry if (retry or "").strip() else text
 
 
+def _llm_telemetry_maybe_start(
+    *,
+    activity: str | None,
+    sub_activity: str | None,
+    prompt_text: str,
+    persistent_instruction_prefix: str | None,
+    stream: bool,
+    model_id_override: str | None,
+    meta: dict[str, Any] | None,
+) -> tuple[str | None, float]:
+    act = (activity or "").strip()
+    if not act:
+        return None, 0.0
+    try:
+        from src.wanderly import llm_telemetry as lt
+
+        if not lt.llm_telemetry_enabled():
+            return None, 0.0
+        span_id = lt.record_llm_start(
+            activity=act,
+            sub_activity=(sub_activity or "").strip() or "unknown",
+            prompt_text=prompt_text,
+            persistent_instruction_prefix=persistent_instruction_prefix,
+            stream=stream,
+            model_id=(model_id_override or "").strip() or None,
+            meta=meta,
+        )
+        return span_id, time.perf_counter()
+    except Exception:
+        return None, 0.0
+
+
+def _llm_telemetry_maybe_end(
+    span_id: str | None,
+    started_at_perf: float,
+    *,
+    activity: str | None,
+    sub_activity: str | None,
+    prompt_text: str,
+    persistent_instruction_prefix: str | None,
+    stream: bool,
+    model_id_override: str | None,
+    meta: dict[str, Any] | None,
+    response_text: str = "",
+    error: BaseException | None = None,
+) -> None:
+    if not span_id:
+        return
+    try:
+        from src.wanderly import llm_telemetry as lt
+
+        lt.record_llm_end(
+            span_id,
+            activity=(activity or "").strip() or "unknown",
+            sub_activity=(sub_activity or "").strip() or "unknown",
+            started_at_perf=started_at_perf,
+            prompt_text=prompt_text,
+            persistent_instruction_prefix=persistent_instruction_prefix,
+            stream=stream,
+            model_id=(model_id_override or "").strip() or None,
+            meta=meta,
+            status="error" if error else "ok",
+            response_text=response_text,
+            error=error,
+        )
+    except Exception:
+        pass
+
+
 def run_prompt_collect_assistant_text(
     client: httpx.Client,
     prompt_text: str,
@@ -737,58 +806,93 @@ def run_prompt_collect_assistant_text(
     on_agent_cleared: Callable[[], None] | None = None,
     cursor_trace_path: str | None = None,
     cursor_run_lock_key: str | None = None,
+    llm_telemetry_activity: str | None = None,
+    llm_telemetry_sub_activity: str | None = None,
+    llm_telemetry_meta: dict[str, Any] | None = None,
 ) -> str:
     """Create or continue a Cloud Agent run, consume the assistant SSE stream, return full text."""
+    span_id, t0 = _llm_telemetry_maybe_start(
+        activity=llm_telemetry_activity,
+        sub_activity=llm_telemetry_sub_activity,
+        prompt_text=prompt_text,
+        persistent_instruction_prefix=persistent_instruction_prefix,
+        stream=False,
+        model_id_override=model_id_override,
+        meta=llm_telemetry_meta,
+    )
     tp = (cursor_trace_path or "").strip() or None
-    with _cursor_lane_run_lock(cursor_run_lock_key):
-        agent_id, run_id = _begin_cloud_agent_run(
-            client,
-            prompt_text,
-            model_id_override=model_id_override,
-            existing_agent_id=existing_agent_id,
+    result = ""
+    telemetry_err: BaseException | None = None
+    try:
+        with _cursor_lane_run_lock(cursor_run_lock_key):
+            agent_id, run_id = _begin_cloud_agent_run(
+                client,
+                prompt_text,
+                model_id_override=model_id_override,
+                existing_agent_id=existing_agent_id,
+                persistent_instruction_prefix=persistent_instruction_prefix,
+                on_new_agent=on_new_agent,
+                on_agent_cleared=on_agent_cleared,
+                cursor_trace_path=tp,
+            )
+            time.sleep(1.0)
+            last_err: Exception | None = None
+            for attempt in range(8):
+                try:
+                    text = consume_sse_assistant(client, agent_id, run_id)
+                    result = _assistant_text_or_retry_sse(client, agent_id, run_id, text)
+                    break
+                except httpx.HTTPStatusError as e:
+                    last_err = e
+                    sc = e.response.status_code if e.response is not None else 0
+                    _trace_cursor(
+                        f"sse_http_error mode=buffered run_tail={run_id[-8:]!r} status={sc} attempt={attempt + 1} "
+                        f"body_snip={_httpx_err_snip(e)!r}",
+                        path=tp,
+                    )
+                    if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
+                        time.sleep(_sse_retry_sleep_seconds(attempt))
+                        continue
+                    raise
+                except Exception as e:
+                    _trace_cursor(
+                        f"sse_transport_error mode=buffered run_tail={run_id[-8:]!r} "
+                        f"type={type(e).__name__} message={str(e)[:180]!r}",
+                        path=tp,
+                    )
+                    raise
+            else:
+                if last_err:
+                    if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
+                        sc = last_err.response.status_code
+                        if sc in _RETRYABLE_SSE_STATUS:
+                            polled = poll_run_for_assistant_text(client, agent_id, run_id)
+                            if polled.strip():
+                                _trace_cursor(
+                                    f"sse_retries_exhausted_poll_ok mode=buffered sc={sc} run_tail={str(run_id)[-8:]!r}",
+                                    path=tp,
+                                )
+                                result = polled
+                    if not result:
+                        raise last_err
+    except BaseException as e:
+        telemetry_err = e
+        raise
+    finally:
+        _llm_telemetry_maybe_end(
+            span_id,
+            t0,
+            activity=llm_telemetry_activity,
+            sub_activity=llm_telemetry_sub_activity,
+            prompt_text=prompt_text,
             persistent_instruction_prefix=persistent_instruction_prefix,
-            on_new_agent=on_new_agent,
-            on_agent_cleared=on_agent_cleared,
-            cursor_trace_path=tp,
+            stream=False,
+            model_id_override=model_id_override,
+            meta=llm_telemetry_meta,
+            response_text=result,
+            error=telemetry_err,
         )
-        time.sleep(1.0)
-        last_err: Exception | None = None
-        for attempt in range(8):
-            try:
-                text = consume_sse_assistant(client, agent_id, run_id)
-                return _assistant_text_or_retry_sse(client, agent_id, run_id, text)
-            except httpx.HTTPStatusError as e:
-                last_err = e
-                sc = e.response.status_code if e.response is not None else 0
-                _trace_cursor(
-                    f"sse_http_error mode=buffered run_tail={run_id[-8:]!r} status={sc} attempt={attempt + 1} "
-                    f"body_snip={_httpx_err_snip(e)!r}",
-                    path=tp,
-                )
-                if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
-                    time.sleep(_sse_retry_sleep_seconds(attempt))
-                    continue
-                raise
-            except Exception as e:
-                _trace_cursor(
-                    f"sse_transport_error mode=buffered run_tail={run_id[-8:]!r} "
-                    f"type={type(e).__name__} message={str(e)[:180]!r}",
-                    path=tp,
-                )
-                raise
-        if last_err:
-            if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
-                sc = last_err.response.status_code
-                if sc in _RETRYABLE_SSE_STATUS:
-                    polled = poll_run_for_assistant_text(client, agent_id, run_id)
-                    if polled.strip():
-                        _trace_cursor(
-                            f"sse_retries_exhausted_poll_ok mode=buffered sc={sc} run_tail={str(run_id)[-8:]!r}",
-                            path=tp,
-                        )
-                        return polled
-            raise last_err
-        return ""
+    return result
 
 
 def run_prompt_collect_assistant_text_streaming(
@@ -803,9 +907,23 @@ def run_prompt_collect_assistant_text_streaming(
     on_agent_cleared: Callable[[], None] | None = None,
     cursor_trace_path: str | None = None,
     cursor_run_lock_key: str | None = None,
+    llm_telemetry_activity: str | None = None,
+    llm_telemetry_sub_activity: str | None = None,
+    llm_telemetry_meta: dict[str, Any] | None = None,
 ) -> str:
     """Create or continue a Cloud Agent run, stream assistant SSE, invoke emit() for progress, return full text."""
+    span_id, t0 = _llm_telemetry_maybe_start(
+        activity=llm_telemetry_activity,
+        sub_activity=llm_telemetry_sub_activity,
+        prompt_text=prompt_text,
+        persistent_instruction_prefix=persistent_instruction_prefix,
+        stream=True,
+        model_id_override=model_id_override,
+        meta=llm_telemetry_meta,
+    )
     tp = (cursor_trace_path or "").strip() or None
+    result = ""
+    telemetry_err: BaseException | None = None
 
     def _emit(obj: dict[str, Any]) -> None:
         if emit:
@@ -813,103 +931,125 @@ def run_prompt_collect_assistant_text_streaming(
 
     eff_existing = (existing_agent_id or "").strip() or None
 
-    for outer_pass in range(2):
-        sse_state: dict[str, bool] = {"suppressed_recoverable": False}
+    def _stream_collect() -> str:
+        nonlocal eff_existing
+        for outer_pass in range(2):
+            sse_state: dict[str, bool] = {"suppressed_recoverable": False}
 
-        def _cursor_stream_emit(ev: dict[str, Any]) -> None:
-            if ev.get("type") == "stream_error":
-                raw = str(ev.get("message") or "")
-                if _is_recoverable_cursor_stream_sse_message(raw):
-                    sse_state["suppressed_recoverable"] = True
-                    _trace_cursor(
-                        "suppressed_recoverable_stream_error "
-                        f"msg={raw[:160]!r} outer_pass={outer_pass}",
-                        path=tp,
-                    )
-                    return
-            _emit(ev)
-
-        with _cursor_lane_run_lock(cursor_run_lock_key):
-            _emit({"type": "phase", "message": "Understanding what you want from this trip…"})
-            agent_id, run_id = _begin_cloud_agent_run(
-                client,
-                prompt_text,
-                model_id_override=model_id_override,
-                existing_agent_id=eff_existing,
-                persistent_instruction_prefix=persistent_instruction_prefix,
-                on_new_agent=on_new_agent,
-                on_agent_cleared=on_agent_cleared,
-                cursor_trace_path=tp,
-            )
-            _emit({"type": "phase", "message": "Exploring destinations and tradeoffs for you…"})
-            time.sleep(1.0)
-            _emit({"type": "phase", "message": "Generating structured recommendations…"})
-            last_err: Exception | None = None
-            final_text = ""
-            for attempt in range(8):
-                try:
-                    _emit({"type": "phase", "message": "Listening to the model as it works…"})
-                    text = consume_sse_assistant_streaming(
-                        client, agent_id, run_id, emit=_cursor_stream_emit
-                    )
-                    if not (text or "").strip():
-                        _emit({"type": "phase", "message": "Almost there — wrapping up…"})
-                    final_text = _assistant_text_or_retry_sse(client, agent_id, run_id, text)
-                    break
-                except httpx.HTTPStatusError as e:
-                    last_err = e
-                    sc = e.response.status_code if e.response is not None else 0
-                    _trace_cursor(
-                        f"sse_http_error mode=streaming run_tail={run_id[-8:]!r} status={sc} attempt={attempt + 1} "
-                        f"body_snip={_httpx_err_snip(e)!r}",
-                        path=tp,
-                    )
-                    if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
-                        _emit(
-                            {
-                                "type": "phase",
-                                "message": "Still connecting — trying again in a moment…",
-                            }
+            def _cursor_stream_emit(ev: dict[str, Any]) -> None:
+                if ev.get("type") == "stream_error":
+                    raw = str(ev.get("message") or "")
+                    if _is_recoverable_cursor_stream_sse_message(raw):
+                        sse_state["suppressed_recoverable"] = True
+                        _trace_cursor(
+                            "suppressed_recoverable_stream_error "
+                            f"msg={raw[:160]!r} outer_pass={outer_pass}",
+                            path=tp,
                         )
-                        time.sleep(_sse_retry_sleep_seconds(attempt))
-                        continue
-                    raise
-                except Exception as e:
-                    _trace_cursor(
-                        f"sse_transport_error mode=streaming run_tail={run_id[-8:]!r} "
-                        f"type={type(e).__name__} message={str(e)[:180]!r}",
-                        path=tp,
-                    )
-                    raise
-            if last_err:
-                if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
-                    sc = last_err.response.status_code
-                    if sc in _RETRYABLE_SSE_STATUS:
-                        polled = poll_run_for_assistant_text(client, agent_id, run_id)
-                        if polled.strip():
-                            _trace_cursor(
-                                f"sse_retries_exhausted_poll_ok mode=streaming sc={sc} run_tail={str(run_id)[-8:]!r}",
-                                path=tp,
+                        return
+                _emit(ev)
+
+            with _cursor_lane_run_lock(cursor_run_lock_key):
+                _emit({"type": "phase", "message": "Understanding what you want from this trip…"})
+                agent_id, run_id = _begin_cloud_agent_run(
+                    client,
+                    prompt_text,
+                    model_id_override=model_id_override,
+                    existing_agent_id=eff_existing,
+                    persistent_instruction_prefix=persistent_instruction_prefix,
+                    on_new_agent=on_new_agent,
+                    on_agent_cleared=on_agent_cleared,
+                    cursor_trace_path=tp,
+                )
+                _emit({"type": "phase", "message": "Exploring destinations and tradeoffs for you…"})
+                time.sleep(1.0)
+                _emit({"type": "phase", "message": "Generating structured recommendations…"})
+                last_err: Exception | None = None
+                final_text = ""
+                for attempt in range(8):
+                    try:
+                        _emit({"type": "phase", "message": "Listening to the model as it works…"})
+                        text = consume_sse_assistant_streaming(
+                            client, agent_id, run_id, emit=_cursor_stream_emit
+                        )
+                        if not (text or "").strip():
+                            _emit({"type": "phase", "message": "Almost there — wrapping up…"})
+                        final_text = _assistant_text_or_retry_sse(client, agent_id, run_id, text)
+                        break
+                    except httpx.HTTPStatusError as e:
+                        last_err = e
+                        sc = e.response.status_code if e.response is not None else 0
+                        _trace_cursor(
+                            f"sse_http_error mode=streaming run_tail={run_id[-8:]!r} status={sc} attempt={attempt + 1} "
+                            f"body_snip={_httpx_err_snip(e)!r}",
+                            path=tp,
+                        )
+                        if e.response is not None and e.response.status_code in _RETRYABLE_SSE_STATUS:
+                            _emit(
+                                {
+                                    "type": "phase",
+                                    "message": "Still connecting — trying again in a moment…",
+                                }
                             )
-                            return polled
-                raise last_err
-            if (final_text or "").strip():
-                return final_text
+                            time.sleep(_sse_retry_sleep_seconds(attempt))
+                            continue
+                        raise
+                    except Exception as e:
+                        _trace_cursor(
+                            f"sse_transport_error mode=streaming run_tail={run_id[-8:]!r} "
+                            f"type={type(e).__name__} message={str(e)[:180]!r}",
+                            path=tp,
+                        )
+                        raise
+                if last_err:
+                    if isinstance(last_err, httpx.HTTPStatusError) and last_err.response is not None:
+                        sc = last_err.response.status_code
+                        if sc in _RETRYABLE_SSE_STATUS:
+                            polled = poll_run_for_assistant_text(client, agent_id, run_id)
+                            if polled.strip():
+                                _trace_cursor(
+                                    f"sse_retries_exhausted_poll_ok mode=streaming sc={sc} run_tail={str(run_id)[-8:]!r}",
+                                    path=tp,
+                                )
+                                return polled
+                    raise last_err
+                if (final_text or "").strip():
+                    return final_text
 
-        want_retry = sse_state["suppressed_recoverable"] or bool(eff_existing)
-        if outer_pass == 0 and on_agent_cleared is not None and want_retry:
-            on_agent_cleared()
-            eff_existing = None
-            _emit(
-                {
-                    "type": "phase",
-                    "message": "The AI session refreshed — retrying your request…",
-                }
-            )
-            continue
-        return final_text
+            want_retry = sse_state["suppressed_recoverable"] or bool(eff_existing)
+            if outer_pass == 0 and on_agent_cleared is not None and want_retry:
+                on_agent_cleared()
+                eff_existing = None
+                _emit(
+                    {
+                        "type": "phase",
+                        "message": "The AI session refreshed — retrying your request…",
+                    }
+                )
+                continue
+            return final_text
+        return ""
 
-    return ""
+    try:
+        result = _stream_collect()
+    except BaseException as e:
+        telemetry_err = e
+        raise
+    finally:
+        _llm_telemetry_maybe_end(
+            span_id,
+            t0,
+            activity=llm_telemetry_activity,
+            sub_activity=llm_telemetry_sub_activity,
+            prompt_text=prompt_text,
+            persistent_instruction_prefix=persistent_instruction_prefix,
+            stream=True,
+            model_id_override=model_id_override,
+            meta=llm_telemetry_meta,
+            response_text=result,
+            error=telemetry_err,
+        )
+    return result
 
 
 def run_auth_only_impl(client: httpx.Client) -> None:
