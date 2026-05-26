@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "./components/ui/select";
 import { motion, AnimatePresence } from "motion/react";
-import { Compass, Sparkles, Maximize2, Minimize2, Trash2 } from "lucide-react";
+import { Compass, Sparkles, Maximize2, Minimize2, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DestCard } from "./components/TripStore";
 import { fetchWorkspace } from "../api/wanderly";
@@ -55,8 +55,9 @@ function IdleState() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.45 }}
-          className="relative mt-8 flex w-full max-w-md flex-col items-center"
+          className="relative mt-8 flex w-full max-w-md flex-col items-center gap-3"
         >
+          <NewTripButton showIcon className="inline-flex items-center gap-2 rounded-xl border border-white/[0.12] bg-white/[0.06] px-4 py-2.5 text-[13px] text-white/75 transition-colors hover:bg-white/[0.1] hover:text-white/90 disabled:cursor-wait disabled:opacity-40" />
           <SavedTripsMenu variant="idle" />
         </motion.div>
       )}
@@ -132,6 +133,38 @@ function TripDiskPersistBadge() {
   );
 }
 
+function NewTripButton({
+  className,
+  showIcon = false,
+}: {
+  className?: string;
+  showIcon?: boolean;
+}) {
+  const { startNewTrip, newTripTransitioning, tripSwitchTransitioning } = useTrip();
+  const busy = newTripTransitioning || tripSwitchTransitioning;
+  return (
+    <button
+      type="button"
+      onClick={() => void startNewTrip()}
+      disabled={busy}
+      title={
+        busy
+          ? newTripTransitioning
+            ? "Finishing new trip setup…"
+            : "Loading saved trip…"
+          : "Start a fresh trip (current plan is saved to your trip list)"
+      }
+      className={
+        className ??
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/85 disabled:cursor-wait disabled:opacity-40"
+      }
+    >
+      {showIcon ? <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+      New trip
+    </button>
+  );
+}
+
 function SavedTripsBar() {
   const {
     savedTrips,
@@ -140,7 +173,6 @@ function SavedTripsBar() {
     tripName,
     setTripName,
     switchToSavedTrip,
-    createEmptyTrip,
     renameTrip,
     deleteTrip,
   } = useTrip();
@@ -153,7 +185,16 @@ function SavedTripsBar() {
   const selectTripValue =
     wanderlyTripId && savedTrips.some((t) => t.trip_id === wanderlyTripId) ? wanderlyTripId : undefined;
 
-  if (savedTrips.length === 0) return null;
+  if (!wanderlyWorkspaceBootstrapped) return null;
+
+  if (savedTrips.length === 0) {
+    return (
+      <motion.div className="flex min-w-0 items-center gap-2 text-[12px] text-white/40">
+        <NewTripButton showIcon />
+        <span className="hidden text-[11px] text-white/30 sm:inline">No saved trips yet</span>
+      </motion.div>
+    );
+  }
 
   const chip =
     "rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-40";
@@ -238,39 +279,28 @@ function SavedTripsBar() {
           ))}
         </SelectContent>
       </Select>
-      <button
-        type="button"
-        disabled={busy}
-        className={`${chipBtn} shrink-0 whitespace-nowrap`}
-        onClick={() => {
-          const label = window.prompt("Name the new trip (optional). Cancel to abort.", "");
-          if (label === null) return;
-          setBusy(true);
-          void createEmptyTrip(label.trim() || undefined).finally(() => setBusy(false));
-        }}
-      >
-        New
-      </button>
-      {wanderlyTripId ? (
+      {tripIdForRename ? (
         <button
           type="button"
           disabled={busy}
-          title="Delete this trip"
+          title="Delete this trip from your saved list"
           aria-label="Delete this trip"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-amber-300/80 transition-colors hover:bg-white/[0.07] hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+          className={`${chipBtn} inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-amber-500/25 text-amber-300/90 hover:border-amber-500/35 hover:text-amber-200`}
           onClick={() => {
+            const label = current?.trip_name || tripIdForRename;
             if (
               !window.confirm(
-                `Delete “${current?.trip_name || wanderlyTripId}”?\n\nThis removes the trip from your list and deletes its saved file.`,
+                `Delete “${label}”?\n\nThis removes the trip from your list and deletes its saved file on disk. You cannot undo this.`,
               )
             ) {
               return;
             }
             setBusy(true);
-            void deleteTrip(wanderlyTripId).finally(() => setBusy(false));
+            void deleteTrip(tripIdForRename).finally(() => setBusy(false));
           }}
         >
-          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+          <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          Delete trip
         </button>
       ) : null}
       </div>
@@ -353,10 +383,18 @@ function Workspace() {
               </div>
               <span className="text-[15px] text-white/70">Wanderly</span>
             </div>
-            <div className="flex min-w-0 flex-1 items-center justify-start overflow-hidden">
-              <SavedTripsBar />
+            <div className="flex min-w-0 flex-1 items-center justify-start gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {savedTrips.length > 0 ? (
+                <div className="shrink-0">
+                  <SavedTripsMenu variant="header" />
+                </div>
+              ) : null}
+              <div className="min-w-0 flex-1">
+                <SavedTripsBar />
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              {wanderlyWorkspaceBootstrapped ? <NewTripButton showIcon /> : null}
               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-[11px] text-white">
                 J
               </div>

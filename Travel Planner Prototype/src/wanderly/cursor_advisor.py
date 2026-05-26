@@ -21,6 +21,7 @@ from src.wanderly.llm_telemetry import (
 )
 from src.wanderly.refinement_cursor import refinement_model_id
 from src.wanderly.schemas import coerce_profile_pill
+from src.wanderly.json_llm_repair import repair_llm_json_blob
 from src.wanderly.itinerary_debug_log import log_itinerary_build
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
 
@@ -54,7 +55,7 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
 
     Models sometimes emit two objects back-to-back; greedy ``{``..``}`` would fail or merge badly.
     """
-    t = (text or "").strip()
+    t = repair_llm_json_blob((text or "").strip())
     if not t:
         return None
     dec = json.JSONDecoder()
@@ -378,6 +379,8 @@ def _destination_row_for_advisor_chat(
         "id": str(d.get("id") or ""),
         "name": str(d.get("name") or ""),
         "country": str(d.get("country") or ""),
+        "pinned": bool(d.get("pinned")),
+        "dismissed": bool(d.get("dismissed")),
     }
     hook = str(d.get("hook") or "").strip()
     if hook:

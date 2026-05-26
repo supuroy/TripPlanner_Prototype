@@ -3,7 +3,48 @@
 from __future__ import annotations
 
 from src.wanderly.schemas import WanderlyWorkspaceDTO
-from src.wanderly.smoke_service import _enrich_workspace_destinations_transport, _normalize_parsed
+from src.wanderly.smoke_service import (
+    _enrich_workspace_destinations_transport,
+    _extract_json_object,
+    _merge_dest_ui_flags,
+    _normalize_parsed,
+)
+
+
+def test_merge_dest_ui_flags_preserves_prior_pins_when_model_emits_false() -> None:
+    """Regression (28b65b5): refine JSON often includes pinned:false on every row; that must not wipe bookmarks."""
+    prior = [
+        {"id": "kings", "name": "Kings", "pinned": True, "dismissed": False},
+        {"id": "mammoth", "name": "Mammoth", "pinned": True, "dismissed": False},
+    ]
+    model_rows = [
+        {"id": "kings", "name": "Kings", "pinned": False, "dismissed": False},
+        {"id": "mammoth", "name": "Mammoth", "pinned": False, "dismissed": False},
+    ]
+    out = _merge_dest_ui_flags(prior, model_rows)
+    assert len(out) == 2
+    assert out[0]["pinned"] is True and out[1]["pinned"] is True
+
+
+def test_merge_dest_ui_flags_model_may_clear_dismissed() -> None:
+    prior = [{"id": "x", "pinned": False, "dismissed": True}]
+    model_rows = [{"id": "x", "pinned": False, "dismissed": False}]
+    out = _merge_dest_ui_flags(prior, model_rows)
+    assert out[0]["dismissed"] is False
+
+
+def test_extract_json_object_repairs_editable_typo() -> None:
+    """Regression: Gemini sometimes emits ``"editable":able":true`` which is not valid JSON."""
+    raw = (
+        '{"assistant_markdown":"Hi","profile_pills":['
+        '{"key":"from","label":"Flying from","value":"Seattle, WA","icon":"✈️","editable":able":true}'
+        '],"destinations":[]}'
+    )
+    out = _extract_json_object(raw)
+    assert out is not None
+    pills = out.get("profile_pills") or []
+    assert len(pills) == 1
+    assert pills[0].get("editable") is True
 
 
 def test_normalize_parsed_overlays_itinerary_and_transport_from_model_json() -> None:

@@ -1,20 +1,47 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, FolderOpen, Trash2 } from "lucide-react";
 import { listSavedTripsFromStorage, type SavedTripIndexEntry } from "../lib/tripMetaStorage";
+import type { WanderlyTripSummary } from "../../api/wanderly";
 import { useTrip } from "./TripStore";
 
-function formatSavedAt(iso: string): string {
-  const d = new Date(iso);
+function formatSavedAt(msOrIso: number | string): string {
+  const d = typeof msOrIso === "number" ? new Date(msOrIso) : new Date(msOrIso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+type TripRow = {
+  trip_id: string;
+  trip_name: string;
+  session_id: string;
+  savedLabel: string;
+};
+
+function rowsFromManifest(trips: WanderlyTripSummary[]): TripRow[] {
+  return trips.map((t) => ({
+    trip_id: t.trip_id,
+    trip_name: t.trip_name || t.trip_id,
+    session_id: t.session_id,
+    savedLabel: formatSavedAt(t.updated_at_ms),
+  }));
+}
+
+function rowsFromLocalIndex(entries: SavedTripIndexEntry[]): TripRow[] {
+  return entries.map((t) => ({
+    trip_id: t.trip_id,
+    trip_name: t.trip_name,
+    session_id: t.session_id,
+    savedLabel: formatSavedAt(t.saved_at),
+  }));
 }
 
 export function SavedTripsMenu({ variant = "header" }: { variant?: "header" | "idle" }) {
   const {
     sessionId,
     wanderlyTripId,
+    savedTrips,
     switchToSavedTrip,
-    deleteSavedTrip,
+    deleteTrip,
     wanderlyWorkspaceBootstrapped,
     newTripTransitioning,
     tripSwitchTransitioning,
@@ -22,7 +49,7 @@ export function SavedTripsMenu({ variant = "header" }: { variant?: "header" | "i
   const [open, setOpen] = useState(false);
   const [listTick, setListTick] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
-  const [confirm, setConfirm] = useState<{ sessionId: string; name: string } | null>(null);
+  const [confirm, setConfirm] = useState<{ tripId: string; name: string } | null>(null);
 
   const busy = newTripTransitioning || tripSwitchTransitioning;
 
@@ -31,7 +58,10 @@ export function SavedTripsMenu({ variant = "header" }: { variant?: "header" | "i
     setListTick((n) => n + 1);
   }, [open]);
 
-  const trips = useMemo(() => listSavedTripsFromStorage(), [open, listTick, sessionId]);
+  const trips = useMemo(() => {
+    if (savedTrips.length > 0) return rowsFromManifest(savedTrips);
+    return rowsFromLocalIndex(listSavedTripsFromStorage());
+  }, [open, listTick, sessionId, savedTrips]);
 
   useEffect(() => {
     if (!open) return;
@@ -47,7 +77,7 @@ export function SavedTripsMenu({ variant = "header" }: { variant?: "header" | "i
   const refreshList = useCallback(() => setListTick((n) => n + 1), []);
 
   const onOpenTrip = useCallback(
-    async (t: SavedTripIndexEntry) => {
+    async (t: TripRow) => {
       const tripId = t.trip_id.trim();
       if (busy || !tripId || tripId === wanderlyTripId.trim()) return;
       setOpen(false);
@@ -57,21 +87,22 @@ export function SavedTripsMenu({ variant = "header" }: { variant?: "header" | "i
     [busy, wanderlyTripId, switchToSavedTrip, refreshList],
   );
 
-  const requestDelete = useCallback((e: React.MouseEvent, t: SavedTripIndexEntry) => {
+  const requestDelete = useCallback((e: React.MouseEvent, t: TripRow) => {
     e.stopPropagation();
-    setConfirm({ sessionId: t.session_id, name: t.trip_name });
+    setConfirm({ tripId: t.trip_id, name: t.trip_name });
   }, []);
 
   const cancelDelete = useCallback(() => setConfirm(null), []);
 
   const confirmDelete = useCallback(async () => {
     if (!confirm) return;
-    const sid = confirm.sessionId;
+    const tripId = confirm.tripId.trim();
     setConfirm(null);
     setOpen(false);
-    await deleteSavedTrip(sid);
+    if (!tripId) return;
+    await deleteTrip(tripId);
     refreshList();
-  }, [confirm, deleteSavedTrip, refreshList]);
+  }, [confirm, deleteTrip, refreshList]);
 
   if (!wanderlyWorkspaceBootstrapped) return null;
 
@@ -86,7 +117,7 @@ export function SavedTripsMenu({ variant = "header" }: { variant?: "header" | "i
         type="button"
         className={btnClass}
         disabled={busy}
-        title={busy ? "Please wait…" : "Open a trip you saved on this device"}
+        title={busy ? "Please wait…" : "Open or delete a saved trip"}
         onClick={() => setOpen((o) => !o)}
       >
         <FolderOpen className={variant === "idle" ? "h-4 w-4 shrink-0 text-indigo-300/90" : "h-3.5 w-3.5 shrink-0"} />
@@ -114,12 +145,12 @@ export function SavedTripsMenu({ variant = "header" }: { variant?: "header" | "i
                 const isCurrent = t.trip_id === wanderlyTripId;
                 return (
                   <li
-                    key={t.session_id}
+                    key={`${t.trip_id}-${t.session_id}`}
                     className="flex items-start gap-2 border-b border-white/[0.04] px-3 py-2.5 last:border-b-0"
                   >
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-medium text-white/85">{t.trip_name}</p>
-                      <p className="text-[10px] text-white/35">{formatSavedAt(t.saved_at)}</p>
+                      <p className="text-[10px] text-white/35">{t.savedLabel}</p>
                       {isCurrent ? (
                         <span className="mt-1 inline-block rounded bg-indigo-500/20 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-indigo-200/90">
                           Current
@@ -140,7 +171,7 @@ export function SavedTripsMenu({ variant = "header" }: { variant?: "header" | "i
                         type="button"
                         role="menuitem"
                         disabled={busy}
-                        title="Remove from this device’s saved list"
+                        title="Remove trip from list and delete its file"
                         onClick={(e) => requestDelete(e, t)}
                         className="inline-flex items-center justify-center gap-1 rounded-md border border-red-500/25 px-2 py-1 text-[11px] text-red-200/90 hover:bg-red-500/10 disabled:opacity-35"
                       >
@@ -169,8 +200,7 @@ export function SavedTripsMenu({ variant = "header" }: { variant?: "header" | "i
             </h2>
             <p className="mt-2 text-[13px] leading-relaxed text-white/55">
               Remove <span className="font-medium text-white/80">&quot;{confirm.name}&quot;</span> from your saved
-              list on this browser. This does not erase cloud data immediately, but you will not be able to reopen it
-              from this list.
+              list and delete its trip file on disk. This cannot be undone.
             </p>
             <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button

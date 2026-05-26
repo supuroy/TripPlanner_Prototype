@@ -384,6 +384,8 @@ export function CommandBar() {
           "refine_workspace",
           "targeted_itinerary_edit",
           "explicit_remove_destinations",
+          // compare_places needs the same workspace JSON as refine (pinned/dismissed, hooks); advisor_feed strips pins.
+          "compare_places",
         ]);
         if (!plannerActions.has(action) || !orch.parse_ok) {
           setAgentStatus("Travel agent…");

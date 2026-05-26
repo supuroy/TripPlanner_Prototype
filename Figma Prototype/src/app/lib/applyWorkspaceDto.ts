@@ -94,10 +94,10 @@ export function mergeDestinationUiState(
       }
     }
     const pinned =
-      Object.prototype.hasOwnProperty.call(row, "pinned") && typeof row.pinned === "boolean"
-        ? row.pinned
-        : typeof p?.pinned === "boolean"
-          ? p.pinned
+      p && typeof p.pinned === "boolean"
+        ? p.pinned
+        : Object.prototype.hasOwnProperty.call(row, "pinned") && typeof row.pinned === "boolean"
+          ? row.pinned
           : Boolean(row.pinned);
     const dismissed =
       Object.prototype.hasOwnProperty.call(row, "dismissed") && typeof row.dismissed === "boolean"

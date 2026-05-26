@@ -27,6 +27,7 @@ from src.wanderly.llm_telemetry import (
     ACTIVITY_ITINERARY_REFINEMENT,
     telemetry_meta,
 )
+from src.wanderly.json_llm_repair import repair_llm_json_blob
 from src.wanderly.itinerary_lazy import _normalize_needs_commercial_flight, ensure_transport_plan_after_extract
 from src.wanderly.parallel_post_refine import (
     PROFILE_LISTENER_THREAD_KEY,
@@ -129,6 +130,10 @@ Rules:
   (ids, hooks, pinned/dismissed, capped day-by-day plans, short warnings). Hero images, commerce,
   booking HTML, and rich flight/hotel rows are omitted to save tokens; the server still merges your
   JSON with the real UI cards by stable ``id``.
+- In each workspace row, **pinned** is true when the traveler bookmarked that card in the UI for
+  comparison (user prose may say "pinned", "bookmarked", or "saved for comparison" — same flag).
+  When they ask to compare pinned or bookmarked places, use rows with **pinned:true**; do not
+  claim you cannot see bookmarks if the context shows them.
 - Keep every destination with pinned=true in your destinations array unless the user explicitly
   asks to remove or replace that place (stable id, you may refresh hook/score).
 - Do not include destinations with dismissed=true unless the user asks to bring one back.
@@ -157,22 +162,24 @@ Structured context (JSON) follows:
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
-    t = text.strip()
+    t = (text or "").strip()
     try:
-        return json.loads(t)
+        return json.loads(repair_llm_json_blob(t))
     except json.JSONDecodeError:
         pass
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", t, re.IGNORECASE)
     if m:
+        inner = repair_llm_json_blob(m.group(1).strip())
         try:
-            return json.loads(m.group(1).strip())
+            return json.loads(inner)
         except json.JSONDecodeError:
             pass
     start = t.find("{")
     end = t.rfind("}")
     if start >= 0 and end > start:
+        candidate = repair_llm_json_blob(t[start : end + 1])
         try:
-            return json.loads(t[start : end + 1])
+            return json.loads(candidate)
         except json.JSONDecodeError:
             return None
     return None
@@ -560,12 +567,11 @@ def _merge_dest_ui_flags(prior: list[dict[str, Any]], dests: list[dict[str, Any]
         did = str(d.get("id") or "").strip()
         merged = dict(d)
         if did in flags:
-            # Keep browser pin/dismiss unless the model JSON explicitly sets the flag, so a "bring back
-            # Iceland" response with dismissed:false is not overwritten by the prior dismissed:true.
-            if "pinned" in merged:
-                merged["pinned"] = bool(merged.get("pinned"))
-            else:
-                merged["pinned"] = flags[did]["pinned"]
+            # ``pinned`` is client-owned (bookmark / sync_ui). Models routinely emit ``pinned:false``
+            # on every row; trusting that (28b65b5) wiped real pins before the next refine context.
+            merged["pinned"] = flags[did]["pinned"]
+            # ``dismissed``: keep prior unless the model explicitly sets the flag (e.g. dismissed:false
+            # to bring a place back).
             if "dismissed" in merged:
                 merged["dismissed"] = bool(merged.get("dismissed"))
             else:

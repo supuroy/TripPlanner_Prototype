@@ -30,7 +30,6 @@ import {
   ArrowRight,
   MapPin,
   Calendar,
-  CheckCircle2,
   Loader2,
   ChevronDown,
   ChevronUp,
@@ -39,7 +38,7 @@ import {
 import { ExportItineraryPdfButton } from "./ExportItineraryPdfButton";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useTrip } from "./TripStore";
-import type { DestCard, ItinDay } from "./TripStore";
+import type { DestCard, ItinDay, ProfilePill } from "./TripStore";
 import { syncUi, buildItineraryStream } from "../../api/wanderly";
 import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
@@ -65,6 +64,35 @@ import { LogisticsFlipSkeleton } from "./LogisticsFlipSkeleton";
 
 /** Auto-advance hero slideshow when multiple URLs (enrich / planner). */
 const HERO_SLIDE_MS = 4200;
+
+/**
+ * Push pin/dismiss (and other card flags) to the server immediately. TripStore also debounces
+ * ``sync_ui`` (~450ms); without this, refine/smoke can run before ``ui_destinations`` carries
+ * ``pinned: true``, so the model honestly sees no bookmarks.
+ */
+function queueImmediateWorkspaceSync(args: {
+  sessionId: string;
+  wanderlyTripId: string;
+  tripName: string;
+  profile: ProfilePill[];
+  nextDests: DestCard[];
+  beginTripDiskSave: () => void;
+  completeTripDiskSave: (dests: DestCard[], opts?: { savedToDisk?: boolean }) => void;
+  failTripDiskSave: () => void;
+}): void {
+  const sid = args.sessionId.trim();
+  if (!sid) return;
+  const tid = args.wanderlyTripId.trim();
+  const tname = (args.tripName.trim() || "Untitled trip").slice(0, 200);
+  args.beginTripDiskSave();
+  void syncUi(sid, args.nextDests as unknown[], {
+    tripId: tid || undefined,
+    tripMeta: tid ? { trip_id: tid, trip_name: tname } : undefined,
+    profilePills: args.profile,
+  })
+    .then((r) => args.completeTripDiskSave(args.nextDests, { savedToDisk: Boolean(r.saved_to_disk) }))
+    .catch(() => args.failTripDiskSave());
+}
 
 const VIBE_COLORS: Record<string, string> = {
   Culture: "bg-purple-500/20 text-purple-300",
@@ -571,6 +599,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     addResponse,
     sessionId,
     wanderlyTripId,
+    tripName,
     profile,
     itineraryLaneQueueDepth,
     queuePlanReviewAfterItineraries,
@@ -772,8 +801,23 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const togglePin = (e: React.MouseEvent) => {
     e.stopPropagation();
     const willPin = !dest.pinned;
-    setDestinations((prev: DestCard[]) => prev.map(d => d.id === dest.id ? { ...d, pinned: !d.pinned } : d));
-    
+    setDestinations((prev: DestCard[]) => {
+      const next = prev.map((d) => (d.id === dest.id ? { ...d, pinned: !d.pinned } : d));
+      queueMicrotask(() => {
+        queueImmediateWorkspaceSync({
+          sessionId,
+          wanderlyTripId,
+          tripName,
+          profile,
+          nextDests: next,
+          beginTripDiskSave,
+          completeTripDiskSave,
+          failTripDiskSave,
+        });
+      });
+      return next;
+    });
+
     // Show feedback about what pinning does
     if (willPin) {
       addResponse({
@@ -1118,18 +1162,15 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
           {/* Full plan */}
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}>
-            {/* Itinerary Confirmed Badge - only when pinned */}
+            {/* Pinned itinerary highlight — bookmark only; not a booking confirmation */}
             {dest.pinned && (
               <motion.div 
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30"
               >
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <div className="flex-1">
-                  <p className="text-[12px] text-emerald-300 font-medium">Itinerary Confirmed</p>
-                  <p className="text-[10px] text-emerald-400/60">All prices locked & bookings finalized</p>
-                </div>
+                <Pin className="w-4 h-4 shrink-0 text-emerald-400" aria-hidden />
+                <p className="text-[12px] text-emerald-300 font-medium">Itinerary pinned</p>
               </motion.div>
             )}
 
@@ -1332,7 +1373,18 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
 
 /* ── Grid card (collapsed view) ── */
 function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolean }) {
-  const { setDestinations, setExpandedDest, addResponse, sessionId } = useTrip();
+  const {
+    setDestinations,
+    setExpandedDest,
+    addResponse,
+    sessionId,
+    wanderlyTripId,
+    tripName,
+    profile,
+    beginTripDiskSave,
+    completeTripDiskSave,
+    failTripDiskSave,
+  } = useTrip();
   const { src: heroSrc, count: heroCount, index: heroIndex } = useRotatingHeroSrc(dest, HERO_SLIDE_MS);
   const showPlanningOverlay = destinationItineraryIsPlanning(dest, sessionId);
 
@@ -1356,8 +1408,23 @@ function GridCard({ dest, expandLocked }: { dest: DestCard; expandLocked: boolea
   const togglePin = (e: React.MouseEvent) => {
     e.stopPropagation();
     const willPin = !dest.pinned;
-    setDestinations((prev: DestCard[]) => prev.map(d => d.id === dest.id ? { ...d, pinned: !d.pinned } : d));
-    
+    setDestinations((prev: DestCard[]) => {
+      const next = prev.map((d) => (d.id === dest.id ? { ...d, pinned: !d.pinned } : d));
+      queueMicrotask(() => {
+        queueImmediateWorkspaceSync({
+          sessionId,
+          wanderlyTripId,
+          tripName,
+          profile,
+          nextDests: next,
+          beginTripDiskSave,
+          completeTripDiskSave,
+          failTripDiskSave,
+        });
+      });
+      return next;
+    });
+
     // Show feedback about what pinning does
     if (willPin) {
       addResponse({

@@ -191,6 +191,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           "refine_workspace",
           "targeted_itinerary_edit",
           "explicit_remove_destinations",
+          "compare_places",
         ]);
 
         if (destinations.length === 0 && plannerActions.has(action)) {
