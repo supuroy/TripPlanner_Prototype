@@ -27,6 +27,14 @@ from src.wanderly.llm_telemetry import (
     ACTIVITY_ITINERARY_REFINEMENT,
     telemetry_meta,
 )
+from src.wanderly.inline_itinerary import (
+    apply_itinerary_dirty_flags,
+    candidate_rebuild_destination_ids,
+    candidates_for_inline_attempt,
+    itinerary_primary_refine_message,
+    partition_inline_vs_lazy,
+    refine_inline_itinerary_instructions,
+)
 from src.wanderly.json_llm_repair import repair_llm_json_blob
 from src.wanderly.itinerary_lazy import _normalize_needs_commercial_flight, ensure_transport_plan_after_extract
 from src.wanderly.parallel_post_refine import (
@@ -55,43 +63,108 @@ def _refine_model_persist_kwargs(session_id: str, *, trace_path: str) -> tuple[s
     return None, cursor_run_persist_kwargs(session_id, None, trace_path=trace_path)
 
 
-_ITIN_PRIMARY_REFINE_ASKS_ITIN = re.compile(
-    r"\b(update|refresh|rebuild|regenerate|rewrite|redo|revise)\b[\s\S]{0,220}\b"
-    r"(itineraries?|itinerary|day-by-day|day\s+plans?|schedule|cards?|shortlist|destination\s+cards?)\b",
-    re.I,
-)
-_ITIN_PRIMARY_REFINE_ASKS_ITIN_ALT = re.compile(
-    r"\b(itineraries?|itinerary|day-by-day)\b[\s\S]{0,220}\b"
-    r"(update|refresh|rebuild|regenerate|rewrite|redo|revise|for\s+each|all|every)\b",
-    re.I,
-)
-
-
-def itinerary_primary_refine_message(message: str) -> bool:
+def _prepare_refine_turn(
+    session_id: str,
+    user_message: str,
+    *,
+    orchestration: dict[str, Any] | None = None,
+    focus_destination_id: str | None = None,
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
     """
-    True when the traveler is mainly asking to refresh day plans / cards without editing profile
-    (mirrors Figma ``isItineraryPrimaryRefineMessage``).
+    Build refine planner prompt and return ``(prompt, prior_dests, prior_pills)``.
     """
-    m = (message or "").strip()
-    if not m:
-        return False
-    ml = m.lower()
-    asks_itin = bool(
-        _ITIN_PRIMARY_REFINE_ASKS_ITIN.search(ml) or _ITIN_PRIMARY_REFINE_ASKS_ITIN_ALT.search(ml)
+    um = (user_message or "").strip()
+    prior_pills = snapshot_profile_pills(session_id)
+    context, prior_dests = _refine_prompt_context_json(session_id)
+    valid_ids = {
+        str(d.get("id") or "").strip()
+        for d in prior_dests
+        if str(d.get("id") or "").strip()
+    }
+    inline_candidates = candidates_for_inline_attempt(
+        orchestration=orchestration,
+        valid_ids=valid_ids,
+        focus_destination_id=focus_destination_id,
     )
-    if not asks_itin:
-        return False
-    asks_profile = bool(
-        re.search(
-            r"\b(set|change|update|edit)\s+(my\s+)?(budget|duration|when|dates|origin|airport|travelers?|vibe|pace)\b",
-            ml,
-            re.I,
+    try_inline = bool(inline_candidates)
+    extra: dict[str, Any] = {}
+    if isinstance(orchestration, dict):
+        extra["orchestration_hint"] = {
+            k: orchestration.get(k)
+            for k in (
+                "workspace_action",
+                "itinerary_refresh",
+                "itinerary_delivery",
+                "focus_destination_ids",
+            )
+            if orchestration.get(k) is not None
+        }
+    if try_inline and inline_candidates:
+        extra["inline_itinerary_destination_ids"] = inline_candidates
+    if extra:
+        context, prior_dests = _refine_prompt_context_json(session_id, extra_context=extra)
+    instructions = _REFINE_INSTRUCTIONS
+    if try_inline and inline_candidates:
+        instructions = _REFINE_INSTRUCTIONS + "\n\n" + refine_inline_itinerary_instructions()
+    prompt = instructions + "\n" + context + "\n\nUser refinement:\n" + um
+    return prompt, prior_dests, prior_pills
+
+
+def _apply_inline_itinerary_delivery(
+    dto: WanderlyWorkspaceDTO,
+    *,
+    user_message: str,
+    prior_pills: list[dict[str, Any]],
+    orchestration: dict[str, Any] | None,
+    focus_destination_id: str | None,
+) -> tuple[WanderlyWorkspaceDTO, list[str], list[str]]:
+    """Validate inline itineraries; set ``itinerary_dirty`` and return applied/lazy id lists."""
+    dest_rows: list[dict[str, Any]] = []
+    for d in dto.destinations:
+        if isinstance(d, dict):
+            dest_rows.append(dict(d))
+        elif hasattr(d, "model_dump"):
+            dumped = d.model_dump()
+            if isinstance(dumped, dict):
+                dest_rows.append(dumped)
+    valid_ids = {str(d.get("id") or "").strip() for d in dest_rows if str(d.get("id") or "").strip()}
+    incoming_pills = [p.model_dump() for p in dto.profile_pills]
+    lazy_candidates = candidate_rebuild_destination_ids(
+        orchestration=orchestration,
+        user_message=user_message,
+        prior_pills=prior_pills,
+        incoming_pills=incoming_pills,
+        valid_ids=valid_ids,
+        focus_destination_id=focus_destination_id,
+    )
+    inline_candidates = candidates_for_inline_attempt(
+        orchestration=orchestration,
+        valid_ids=valid_ids,
+        focus_destination_id=focus_destination_id,
+    )
+    if not lazy_candidates and not inline_candidates:
+        return dto, [], []
+    applied: list[str] = []
+    if inline_candidates:
+        applied, _ = partition_inline_vs_lazy(
+            dest_rows,
+            inline_candidates,
+            try_inline=True,
         )
-        or re.search(r"\b(budget|duration)\s+(to|at)\s+", ml, re.I)
-        or re.search(r"\b(update|edit)\s+(my\s+)?(travel|traveler)\s+profile\b", ml, re.I)
-        or re.search(r"\b(profile\s+pills?|sidebar\s+profile)\b", ml, re.I)
+    applied_set = set(applied)
+    lazy = [c for c in lazy_candidates if c not in applied_set]
+    if not applied and not lazy:
+        return dto, [], []
+    patched = apply_itinerary_dirty_flags(
+        dest_rows,
+        inline_applied_ids=set(applied),
+        lazy_needed_ids=set(lazy),
     )
-    return not asks_profile
+    log_itinerary_build(
+        f"path=wanderly.refine_inline_delivery applied={applied!r} lazy={lazy!r} "
+        f"inline_candidates={inline_candidates!r} lazy_candidates={lazy_candidates!r}"
+    )
+    return dto.model_copy(update={"destinations": patched}), applied, lazy
 
 
 _JSON_INSTRUCTIONS = """
@@ -510,7 +583,11 @@ def _slim_destinations_for_refine_prompt(destinations: list[dict[str, Any]]) -> 
     return [_slim_destination_row_for_refine_prompt(x) for x in destinations if isinstance(x, dict)]
 
 
-def _refine_prompt_context_json(session_id: str) -> tuple[str, list[dict[str, Any]]]:
+def _refine_prompt_context_json(
+    session_id: str,
+    *,
+    extra_context: dict[str, Any] | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
     """
     Build the JSON block embedded in the refine planner prompt.
 
@@ -525,6 +602,7 @@ def _refine_prompt_context_json(session_id: str) -> tuple[str, list[dict[str, An
             "prior_chat": chat,
             "workspace_destinations": slim,
             "sidebar_profile_pills": sidebar_pills[:24],
+            **(extra_context or {}),
         },
         ensure_ascii=True,
         separators=(",", ":"),
@@ -919,6 +997,9 @@ def _complete_refine_turn(
     *,
     allow_shortlist_shrink: bool,
     profile_pills_freeze: list[dict[str, Any]] | None = None,
+    orchestration: dict[str, Any] | None = None,
+    focus_destination_id: str | None = None,
+    prior_pills: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     parsed = _extract_json_object(raw_text)
     restored_omitted: list[str] = []
@@ -949,6 +1030,14 @@ def _complete_refine_turn(
                 frozen.append(cp)
         if frozen:
             dto = dto.model_copy(update={"profile_pills": frozen})
+    pills_before = prior_pills if prior_pills is not None else snapshot_profile_pills(session_id)
+    dto, inline_applied, lazy_needed = _apply_inline_itinerary_delivery(
+        dto,
+        user_message=user_message,
+        prior_pills=pills_before,
+        orchestration=orchestration,
+        focus_destination_id=focus_destination_id,
+    )
     _log_workspace_destinations_logistics(dto.destinations, session_id, "refine_turn.commit")
     append_chat(session_id, "user", user_message)
     append_chat(session_id, "assistant", dto.assistant_markdown)
@@ -956,6 +1045,8 @@ def _complete_refine_turn(
     set_last_profile_pills(session_id, [p.model_dump() for p in dto.profile_pills])
     _mirror_ui_destinations_from_dto(session_id, dto)
     out: dict[str, Any] = {"wanderly": dto.model_dump(), "parse_ok": parsed is not None}
+    out["inline_itinerary_applied_ids"] = inline_applied
+    out["lazy_itinerary_needed_ids"] = lazy_needed
     if parsed and restored_omitted:
         out["shortlist_drop_blocked"] = True
         out["model_omitted_destination_ids"] = restored_omitted
@@ -963,20 +1054,23 @@ def _complete_refine_turn(
 
 
 def run_refine_turn(
-    user_message: str, session_id: str, *, confirm_workspace_drop: bool = False
+    user_message: str,
+    session_id: str,
+    *,
+    confirm_workspace_drop: bool = False,
+    orchestration: dict[str, Any] | None = None,
+    focus_destination_id: str | None = None,
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
     um = (user_message or "").strip()
     pills_freeze = snapshot_profile_pills(session_id)
     freeze_profile = itinerary_primary_refine_message(um)
-    context, prior_dests = _refine_prompt_context_json(session_id)
-    prompt = (
-        _REFINE_INSTRUCTIONS
-        + "\n"
-        + context
-        + "\n\nUser refinement:\n"
-        + um
+    prompt, prior_dests, prior_pills = _prepare_refine_turn(
+        session_id,
+        um,
+        orchestration=orchestration,
+        focus_destination_id=focus_destination_id,
     )
     mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.json")
     with basic_client(key) as client:
@@ -997,6 +1091,9 @@ def run_refine_turn(
         prior_dests,
         allow_shortlist_shrink=confirm_workspace_drop,
         profile_pills_freeze=pills_freeze if freeze_profile else None,
+        orchestration=orchestration,
+        focus_destination_id=focus_destination_id,
+        prior_pills=prior_pills,
     )
     if freeze_profile:
         return out
@@ -1018,19 +1115,19 @@ def run_refine_turn_streaming(
     emit: Callable[[dict[str, Any]], None] | None,
     *,
     confirm_workspace_drop: bool = False,
+    orchestration: dict[str, Any] | None = None,
+    focus_destination_id: str | None = None,
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
     um = (user_message or "").strip()
     pills_freeze = snapshot_profile_pills(session_id)
     freeze_profile = itinerary_primary_refine_message(um)
-    context, prior_dests = _refine_prompt_context_json(session_id)
-    prompt = (
-        _REFINE_INSTRUCTIONS
-        + "\n"
-        + context
-        + "\n\nUser refinement:\n"
-        + um
+    prompt, prior_dests, prior_pills = _prepare_refine_turn(
+        session_id,
+        um,
+        orchestration=orchestration,
+        focus_destination_id=focus_destination_id,
     )
     emit_lock = threading.Lock()
 
@@ -1061,6 +1158,9 @@ def run_refine_turn_streaming(
         prior_dests,
         allow_shortlist_shrink=confirm_workspace_drop,
         profile_pills_freeze=pills_freeze if freeze_profile else None,
+        orchestration=orchestration,
+        focus_destination_id=focus_destination_id,
+        prior_pills=prior_pills,
     )
     if emit and out.get("shortlist_drop_blocked"):
         safe_emit(

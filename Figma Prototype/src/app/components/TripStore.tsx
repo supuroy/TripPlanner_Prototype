@@ -7,7 +7,7 @@ import type {
   WanderlyTransportPlan,
   WanderlyWorkspaceDTO,
 } from "../../types/workspace";
-import type { WanderlyTripSummary } from "../../api/wanderly";
+import type { WanderlyOrchestration, WanderlyTripSummary } from "../../api/wanderly";
 import {
   planReview,
   bootstrapWanderlyTrips,
@@ -23,6 +23,7 @@ import { computeTripDestDiskSig, computeTripPersistSig } from "../lib/tripPersis
 
 export { computeTripDestDiskSig } from "../lib/tripPersistSig";
 import { logItin } from "../lib/itineraryDebug";
+import { cardStreamPush } from "../lib/cardStreamOverlayBridge";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
 import { parallelPostRefineEnabled } from "../lib/parallelPostRefine";
@@ -89,6 +90,8 @@ export interface DestCard {
   budget_guidance?: ItineraryBudgetGuidance;
   /** True when trip criteria changed and lazy itinerary should refresh on open / background for pinned. */
   itinerary_dirty?: boolean;
+  /** User refine text forwarded to lazy build when inline refine did not produce a complete plan. */
+  itinerary_refinement_hint?: string;
   /** Destination-scoped chat (expanded card conversation panel). */
   conversation?: ConversationMessage[];
   /** Legacy: previously gated flip to live booking timeline; flip is now itinerary-driven (logistics). */
@@ -343,6 +346,9 @@ interface TripStoreType {
   /** When set (and workspace has destinations), CommandBar runs a refine with this text. */
   pendingRefineText: string | null;
   setPendingRefineText: (t: string | null) => void;
+  /** Orchestration from card chat routing — passed to refine so inline itinerary mode can apply. */
+  pendingRefineOrchestration: WanderlyOrchestration | null;
+  setPendingRefineOrchestration: (o: WanderlyOrchestration | null) => void;
   /** One-shot: main bar input is filled from advisor “Try asking” chips, then cleared. */
   composerPrefill: string | null;
   setComposerPrefill: (t: string | null) => void;
@@ -621,7 +627,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [insights, setInsights] = useState<AgentInsight[]>([]);
   const [responses, setResponses] = useState<AgentResponse[]>([]);
   const [agentStatus, setAgentStatus] = useState("");
-  const [agentStreamCaption, setAgentStreamCaption] = useState("");
+  const [agentStreamCaption, setAgentStreamCaptionState] = useState("");
+  const setAgentStreamCaption = useCallback((caption: string) => {
+    setAgentStreamCaptionState(caption);
+    cardStreamPush(caption);
+  }, []);
   const [selectedDest, setSelectedDest] = useState<string | null>(null);
   const [expandedDest, setExpandedDest] = useState<string | null>(null);
   const [isCanvasCollapsed, setIsCanvasCollapsed] = useState(false);
@@ -660,6 +670,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const [pendingRefineText, setPendingRefineText] = useState<string | null>(null);
+  const [pendingRefineOrchestration, setPendingRefineOrchestration] = useState<WanderlyOrchestration | null>(
+    null,
+  );
   const [composerPrefill, setComposerPrefill] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [refineUnlockCardNavigation, setRefineUnlockCardNavigation] = useState(false);
@@ -1371,6 +1384,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         setTripName,
         enrichmentPending, setEnrichmentPending,
         pendingRefineText, setPendingRefineText,
+        pendingRefineOrchestration, setPendingRefineOrchestration,
         composerPrefill, setComposerPrefill,
         undoStack, pushUndo, performUndo,
         queuePlanReviewAfterItineraries,

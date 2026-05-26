@@ -27,6 +27,7 @@ from src.wanderly.itinerary_lazy import (
 )
 from src.wanderly.cursor_advisor import (
     run_advisor_chat_cursor,
+    run_advisor_chat_cursor_streaming,
     run_plan_review_cursor,
     run_profile_change_advisor_cursor,
 )
@@ -132,6 +133,23 @@ def _truthy_flag(val: Any) -> bool:
         return val != 0
     s = str(val or "").strip().lower()
     return s in ("1", "true", "yes", "on")
+
+
+def _orchestration_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    raw = payload.get("orchestration")
+    return raw if isinstance(raw, dict) else None
+
+
+def _refine_delivery_fields(out: dict[str, Any]) -> dict[str, Any]:
+    """Always emit delivery arrays (even empty) so the client does not fall back to stale heuristics."""
+    extra: dict[str, Any] = {}
+    applied = out.get("inline_itinerary_applied_ids")
+    lazy = out.get("lazy_itinerary_needed_ids")
+    if isinstance(applied, list):
+        extra["inline_itinerary_applied_ids"] = [str(x).strip() for x in applied if str(x).strip()]
+    if isinstance(lazy, list):
+        extra["lazy_itinerary_needed_ids"] = [str(x).strip() for x in lazy if str(x).strip()]
+    return extra
 
 
 def _is_placeholder_profile_pills(pills: list[dict[str, Any]]) -> bool:
@@ -402,7 +420,13 @@ def run_web_server(
                         _timeline(
                             f"TIMELINE refine_turn_begin trace={tid!r} sid={sid[:12]!r} msg_len={len(msg)}"
                         )
-                        out = run_refine_turn(msg, sid, confirm_workspace_drop=confirm_drop)
+                        out = run_refine_turn(
+                            msg,
+                            sid,
+                            confirm_workspace_drop=confirm_drop,
+                            orchestration=_orchestration_from_payload(payload),
+                            focus_destination_id=(payload.get("focus_destination_id") or "").strip() or None,
+                        )
                         wly_r = out.get("wanderly")
                         nd_r = (
                             len(wly_r["destinations"])
@@ -449,7 +473,12 @@ def run_web_server(
                         )
                         try:
                             out_r = run_refine_turn_streaming(
-                                msg, sid, emit=emit_r, confirm_workspace_drop=confirm_drop_rs
+                                msg,
+                                sid,
+                                emit=emit_r,
+                                confirm_workspace_drop=confirm_drop_rs,
+                                orchestration=_orchestration_from_payload(payload),
+                                focus_destination_id=(payload.get("focus_destination_id") or "").strip() or None,
                             )
                             profile_job = _pop_profile_listener_thread(out_r)
                             done_payload: dict[str, Any] = {
@@ -463,6 +492,7 @@ def run_web_server(
                                 done_payload["model_omitted_destination_ids"] = (
                                     out_r.get("model_omitted_destination_ids") or []
                                 )
+                            done_payload.update(_refine_delivery_fields(out_r))
                             emit_r(done_payload)
                             _join_profile_listener_thread(profile_job)
                         finally:
@@ -743,6 +773,7 @@ def run_web_server(
                         days = 0
                     if days <= 0:
                         days = default_trip_days_from_pills(pills)
+                    refinement_message = (payload.get("refinement_message") or "").strip() or None
                     rid = _itinerary_request_id(self)
                     tid_b = _wanderly_trace_id(self)
                     print(f"[web] /api/wanderly/build_itinerary rid={rid} sid={sid!r} dest_id={did!r} days={days}", flush=True)
@@ -764,6 +795,7 @@ def run_web_server(
                                 days=days,
                                 session_id=sid,
                                 request_id=rid,
+                                refinement_message=refinement_message,
                             )
                         rows = itin_out.get("itinerary") or []
                         bg = itin_out.get("budget_guidance")
@@ -848,6 +880,7 @@ def run_web_server(
                         days = 0
                     if days <= 0:
                         days = default_trip_days_from_pills(pills)
+                    refinement_message = (payload.get("refinement_message") or "").strip() or None
                     rid = _itinerary_request_id(self)
                     tid_bs = _wanderly_trace_id(self)
                     print(
@@ -884,6 +917,7 @@ def run_web_server(
                                 emit=emit_itin,
                                 session_id=sid,
                                 request_id=rid,
+                                refinement_message=refinement_message,
                             )
                         rows = itin_out.get("itinerary") or []
                         bg = itin_out.get("budget_guidance")
@@ -1190,6 +1224,127 @@ def run_web_server(
                         print(f"[web] /api/wanderly/advisor_feed error: {exc!r}")
                         traceback.print_exc()
                         self._send_json({"error": str(exc)}, status=500)
+                    return
+
+                if path == "/api/wanderly/advisor_feed_stream":
+                    from src.wanderly.web_search_snippets import fetch_web_search_snippets
+
+                    msg = (payload.get("message") or "").strip()
+                    sid = (payload.get("session_id") or "").strip()
+                    focus_dest = (payload.get("focus_destination_id") or "").strip()
+                    run_web_search = bool(payload.get("run_web_search"))
+                    sq_in = str(payload.get("search_query") or "").strip()[:500]
+                    if run_web_search and not msg and sq_in:
+                        msg = sq_in
+                    if not msg or not sid:
+                        self._send_json({"error": "Missing 'message' or 'session_id'."}, status=400)
+                        return
+                    try:
+                        self.send_response(200)
+                        self._apply_cors()
+                        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                        self.send_header("Cache-Control", "no-cache")
+                        self.send_header("X-Accel-Buffering", "no")
+                        self.end_headers()
+
+                        def emit_a(obj: dict) -> None:
+                            self._write_sse(obj)
+
+                        emit_a({"type": "phase", "message": "Connected — travel agent…"})
+                        pills: list = []
+                        dests: list = []
+                        web_used = False
+                        web_sources: list[dict[str, str]] = []
+                        if sid:
+                            pills = snapshot_profile_pills(sid)
+                            dests = snapshot_destinations_for_model(sid)
+                        snips: list[dict[str, str]] | None = None
+                        if run_web_search and sq_in:
+                            snips = fetch_web_search_snippets(sq_in)
+                            web_sources = [{"title": x.get("title", ""), "url": x.get("url", "")} for x in snips]
+                            web_used = bool(snips)
+                            if not snips:
+                                chat_out = {
+                                    "assistant_markdown": (
+                                        "Web search returned no snippets. Set **TAVILY_API_KEY** or **BRAVE_SEARCH_API_KEY** "
+                                        "in the Travel Planner environment and restart the server — or use **Open in browser** below."
+                                    ),
+                                    "refine_prompt": None,
+                                    "offer_web_search": False,
+                                    "suggested_search_query": None,
+                                }
+                            else:
+                                chat_out = run_advisor_chat_cursor_streaming(
+                                    user_message=msg,
+                                    profile_pills=pills,
+                                    destinations=dests,
+                                    session_id=sid or None,
+                                    focus_destination_id=focus_dest or None,
+                                    web_snippets=snips,
+                                    emit=emit_a,
+                                )
+                        else:
+                            chat_out = run_advisor_chat_cursor_streaming(
+                                user_message=msg,
+                                profile_pills=pills,
+                                destinations=dests,
+                                session_id=sid or None,
+                                focus_destination_id=focus_dest or None,
+                                emit=emit_a,
+                            )
+                        md = str(chat_out.get("assistant_markdown") or "").strip()
+                        ref_raw = chat_out.get("refine_prompt")
+                        refine_prompt = (
+                            str(ref_raw).strip()
+                            if isinstance(ref_raw, str) and str(ref_raw).strip().lower() not in ("null", "none")
+                            else None
+                        )
+                        offer_search = bool(chat_out.get("offer_web_search"))
+                        sq_raw = chat_out.get("suggested_search_query")
+                        suggested_search_query = (
+                            str(sq_raw).strip()[:500]
+                            if isinstance(sq_raw, str) and str(sq_raw).strip().lower() not in ("null", "none")
+                            else None
+                        )
+                        if offer_search and not suggested_search_query:
+                            offer_search = False
+                        if run_web_search:
+                            offer_search = False
+                            suggested_search_query = None
+                        sug = {
+                            "assistant_message": md,
+                            "refine_prompt": refine_prompt,
+                            "offer_web_search": offer_search,
+                            "suggested_search_query": suggested_search_query,
+                            "primary_recommendation": {"action": "none", "why": "Cursor advisor (cheap model) reply."},
+                            "model": "cursor_advisor",
+                        }
+                        wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
+                        if sid:
+                            s = get_session(sid)
+                            wanderly["destinations"] = wanderly_destinations_for_session(s)
+                        emit_a(
+                            {
+                                "type": "done",
+                                "advisor_suggestion": sug,
+                                "feed_markdown": md or "Advisor updated.",
+                                "refine_prompt": refine_prompt,
+                                "offer_web_search": offer_search,
+                                "suggested_search_query": suggested_search_query,
+                                "web_search_used": web_used if run_web_search else False,
+                                "web_sources": web_sources if run_web_search else [],
+                                "wanderly": wanderly,
+                            }
+                        )
+                    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                        return
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/advisor_feed_stream error: {exc!r}")
+                        traceback.print_exc()
+                        try:
+                            self._write_sse({"type": "error", "message": str(exc)})
+                        except OSError:
+                            return
                     return
 
                 if path == "/api/wanderly/plan_review":

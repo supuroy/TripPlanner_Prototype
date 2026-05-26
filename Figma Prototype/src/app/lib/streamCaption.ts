@@ -24,6 +24,17 @@ export const WAIT_WEB_CAPTIONS = [
   "Summarizing sources into a concise reply…",
 ] as const;
 
+/** Spinner lines — overlay should replace in place, not append each rotation. */
+export const ALL_ROTATING_WAIT_CAPTIONS: ReadonlySet<string> = new Set([
+  ...WAIT_ORCHESTRATE_CAPTIONS,
+  ...WAIT_ADVISOR_CAPTIONS,
+  ...WAIT_WEB_CAPTIONS,
+]);
+
+export function isRotatingWaitCaption(caption: string): boolean {
+  return ALL_ROTATING_WAIT_CAPTIONS.has(caption.trim());
+}
+
 /**
  * Cycles through lines every ``intervalMs`` so long blocking requests still feel alive.
  * Call the returned function to stop (e.g. in finally).
@@ -56,9 +67,9 @@ export function structuredPlannerStreamCaption(
   oneLine: string,
   thinkingDraft: { text: string },
   mode: StructuredStreamMode = "workspace",
+  tailMax = 420,
 ): string {
-  // Wider tail now that we omit a character count (saves horizontal space in the status strip).
-  const tail = oneLine.length > 420 ? oneLine.slice(-420) : oneLine;
+  const tail = oneLine.length > tailMax ? oneLine.slice(-tailMax) : oneLine;
   const thinking = thinkingDraft.text.replace(/\s+/g, " ").trim();
   const mid =
     mode === "itinerary"
@@ -71,6 +82,8 @@ export function structuredPlannerStreamCaption(
 export type StreamCaptionOpts = {
   /** Workspace JSON vs day-by-day itinerary JSON labels */
   structuredStreamMode?: StructuredStreamMode;
+  /** Longer tails for the expanded-card streaming overlay log */
+  overlay?: boolean;
 };
 
 /** Map Cursor SSE + our phase events to traveler-friendly status lines. */
@@ -81,6 +94,10 @@ export function streamEventToCaption(
   opts?: StreamCaptionOpts,
 ): string {
   const structuredMode = opts?.structuredStreamMode ?? "workspace";
+  const overlay = Boolean(opts?.overlay);
+  const thinkWindow = overlay ? 3200 : 360;
+  const structuredTail = overlay ? 560 : 420;
+  const proseWindowMax = overlay ? 1400 : 900;
 
   if (ev.type === "phase" && typeof ev.message === "string") {
     if (/parsing/i.test(ev.message)) thinkingDraft.text = "";
@@ -96,8 +113,8 @@ export function streamEventToCaption(
     thinkingDraft.text += ev.delta;
     const t = thinkingDraft.text.replace(/\s+/g, " ").trim();
     if (!t) return "";
-    const windowed = t.length > 360 ? `…${t.slice(-360)}` : t;
-    return `Considering options — ${windowed}`;
+    const windowed = t.length > thinkWindow ? `…${t.slice(-thinkWindow)}` : t;
+    return overlay ? windowed : `Considering options — ${windowed}`;
   }
   if (ev.type === "run_status" && typeof ev.status === "string") {
     return runStatusCaption(ev.status) ?? "";
@@ -119,10 +136,10 @@ export function streamEventToCaption(
       /"itinerary"\s*:/.test(oneLine) ||
       (/[\[{]/.test(oneLine[0] || "") && /"day"\s*:/.test(oneLine));
     if (looksLikeStructuredPayload) {
-      return structuredPlannerStreamCaption(oneLine, thinkingDraft, structuredMode);
+      return structuredPlannerStreamCaption(oneLine, thinkingDraft, structuredMode, structuredTail);
     }
-    const proseWindow = oneLine.length > 900 ? `…${oneLine.slice(-900)}` : oneLine;
-    return `Writing your plan — ${proseWindow}`;
+    const proseWindow = oneLine.length > proseWindowMax ? `…${oneLine.slice(-proseWindowMax)}` : oneLine;
+    return overlay ? proseWindow : `Writing your plan — ${proseWindow}`;
   }
   if (ev.type === "cursor_event") return "";
   return "";

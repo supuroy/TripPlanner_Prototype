@@ -1,11 +1,11 @@
 import type { DestCard, HotelOption, ItinDay } from "../components/TripStore";
-import { collectLodgingStayBlocks } from "./logisticsBreadcrumb";
+import { collectLodgingStayBlocksForDest, collectLodgingStayBlocksFromItinerary } from "./logisticsBreadcrumb";
 import { resetDestinationBookingState } from "./resetDestinationBooking";
 
 /** Stable signature for itinerary length, labels, and lodging anchors (breadcrumb + dirty detection). */
 export function itineraryLogisticsSignature(itinerary: ItinDay[] | undefined): string {
   if (!itinerary?.length) return "";
-  const stays = collectLodgingStayBlocks(itinerary);
+  const stays = collectLodgingStayBlocksFromItinerary(itinerary);
   const days = itinerary.map((d) => ({
     day: d.day,
     label: String(d.label || "").trim(),
@@ -22,7 +22,7 @@ export function itineraryLogisticsSignature(itinerary: ItinDay[] | undefined): s
 }
 
 export function totalLodgingNights(itinerary: ItinDay[] | undefined): number {
-  return collectLodgingStayBlocks(itinerary).reduce((sum, s) => sum + s.nights, 0);
+  return collectLodgingStayBlocksFromItinerary(itinerary).reduce((sum, s) => sum + s.nights, 0);
 }
 
 export function cardTripDaysLabel(itinerary: ItinDay[] | undefined): string | null {
@@ -67,7 +67,7 @@ export function deriveWhenRangeFromItinerary(itinerary: ItinDay[] | undefined): 
 }
 
 function deriveHotelsFromItinerary(card: DestCard): HotelOption[] {
-  const stays = collectLodgingStayBlocks(card.itinerary);
+  const stays = collectLodgingStayBlocksForDest(card);
   if (!stays.length) return [];
   const totalNights = totalLodgingNights(card.itinerary);
   const primary = stays[0];

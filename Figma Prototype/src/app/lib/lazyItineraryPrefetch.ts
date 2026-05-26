@@ -1,9 +1,12 @@
-import { buildItinerary, syncUi } from "../../api/wanderly";
+import { buildItineraryStream, syncUi } from "../../api/wanderly";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
 import type { DestCard, ProfilePill } from "../components/TripStore";
 import { destinationsFromWorkspace, mergeProfilePillsConservative } from "./applyWorkspaceDto";
 import { mergeItineraryBuildIntoDest } from "./itineraryMergeCard";
+import { cardStreamClose, cardStreamOpen, cardStreamPush } from "./cardStreamOverlayBridge";
+import { createCardStreamFromSseHandler } from "./cardStreamFromSse";
 import { logItin } from "./itineraryDebug";
+import { startRotatingWaitCaption, WAIT_ORCHESTRATE_CAPTIONS } from "./streamCaption";
 
 type SetDestinations = (u: DestCard[] | ((prev: DestCard[]) => DestCard[])) => void;
 
@@ -91,13 +94,36 @@ export function enqueueBackgroundItineraryBuild(args: {
   inFlight.add(id);
   enqueueItineraryLane(async () => {
     const rid = requestId(`itin-${args.source}`);
+    const destLabel = String(args.dest.name || id).trim() || id;
+    cardStreamOpen({
+      title: "Rebuilding itinerary",
+      subtitle: `Day-by-day plan for ${destLabel}…`,
+      destId: id,
+    });
+    let stopSpin: (() => void) | null = startRotatingWaitCaption(
+      (cap) => cardStreamPush(cap, id),
+      WAIT_ORCHESTRATE_CAPTIONS,
+      2400,
+    );
+    const onStreamEvent = createCardStreamFromSseHandler({
+      destId: id,
+      structuredStreamMode: "itinerary",
+      onLiveCaption: () => {
+        stopSpin?.();
+        stopSpin = null;
+      },
+    });
     try {
       logItin("background_prefetch_start", { requestId: rid, destId: id, source: args.source });
-      const res = await buildItinerary(
+      const res = await buildItineraryStream(
         args.sessionId,
         args.dest as unknown as Record<string, unknown>,
         args.profile,
-        { requestId: rid },
+        onStreamEvent,
+        {
+          requestId: rid,
+          refinementMessage: args.dest.itinerary_refinement_hint,
+        },
       );
       const rows = res.itinerary || [];
       const budget = res.budget_guidance ?? null;
@@ -131,6 +157,8 @@ export function enqueueBackgroundItineraryBuild(args: {
         prev.map((x) => (String(x.id) !== id ? x : { ...x, itinerary_dirty: false })),
       );
     } finally {
+      stopSpin?.();
+      cardStreamClose(1000, id);
       inFlight.delete(id);
     }
   }, id);

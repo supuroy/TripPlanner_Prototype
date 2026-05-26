@@ -11,9 +11,15 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any
+from typing import Any, Callable
 
-from src.integrations.cursor_agent_client import basic_client, get_api_key, load_env_from_roots, run_prompt_collect_assistant_text
+from src.integrations.cursor_agent_client import (
+    basic_client,
+    get_api_key,
+    load_env_from_roots,
+    run_prompt_collect_assistant_text,
+    run_prompt_collect_assistant_text_streaming,
+)
 from src.wanderly.llm_telemetry import (
     ACTIVITY_ADVISOR,
     ACTIVITY_DESTINATION_FOLLOWUP,
@@ -554,25 +560,15 @@ def _advisor_chat_parse_response(raw_text: str) -> dict[str, Any]:
     }
 
 
-def run_advisor_chat_cursor(
+def _advisor_chat_prompt_bundle(
     *,
     user_message: str,
     profile_pills: list[dict[str, Any]],
     destinations: list[dict[str, Any]],
-    session_id: str | None = None,
     focus_destination_id: str | None = None,
     web_snippets: list[dict[str, str]] | None = None,
-) -> dict[str, Any]:
-    """Structured reply for /advisor_feed: ``assistant_markdown`` + optional ``refine_prompt`` for the main planner."""
-    mid = structured_followup_model_id()
-    if not mid:
-        return {
-            "assistant_markdown": "Set CURSOR_REFINEMENT_MODEL_ID or CURSOR_ADVISOR_MODEL_ID to enable the Cursor-based advisor.",
-            "refine_prompt": None,
-            "offer_web_search": False,
-            "suggested_search_query": None,
-        }
-    load_env_from_roots()
+) -> tuple[str, str, list[dict[str, Any]]]:
+    """Returns ``(prompt, focus_id, dest_payload)`` for advisor chat (sync or SSE)."""
     fid = (focus_destination_id or "").strip()
     dest_payload: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -611,6 +607,56 @@ def run_advisor_chat_cursor(
             + "\n\nUser message:\n"
             + um
         )
+    return prompt, fid, dest_payload
+
+
+def _finalize_advisor_chat_result(
+    raw_text: str,
+    *,
+    user_message: str,
+    focus_destination_id: str,
+    dest_payload: list[dict[str, Any]],
+    web_snippets: list[dict[str, str]] | None,
+) -> dict[str, Any]:
+    parsed = _advisor_chat_parse_response(raw_text)
+    if web_snippets:
+        parsed["offer_web_search"] = False
+        parsed["suggested_search_query"] = None
+        return parsed
+    return _patch_advisor_web_search_when_obvious(
+        parsed,
+        user_message=(user_message or "").strip(),
+        focus_destination_id=focus_destination_id,
+        dest_payload=dest_payload,
+    )
+
+
+def run_advisor_chat_cursor(
+    *,
+    user_message: str,
+    profile_pills: list[dict[str, Any]],
+    destinations: list[dict[str, Any]],
+    session_id: str | None = None,
+    focus_destination_id: str | None = None,
+    web_snippets: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Structured reply for /advisor_feed: ``assistant_markdown`` + optional ``refine_prompt`` for the main planner."""
+    mid = structured_followup_model_id()
+    if not mid:
+        return {
+            "assistant_markdown": "Set CURSOR_REFINEMENT_MODEL_ID or CURSOR_ADVISOR_MODEL_ID to enable the Cursor-based advisor.",
+            "refine_prompt": None,
+            "offer_web_search": False,
+            "suggested_search_query": None,
+        }
+    load_env_from_roots()
+    prompt, fid, dest_payload = _advisor_chat_prompt_bundle(
+        user_message=user_message,
+        profile_pills=profile_pills,
+        destinations=destinations,
+        focus_destination_id=focus_destination_id,
+        web_snippets=web_snippets,
+    )
     try:
         with basic_client(get_api_key(), timeout_s=90.0) as client:
             raw_text = run_prompt_collect_assistant_text(
@@ -639,16 +685,84 @@ def run_advisor_chat_cursor(
             "offer_web_search": False,
             "suggested_search_query": None,
         }
-    parsed = _advisor_chat_parse_response(raw_text)
-    if web_snippets:
-        parsed["offer_web_search"] = False
-        parsed["suggested_search_query"] = None
-        return parsed
-    return _patch_advisor_web_search_when_obvious(
-        parsed,
-        user_message=(user_message or "").strip(),
+    return _finalize_advisor_chat_result(
+        raw_text,
+        user_message=user_message,
         focus_destination_id=fid,
         dest_payload=dest_payload,
+        web_snippets=web_snippets,
+    )
+
+
+def run_advisor_chat_cursor_streaming(
+    *,
+    user_message: str,
+    profile_pills: list[dict[str, Any]],
+    destinations: list[dict[str, Any]],
+    session_id: str | None = None,
+    focus_destination_id: str | None = None,
+    web_snippets: list[dict[str, str]] | None = None,
+    emit: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Same as ``run_advisor_chat_cursor`` but forwards Cursor SSE (thinking/assistant) to ``emit``."""
+    mid = structured_followup_model_id()
+    if not mid:
+        return {
+            "assistant_markdown": "Set CURSOR_REFINEMENT_MODEL_ID or CURSOR_ADVISOR_MODEL_ID to enable the Cursor-based advisor.",
+            "refine_prompt": None,
+            "offer_web_search": False,
+            "suggested_search_query": None,
+        }
+    load_env_from_roots()
+    prompt, fid, dest_payload = _advisor_chat_prompt_bundle(
+        user_message=user_message,
+        profile_pills=profile_pills,
+        destinations=destinations,
+        focus_destination_id=focus_destination_id,
+        web_snippets=web_snippets,
+    )
+
+    def safe_emit(ev: dict[str, Any]) -> None:
+        if emit is not None:
+            emit(ev)
+
+    try:
+        with basic_client(get_api_key(), timeout_s=90.0) as client:
+            raw_text = run_prompt_collect_assistant_text_streaming(
+                client,
+                prompt,
+                emit=safe_emit,
+                model_id_override=mid,
+                persistent_instruction_prefix=_ADVISOR_CHAT_PROMPT,
+                llm_telemetry_activity=ACTIVITY_DESTINATION_FOLLOWUP,
+                llm_telemetry_sub_activity="advisor_feed_stream",
+                llm_telemetry_meta=telemetry_meta(
+                    session_id=session_id,
+                    focus_destination_id=focus_destination_id,
+                ),
+                **cursor_run_persist_kwargs_for_lane(
+                    session_id or "",
+                    _CURSOR_LANE_ADVISOR_FEED,
+                    trace_path="cursor_advisor.advisor_feed_stream",
+                ),
+            )
+    except Exception as exc:
+        log_itinerary_build(
+            f"FAIL path=cursor_advisor.advisor_feed_stream sid={(session_id or '')[:12]!r} "
+            f"focus={(focus_destination_id or '')[:24]!r} exc={type(exc).__name__}: {exc!s}"
+        )
+        return {
+            "assistant_markdown": f"(Advisor unavailable: {exc})",
+            "refine_prompt": None,
+            "offer_web_search": False,
+            "suggested_search_query": None,
+        }
+    return _finalize_advisor_chat_result(
+        raw_text,
+        user_message=user_message,
+        focus_destination_id=fid,
+        dest_payload=dest_payload,
+        web_snippets=web_snippets,
     )
 
 

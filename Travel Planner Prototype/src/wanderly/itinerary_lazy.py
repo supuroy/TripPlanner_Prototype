@@ -1075,12 +1075,16 @@ def _itinerary_prompt_and_days(
     destination: dict[str, Any],
     profile_pills: list[dict[str, Any]],
     days: int,
+    refinement_message: str | None = None,
 ) -> tuple[str, int, str]:
     n = max(3, min(int(days), 14))
     prefix = _itinerary_persistent_prefix()
     tail = _itinerary_prompt_tail()
     ctx = build_itinerary_context_json(destination=destination, profile_pills=profile_pills)
     prompt = prefix + f" {n}\n\nContext JSON:\n{ctx}\n\n" + tail
+    rm = (refinement_message or "").strip()
+    if rm:
+        prompt += f"\n\nTraveler refinement (honor this when rebuilding the day-by-day plan):\n{rm[:4000]}\n"
     return prompt, n, prefix
 
 
@@ -1120,6 +1124,7 @@ def build_itinerary_for_destination(
     days: int,
     session_id: str | None = None,
     request_id: str | None = None,
+    refinement_message: str | None = None,
 ) -> dict[str, Any]:
     """
     Call Cursor once; return itinerary rows, optional budget bands, and optional booking URL hints for the client.
@@ -1129,7 +1134,10 @@ def build_itinerary_for_destination(
     load_env_from_roots()
     key = get_api_key()
     prompt, n, itin_prefix = _itinerary_prompt_and_days(
-        destination=destination, profile_pills=profile_pills, days=days
+        destination=destination,
+        profile_pills=profile_pills,
+        days=days,
+        refinement_message=refinement_message,
     )
     light = (os.environ.get("CURSOR_LIGHT_MODEL_FOR_ITINERARY") or os.environ.get("CURSOR_LIGHT_MODEL_FOR_IMAGES") or "").strip() or None
     log_itinerary_build(
@@ -1299,27 +1307,28 @@ def build_itinerary_for_destination_streaming(
     emit: Callable[[dict[str, Any]], None] | None = None,
     session_id: str | None = None,
     request_id: str | None = None,
+    refinement_message: str | None = None,
 ) -> dict[str, Any]:
     """
     Same as ``build_itinerary_for_destination`` but streams Cursor SSE.
-    Forwards thinking/status/tool events to ``emit``; never forwards ``assistant_delta``
-    so clients can show chain-of-thought without streaming raw JSON.
+    Forwards thinking/status/tool/assistant SSE to ``emit``; the client maps JSON deltas
+    to traveler-facing overlay text (does not render raw JSON in the UI).
     """
     rid = (request_id or "?").strip() or "?"
     did = str(destination.get("id") or "")
     load_env_from_roots()
     key = get_api_key()
     prompt, n, itin_prefix = _itinerary_prompt_and_days(
-        destination=destination, profile_pills=profile_pills, days=days
+        destination=destination,
+        profile_pills=profile_pills,
+        days=days,
+        refinement_message=refinement_message,
     )
     light = (os.environ.get("CURSOR_LIGHT_MODEL_FOR_ITINERARY") or os.environ.get("CURSOR_LIGHT_MODEL_FOR_IMAGES") or "").strip() or None
 
     def _safe_emit(ev: dict[str, Any]) -> None:
-        if emit is None:
-            return
-        if ev.get("type") == "assistant_delta":
-            return
-        emit(ev)
+        if emit is not None:
+            emit(ev)
 
     log_itinerary_build(
         f"BEGIN rid={rid} mode=sse sid={(session_id or '')[:12]!r} dest_id={did!r} days={days} n={n} "

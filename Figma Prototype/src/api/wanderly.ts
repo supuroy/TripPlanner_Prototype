@@ -118,15 +118,25 @@ export type WanderlyRefineResponse = {
   parse_ok?: boolean;
   shortlist_drop_blocked?: boolean;
   model_omitted_destination_ids?: string[];
+  /** Server validated inline day-by-day plans — skip lazy build for these ids. */
+  inline_itinerary_applied_ids?: string[];
+  /** Refine did not produce complete itineraries — client should lazy-build these ids. */
+  lazy_itinerary_needed_ids?: string[];
 };
 
 export async function refineTurn(
   sessionId: string,
   message: string,
-  opts?: { confirmWorkspaceDrop?: boolean },
+  opts?: {
+    confirmWorkspaceDrop?: boolean;
+    orchestration?: WanderlyOrchestration | null;
+    focusDestinationId?: string;
+  },
 ): Promise<WanderlyRefineResponse> {
   const body: Record<string, unknown> = { session_id: sessionId, message };
   if (opts?.confirmWorkspaceDrop) body.confirm_workspace_drop = true;
+  if (opts?.orchestration) body.orchestration = opts.orchestration;
+  if (opts?.focusDestinationId) body.focus_destination_id = opts.focusDestinationId;
   return apiFetch<WanderlyRefineResponse>("/api/wanderly/refine", {
     method: "POST",
     body: JSON.stringify(body),
@@ -141,6 +151,8 @@ export async function refineTurnStream(
   opts?: {
     confirmWorkspaceDrop?: boolean;
     signal?: AbortSignal;
+    orchestration?: WanderlyOrchestration | null;
+    focusDestinationId?: string;
     /** Fires when SSE ``done`` arrives (before stream close). Used for parallel post-refine prefetch. */
     onWorkspaceReady?: (res: WanderlyRefineResponse) => void;
   },
@@ -148,6 +160,8 @@ export async function refineTurnStream(
   let result: WanderlyRefineResponse | undefined;
   const body: Record<string, unknown> = { session_id: sessionId, message };
   if (opts?.confirmWorkspaceDrop) body.confirm_workspace_drop = true;
+  if (opts?.orchestration) body.orchestration = opts.orchestration;
+  if (opts?.focusDestinationId) body.focus_destination_id = opts.focusDestinationId;
   await apiPostSseJson(
     "/api/wanderly/refine_stream",
     body,
@@ -165,6 +179,16 @@ export async function refineTurnStream(
           model_omitted_destination_ids: Array.isArray(obj.model_omitted_destination_ids)
             ? (obj.model_omitted_destination_ids as string[])
             : undefined,
+          inline_itinerary_applied_ids: Array.isArray(obj.inline_itinerary_applied_ids)
+            ? (obj.inline_itinerary_applied_ids as string[])
+            : obj.inline_itinerary_applied_ids === undefined
+              ? undefined
+              : [],
+          lazy_itinerary_needed_ids: Array.isArray(obj.lazy_itinerary_needed_ids)
+            ? (obj.lazy_itinerary_needed_ids as string[])
+            : obj.lazy_itinerary_needed_ids === undefined
+              ? undefined
+              : [],
         };
         result = ready;
         opts?.onWorkspaceReady?.(ready);
@@ -190,6 +214,8 @@ export type WanderlyOrchestration = {
   rationale: string;
   /** Which destinations need lazy itinerary rebuild after refine (server LLM). */
   itinerary_refresh?: "auto" | "none" | "all" | "focus_only" | string;
+  /** Prefer inline itinerary in refine JSON vs dedicated lazy build. */
+  itinerary_delivery?: "auto" | "inline_in_refine" | "lazy_build" | "none" | string;
   focus_destination_ids?: string[];
   /** When false, canvas may allow switching cards during refine (single-card edits). */
   lock_canvas_navigation?: boolean;
@@ -365,7 +391,7 @@ export async function buildItinerary(
   sessionId: string,
   destination: Record<string, unknown>,
   profilePills: ProfilePill[],
-  options?: { days?: number; signal?: AbortSignal; requestId?: string },
+  options?: { days?: number; signal?: AbortSignal; requestId?: string; refinementMessage?: string },
 ) {
   const body: Record<string, unknown> = {
     session_id: sessionId,
@@ -374,6 +400,8 @@ export async function buildItinerary(
   };
   const days = options?.days;
   if (days != null && days > 0) body.days = days;
+  const rm = options?.refinementMessage?.trim();
+  if (rm) body.refinement_message = rm;
   const headers: Record<string, string> = {};
   if (options?.requestId) headers["X-Wanderly-Request-Id"] = options.requestId;
   return apiFetchWith409Retry<{
@@ -403,7 +431,7 @@ export async function buildItineraryStream(
   destination: Record<string, unknown>,
   profilePills: ProfilePill[],
   onEvent: (e: Record<string, unknown>) => void,
-  options?: { days?: number; signal?: AbortSignal; requestId?: string },
+  options?: { days?: number; signal?: AbortSignal; requestId?: string; refinementMessage?: string },
 ): Promise<{
   session_id: string;
   destination_id: string;
@@ -421,6 +449,8 @@ export async function buildItineraryStream(
   };
   const days = options?.days;
   if (days != null && days > 0) body.days = days;
+  const rmStream = options?.refinementMessage?.trim();
+  if (rmStream) body.refinement_message = rmStream;
   const headers: Record<string, string> = {};
   if (options?.requestId) headers["X-Wanderly-Request-Id"] = options.requestId;
   let result:
@@ -737,6 +767,56 @@ export async function bookingSearchStepStream(
   return result;
 }
 
+export type AdvisorFeedResponse = {
+  advisor_suggestion: Record<string, unknown>;
+  feed_markdown: string;
+  refine_prompt?: string | null;
+  offer_web_search?: boolean;
+  suggested_search_query?: string | null;
+  web_search_used?: boolean;
+  web_sources?: { title: string; url: string }[];
+  wanderly: WanderlyWorkspaceDTO;
+};
+
+/** Card / travel-agent Q&A with live Cursor SSE (thinking + answer). */
+export async function advisorFeedStream(
+  sessionId: string,
+  message: string,
+  onEvent: (e: Record<string, unknown>) => void,
+  opts?: {
+    focusDestinationId?: string;
+    runWebSearch?: boolean;
+    searchQuery?: string;
+    signal?: AbortSignal;
+  },
+): Promise<AdvisorFeedResponse> {
+  const body: Record<string, unknown> = { session_id: sessionId, message };
+  const fid = opts?.focusDestinationId?.trim();
+  if (fid) body.focus_destination_id = fid;
+  if (opts?.runWebSearch) {
+    body.run_web_search = true;
+    body.search_query = (opts.searchQuery || "").trim();
+  }
+  let result: AdvisorFeedResponse | undefined;
+  await apiPostSseJson(
+    "/api/wanderly/advisor_feed_stream",
+    body,
+    (obj) => {
+      onEvent(obj);
+      if (obj.type === "error" || obj.type === "stream_error") {
+        throw new Error(String((obj as { message?: string }).message || "Advisor stream error"));
+      }
+      if (obj.type === "done" && obj.feed_markdown != null) {
+        const { type: _t, ...rest } = obj as AdvisorFeedResponse & { type: string };
+        result = rest as AdvisorFeedResponse;
+      }
+    },
+    opts?.signal ? { signal: opts.signal } : undefined,
+  );
+  if (!result) throw new Error("Advisor stream closed before completion");
+  return result;
+}
+
 export async function advisorFeed(
   sessionId: string,
   message: string,
@@ -749,19 +829,7 @@ export async function advisorFeed(
     body.run_web_search = true;
     body.search_query = (opts.searchQuery || "").trim();
   }
-  return apiFetch<{
-    advisor_suggestion: Record<string, unknown>;
-    feed_markdown: string;
-    /** When set, card UI can offer “Yes” to run the main planner with this prompt (no /trip prefix). */
-    refine_prompt?: string | null;
-    /** Model could not ground the answer in trip JSON; UI may offer opening a web search (no extra API until user acts). */
-    offer_web_search?: boolean;
-    suggested_search_query?: string | null;
-    /** Server ran Tavily/Brave + a second advisor pass (only when ``runWebSearch`` was sent). */
-    web_search_used?: boolean;
-    web_sources?: { title: string; url: string }[];
-    wanderly: WanderlyWorkspaceDTO;
-  }>("/api/wanderly/advisor_feed", {
+  return apiFetch<AdvisorFeedResponse>("/api/wanderly/advisor_feed", {
     method: "POST",
     body: JSON.stringify(body),
   });

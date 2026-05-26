@@ -149,27 +149,111 @@ function scanSurfaceModes(itinerary: ItinDay[] | undefined): { hasDrive: boolean
   return { hasDrive, hasFerry, hasTrain };
 }
 
+function normalizeLodgingLabel(label: string): string {
+  return label.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** Matches server ``parse_day_range_nights`` (inclusive day span on the itinerary). */
+export function parseDayRangeNights(raw: string | undefined): number {
+  const s = (raw ?? "").trim();
+  if (!s) return 1;
+  const mRange = /^(\d+)\s*[-–]\s*(\d+)$/.exec(s);
+  if (mRange) {
+    const a = Number(mRange[1]);
+    const b = Number(mRange[2]);
+    if (Number.isFinite(a) && Number.isFinite(b) && a <= b) {
+      return Math.max(1, b - a + 1);
+    }
+  }
+  if (/^(\d+)$/.test(s)) return 1;
+  return 1;
+}
+
+function lodgingMovesStayBlocks(dest: DestCard): Array<{ label: string; nights: number }> {
+  const tp = dest.booking_hooks?.transport ?? dest.transport_plan;
+  const moves = tp?.lodging_moves;
+  if (!Array.isArray(moves) || !moves.length) return [];
+  const out: Array<{ label: string; nights: number }> = [];
+  for (const m of moves) {
+    const label = String(m.area || "").trim();
+    if (!label) continue;
+    const nights =
+      typeof m.nights === "number" && m.nights > 0
+        ? m.nights
+        : parseDayRangeNights(m.day_range ? String(m.day_range) : undefined);
+    out.push({ label, nights });
+  }
+  return out;
+}
+
 /**
- * Distinct lodging anchors from day_logistics (dedupes repeated multi-night rows).
+ * Distinct lodging anchors from day_logistics — merges consecutive days at the same property.
  */
-export function collectLodgingStayBlocks(
+export function collectLodgingStayBlocksFromItinerary(
   itinerary: ItinDay[] | undefined,
 ): Array<{ label: string; nights: number }> {
   const days = [...(itinerary || [])].sort((x, y) => (x.day ?? 0) - (y.day ?? 0));
-  const blocks: Array<{ key: string; label: string; nights: number }> = [];
+  const runs: Array<{ label: string; checkIn?: string; checkOut?: string; dayRows: number }> = [];
+
   for (const row of days) {
     const lod = row.day_logistics?.lodging;
     if (!lod?.destination_search_label?.trim()) continue;
     const label = lod.destination_search_label.trim();
-    const ci = lod.check_in?.trim();
-    const co = lod.check_out?.trim();
-    const key = `${label}|${ci || ""}|${co || ""}`;
-    const last = blocks[blocks.length - 1];
-    if (last && last.key === key) continue;
-    const nights = nightsBetweenLodging(ci, co);
-    blocks.push({ key, label, nights });
+    const ci = lod.check_in?.trim() || undefined;
+    const co = lod.check_out?.trim() || undefined;
+    const last = runs[runs.length - 1];
+
+    if (last && normalizeLodgingLabel(last.label) === normalizeLodgingLabel(label)) {
+      last.dayRows += 1;
+      if (ci) {
+        const ciDay = parseIsoDay(ci);
+        const lastIn = last.checkIn ? parseIsoDay(last.checkIn) : null;
+        if (lastIn === null || (ciDay !== null && ciDay < lastIn)) last.checkIn = ci;
+      }
+      if (co) {
+        const coDay = parseIsoDay(co);
+        const lastOut = last.checkOut ? parseIsoDay(last.checkOut) : null;
+        if (lastOut === null || (coDay !== null && coDay > lastOut)) last.checkOut = co;
+      }
+      continue;
+    }
+    runs.push({ label, checkIn: ci, checkOut: co, dayRows: 1 });
   }
-  return blocks.map(({ label, nights }) => ({ label, nights }));
+
+  return runs.map((r) => {
+    let nights = nightsBetweenLodging(r.checkIn, r.checkOut);
+    if (r.dayRows > 1) {
+      const fromRows = Math.max(1, r.dayRows - 1);
+      nights = Math.max(nights, fromRows);
+    }
+    return { label: r.label, nights };
+  });
+}
+
+/** @deprecated Prefer ``collectLodgingStayBlocksForDest`` when transport ``lodging_moves`` exist. */
+export function collectLodgingStayBlocks(
+  itinerary: ItinDay[] | undefined,
+): Array<{ label: string; nights: number }> {
+  return collectLodgingStayBlocksFromItinerary(itinerary);
+}
+
+/**
+ * Best-effort stay blocks for card icons: itinerary lodging rows, with ``lodging_moves`` when
+ * per-day check-in/out under-count multi-night bases (common on 7-day ski trips).
+ */
+export function collectLodgingStayBlocksForDest(dest: DestCard): Array<{ label: string; nights: number }> {
+  const fromItin = collectLodgingStayBlocksFromItinerary(dest.itinerary);
+  const fromMoves = lodgingMovesStayBlocks(dest);
+  const itinNights = fromItin.reduce((s, b) => s + b.nights, 0);
+  const moveNights = fromMoves.reduce((s, b) => s + b.nights, 0);
+  const tripDays = dest.itinerary?.length ?? 0;
+  const softMin = tripDays > 1 ? tripDays - 1 : tripDays;
+
+  if (fromMoves.length > 0 && (fromItin.length === 0 || (moveNights >= itinNights && moveNights >= softMin))) {
+    return fromMoves;
+  }
+  if (fromItin.length > 0) return fromItin;
+  return fromMoves;
 }
 
 export function buildLogisticsBreadcrumb(dest: DestCard): LogisticsCrumb[] {
@@ -194,7 +278,7 @@ export function buildLogisticsBreadcrumb(dest: DestCard): LogisticsCrumb[] {
       (!mode && segs.length > 0));
 
   const { hasDrive, hasFerry, hasTrain } = scanSurfaceModes(dest.itinerary);
-  const stays = collectLodgingStayBlocks(dest.itinerary);
+  const stays = collectLodgingStayBlocksForDest(dest);
 
   const hasReturnAir =
     treatAsAir &&

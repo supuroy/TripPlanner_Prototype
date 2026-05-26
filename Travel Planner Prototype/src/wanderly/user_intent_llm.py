@@ -40,6 +40,13 @@ class WanderlyIntentClassification(BaseModel):
         default="auto",
         description='After a workspace refine: "auto" | "none" | "all" | "focus_only" (which cards need lazy itinerary rebuild).',
     )
+    itinerary_delivery: str = Field(
+        default="auto",
+        description=(
+            'How to deliver rebuilt itineraries after refine: "auto" | "inline_in_refine" | '
+            '"lazy_build" | "none".'
+        ),
+    )
     focus_destination_ids: list[str] = Field(
         default_factory=list,
         description="Destination ids (workspace slugs) that need itinerary rebuild when itinerary_refresh is focus_only.",
@@ -60,6 +67,7 @@ Schema:
   "confidence": 0.0,
   "rationale": "short",
   "itinerary_refresh": "auto|none|all|focus_only",
+  "itinerary_delivery": "auto|inline_in_refine|lazy_build|none",
   "focus_destination_ids": ["optional-destination-id-slugs"],
   "lock_canvas_navigation": true
 }
@@ -70,19 +78,27 @@ Also set:
   - **all** — trip shape or multi-card change; every card may need a new lazy itinerary.
   - **focus_only** — only one (or listed) destination(s) need rebuild; set **focus_destination_ids**.
   - **auto** — client may fall back to lighter heuristics.
-- **focus_destination_ids**: workspace destination ids when refreshing a subset (e.g. ["costa-rica"]).
+- **itinerary_delivery**:
+  - **inline_in_refine** — embed complete day-by-day ``itinerary`` JSON in the refine response for focus destination(s) when possible (skips a second lazy build).
+  - **lazy_build** — always run dedicated itinerary builder after refine.
+  - **none** — no itinerary rebuild.
+  - **auto** — on an open destination card with **focus_destination_id** set: use **targeted_itinerary_edit** + **focus_only** + **lazy_build** for redo/rebuild/lodging/hotel/day-plan asks on **that card only**; use **refine_workspace** + **all** only when the user clearly means the **whole shortlist** or **every** destination.
+- **focus_destination_ids**: workspace destination ids when refreshing a subset (e.g. ["costa-rica"]). When **focus_destination_id** is provided in instructions, default to that id for single-card itinerary/lodging edits.
 - **lock_canvas_navigation**: **false** when the user clearly edits **one named card** and others should stay browsable during the run; **true** for broad replans.
 
 Rules:
-- **refine_workspace**: user wants to change the shortlist, dates, budget, vibe, pins, or multiple cards materially (not only compare).
-- **targeted_itinerary_edit**: redo/rebuild/regenerate/refresh **one** destination's day-by-day plan; not removing other cards.
+- **refine_workspace**: user wants to change the **whole shortlist**, trip-wide profile/dates/budget, **multiple** destinations at once, or add/remove cards — **not** a redo of only the open card's day-by-day plan.
+- **targeted_itinerary_edit**: redo/rebuild/regenerate/refresh **one** destination's day-by-day plan (lodging consolidation on that card, fewer hotels, redo days, etc.); not removing other cards from the shortlist.
 - **compare_places**: choose between / compare / vs / pros and cons without asking to change itineraries.
 - **lightweight_qa**: general travel question that does not require rewriting the workspace JSON.
 - **explicit_remove_destinations**: user clearly asks to remove, delete, or drop named destination(s) from the list (product should confirm before shrinking the board).
 - **ambiguous**: cannot tell confidently.
 
-Prefer **targeted_itinerary_edit** when the message names one place and asks to redo/rebuild only its itinerary.
-When a ``focus_destination_id`` is provided in the instructions, bias toward **targeted_itinerary_edit** when that place is the subject of a redo/rebuild request.
+When **focus_destination_id** is in the instructions and the user asks to redo/rebuild/regenerate the trip plan, consolidate lodging, use one hotel, or change days **without naming other destinations**, use **targeted_itinerary_edit** (not **refine_workspace**), **itinerary_refresh: focus_only**, **focus_destination_ids: [that id]**, **itinerary_delivery: lazy_build**, **lock_canvas_navigation: false**.
+
+Use **refine_workspace** + **itinerary_refresh: all** only when the user clearly wants **every** destination updated or the **entire** shortlist/workspace changed.
+
+For **targeted_itinerary_edit** with explicit "inline" / one-shot wording only, you may set **itinerary_delivery** to **inline_in_refine** (still **focus_only**, exactly one id).
 """.strip()
 
 

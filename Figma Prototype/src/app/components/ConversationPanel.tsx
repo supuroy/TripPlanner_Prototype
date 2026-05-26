@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { Send, X, MessageSquare, ChevronDown, Sparkles, Globe, Loader2 } from "lucide-react";
-import { advisorFeed, orchestrateTurn } from "../../api/wanderly";
+import { advisorFeedStream, orchestrateTurn } from "../../api/wanderly";
+import { createCardStreamFromSseHandler } from "../lib/cardStreamFromSse";
 import {
   startRotatingWaitCaption,
   WAIT_ORCHESTRATE_CAPTIONS,
@@ -10,6 +11,14 @@ import {
 } from "../lib/streamCaption";
 import { renderInlineBold } from "../lib/markdownBold";
 import { logItin } from "../lib/itineraryDebug";
+import { enqueueBackgroundItineraryBuild } from "../lib/lazyItineraryPrefetch";
+import { cardStreamClose, cardStreamOpen, cardStreamPush } from "../lib/cardStreamOverlayBridge";
+import {
+  confirmTripWideItineraryRebuild,
+  isLazyOnlyCardItineraryEdit,
+  needsTripWideItineraryConfirm,
+  orchestrationForCardChat,
+} from "../lib/itineraryRouting";
 import { useTrip, type ConversationMessage } from "./TripStore";
 
 /** Same inline `**bold**` handling as the main agent thread (`AgentResponses`). */
@@ -46,9 +55,12 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     resolveConversationRefineCta,
     resolveConversationWebSearchCta,
     setPendingRefineText,
+    setPendingRefineOrchestration,
     phase,
     sessionId,
     destinations,
+    profile,
+    setDestinations,
     setAgentStreamCaption,
     agentStreamCaption,
   } = useTrip();
@@ -96,6 +108,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
       sawRefiningPhaseRef.current = false;
       refineAwaitingReplyRef.current = false;
       setIsTyping(false);
+      cardStreamClose();
       addConversationMessage(
         destId,
         "agent",
@@ -157,11 +170,22 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
       refineAwaitingReplyRef.current = true;
       sawRefiningPhaseRef.current = false;
       setIsTyping(true);
+      cardStreamOpen({
+        title: "Updating your trip",
+        subtitle: `Applying changes for ${destName}…`,
+        destId,
+      });
+      setPendingRefineOrchestration(null);
       setPendingRefineText(refinePayload);
       return;
     }
 
     setIsTyping(true);
+    cardStreamOpen({
+      title: "AI agent working",
+      subtitle: `Helping with ${destName}…`,
+      destId,
+    });
     if (replyTimerRef.current) clearTimeout(replyTimerRef.current);
     replyTimerRef.current = null;
     void (async () => {
@@ -180,19 +204,23 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           orch.parse_ok && orch.orchestration?.workspace_action
             ? orch.orchestration.workspace_action
             : "ambiguous";
-        logItin("conversation_panel_route", {
-          branch: action,
-          parseOk: orch.parse_ok,
-          confidence: orch.orchestration?.confidence,
-          messagePreview: userMessage.slice(0, 160),
-        });
-
         const plannerActions = new Set([
           "refine_workspace",
           "targeted_itinerary_edit",
           "explicit_remove_destinations",
           "compare_places",
         ]);
+        const isAdvisorPath = !plannerActions.has(action) || !orch.parse_ok;
+        const routeRationale = orch.orchestration?.rationale?.trim();
+        if (routeRationale && !isAdvisorPath) {
+          cardStreamPush(`Routing: ${routeRationale}`, destId);
+        }
+        logItin("conversation_panel_route", {
+          branch: action,
+          parseOk: orch.parse_ok,
+          confidence: orch.orchestration?.confidence,
+          messagePreview: userMessage.slice(0, 160),
+        });
 
         if (destinations.length === 0 && plannerActions.has(action)) {
           addConversationMessage(
@@ -203,14 +231,32 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           return;
         }
 
-        if (!plannerActions.has(action) || !orch.parse_ok) {
-          stopSpin = startRotatingWaitCaption(setAgentStreamCaption, WAIT_ADVISOR_CAPTIONS);
-          let out: Awaited<ReturnType<typeof advisorFeed>>;
+        if (isAdvisorPath) {
+          cardStreamOpen({
+            title: "Answering your question",
+            subtitle: `About ${destName}…`,
+            destId,
+            preserveLog: false,
+          });
+          let stopAdvSpin: (() => void) | null = startRotatingWaitCaption(
+            setAgentStreamCaption,
+            WAIT_ADVISOR_CAPTIONS,
+          );
+          const onAdvisorEvent = createCardStreamFromSseHandler({
+            destId,
+            onLiveCaption: () => {
+              stopAdvSpin?.();
+              stopAdvSpin = null;
+            },
+          });
+          let out: Awaited<ReturnType<typeof advisorFeedStream>>;
           try {
-            out = await advisorFeed(sid0, userMessage, { focusDestinationId: destId });
+            out = await advisorFeedStream(sid0, userMessage, onAdvisorEvent, {
+              focusDestinationId: destId,
+            });
           } finally {
-            stopSpin?.();
-            stopSpin = undefined;
+            stopAdvSpin?.();
+            stopAdvSpin = null;
           }
           const sug = out.advisor_suggestion as {
             assistant_message?: string;
@@ -257,16 +303,75 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
           }
         }
 
+        const orchNorm =
+          orch.parse_ok && orch.orchestration
+            ? orchestrationForCardChat(orch.orchestration, destId)
+            : null;
+
+        if (orchNorm && needsTripWideItineraryConfirm(orchNorm)) {
+          if (!confirmTripWideItineraryRebuild(destName)) {
+            addConversationMessage(
+              destId,
+              "agent",
+              "Cancelled trip-wide update. To change **only this card**, say something like: redo the day-by-day plan for " +
+                destName +
+                " only (one hotel for the whole stay).",
+            );
+            return;
+          }
+        }
+
         const contentForPlanner = stripped;
         const refinePayload =
+          orchNorm?.workspace_action === "targeted_itinerary_edit" ||
           action === "targeted_itinerary_edit"
             ? `The traveler is focused on destination "${destName}" (id: ${destId}). ${contentForPlanner}`
             : contentForPlanner;
+
+        if (orchNorm && isLazyOnlyCardItineraryEdit(orchNorm, destId)) {
+          const card = destinations.find((d) => String(d.id) === destId);
+          if (card) {
+            logItin("conversation_panel_route", { branch: "lazy_only_card_itinerary", destId });
+            cardStreamOpen({
+              title: "Rebuilding itinerary",
+              subtitle: `Day-by-day plan for ${destName}…`,
+              destId,
+            });
+            const marked = {
+              ...card,
+              itinerary_dirty: true,
+              itinerary_refinement_hint: contentForPlanner,
+            };
+            setDestinations((prev) =>
+              prev.map((d) => (String(d.id) === destId ? marked : d)),
+            );
+            enqueueBackgroundItineraryBuild({
+              sessionId: sid0,
+              dest: marked,
+              profile,
+              setDestinations,
+              source: "card_lazy_only",
+            });
+            addConversationMessage(
+              destId,
+              "agent",
+              "Rebuilding **only this card's** day-by-day plan (skipped full-trip refine). Watch the itinerary section below — this usually takes a few minutes.",
+            );
+          }
+          return;
+        }
 
         refineAwaitingReplyRef.current = true;
         sawRefiningPhaseRef.current = false;
         dispatchedRefine = true;
         setIsTyping(true);
+        cardStreamOpen({
+          title: "Updating your trip",
+          subtitle: `Refining ${destName} and related cards…`,
+          preserveLog: true,
+          destId,
+        });
+        setPendingRefineOrchestration(orchNorm);
         setPendingRefineText(refinePayload);
       } catch (e) {
         const msg = (e as Error)?.message || String(e);
@@ -279,6 +384,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
         if (!dispatchedRefine) {
           setIsTyping(false);
           setAgentStreamCaption("");
+          cardStreamClose(1000, destId);
         }
       }
     })();
@@ -289,10 +395,22 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     const q = msg.webSearchQuery?.trim();
     if (!sid || !q) return;
     setWebLookupMessageId(msg.id);
-    const stopWeb = startRotatingWaitCaption(setAgentStreamCaption, WAIT_WEB_CAPTIONS);
+    cardStreamOpen({
+      title: "Searching the web",
+      subtitle: `Looking up details for ${destName}…`,
+      destId,
+    });
+    let stopWeb: (() => void) | null = startRotatingWaitCaption(setAgentStreamCaption, WAIT_WEB_CAPTIONS);
+    const onWebEvent = createCardStreamFromSseHandler({
+      destId,
+      onLiveCaption: () => {
+        stopWeb?.();
+        stopWeb = null;
+      },
+    });
     try {
       const userQ = lastCardUserQuestionRef.current.trim() || q;
-      const out = await advisorFeed(sid, userQ, {
+      const out = await advisorFeedStream(sid, userQ, onWebEvent, {
         focusDestinationId: destId,
         runWebSearch: true,
         searchQuery: q,
@@ -317,8 +435,9 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     } catch (e) {
       addConversationMessage(destId, "agent", `Web lookup failed: ${(e as Error)?.message || String(e)}`);
     } finally {
-      stopWeb();
+      stopWeb?.();
       setAgentStreamCaption("");
+      cardStreamClose(1000, destId);
       setWebLookupMessageId(null);
     }
   };
@@ -339,6 +458,7 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     sawRefiningPhaseRef.current = false;
     setIsTyping(true);
     const refinePayload = `The traveler is focused on destination "${destName}" (id: ${destId}). ${inner}`;
+    setPendingRefineOrchestration(null);
     setPendingRefineText(refinePayload);
   };
 

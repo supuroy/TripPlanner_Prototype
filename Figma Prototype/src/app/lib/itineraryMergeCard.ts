@@ -12,7 +12,7 @@ export function mergeItineraryBuildIntoDest(
   transportPlan?: WanderlyTransportPlan | null,
   bookingHooks?: WanderlyBookingHooks | null,
 ): DestCard {
-  if (rows.length === 0) return { ...card, itinerary_dirty: false };
+  if (rows.length === 0) return { ...card, itinerary_dirty: false, itinerary_refinement_hint: undefined };
   const ballpark = budget?.trip_ballpark_usd_pp?.trim();
   const ballparkShort = budget?.trip_usd_pp_short?.trim();
   const flightB = budget?.flight_ballpark?.trim();
@@ -28,6 +28,7 @@ export function mergeItineraryBuildIntoDest(
     ...card,
     itinerary: rows,
     itinerary_dirty: false,
+    itinerary_refinement_hint: undefined,
     ...(hasBg && budget ? { budget_guidance: { ...budget } } : {}),
     ...(bookingSearchHints && (bookingSearchHints.flight_to_label || bookingSearchHints.flight_return_from_label)
       ? { booking_search_hints: { ...bookingSearchHints } }

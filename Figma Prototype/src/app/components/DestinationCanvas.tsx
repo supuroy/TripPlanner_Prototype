@@ -45,7 +45,10 @@ import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { buildLogisticsBreadcrumb, type LogisticsCrumb } from "../lib/logisticsBreadcrumb";
 import { cardTripDaysLabel, itineraryLogisticsSignature } from "../lib/syncCardLogisticsFromItinerary";
 import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
+import { createCardStreamFromSseHandler } from "../lib/cardStreamFromSse";
 import { streamEventToCaption } from "../lib/streamCaption";
+import { useCardStreamingOverlay } from "../hooks/useCardStreamingOverlay";
+import { StreamingOverlay } from "./StreamingOverlay";
 import { ConversationPanel } from "./ConversationPanel";
 import {
   bookingPaxFromProfile,
@@ -601,12 +604,15 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     wanderlyTripId,
     tripName,
     profile,
+    phase,
     itineraryLaneQueueDepth,
     queuePlanReviewAfterItineraries,
     beginTripDiskSave,
     completeTripDiskSave,
     failTripDiskSave,
   } = useTrip();
+  const { overlay, open: openStreamOverlay, close: closeStreamOverlay } =
+    useCardStreamingOverlay(dest.id, dest.name);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [conversationMode, setConversationMode] = useState<"minimized" | "footer" | "panel">("minimized");
   const [itinLoading, setItinLoading] = useState(false);
@@ -615,6 +621,35 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const itinStreamAssistantRef = useRef({ text: "" });
   const itinStreamThinkingRef = useRef({ text: "" });
   const [bookingFace, setBookingFace] = useState(false);
+
+  const globalPlannerBusy =
+    phase === "thinking" ||
+    phase === "streaming" ||
+    phase === "refining" ||
+    phase === "advising";
+
+  useEffect(() => {
+    if (!itinLoading) return;
+    openStreamOverlay({
+      title: "Building your itinerary",
+      subtitle: `Day-by-day plan for ${dest.name}…`,
+      preserveLog: true,
+    });
+  }, [itinLoading, dest.name, openStreamOverlay]);
+
+  useEffect(() => {
+    if (itinLoading) return;
+    if (!globalPlannerBusy) closeStreamOverlay(900);
+  }, [itinLoading, globalPlannerBusy, closeStreamOverlay]);
+
+  useEffect(() => {
+    if (!globalPlannerBusy) return;
+    openStreamOverlay({
+      title: "Updating your trip",
+      subtitle: `Working on ${dest.name}…`,
+      preserveLog: true,
+    });
+  }, [globalPlannerBusy, dest.name, openStreamOverlay]);
 
   useEffect(() => {
     setItinThought("");
@@ -674,14 +709,24 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
             sessionId,
             dest as unknown as Record<string, unknown>,
             profile,
-            (ev) => {
-              if (ac.signal.aborted) return;
-              const cap = streamEventToCaption(ev, itinStreamAssistantRef.current, itinStreamThinkingRef.current, {
+            (() => {
+              const pushOverlay = createCardStreamFromSseHandler({
+                destId: dest.id,
                 structuredStreamMode: "itinerary",
               });
-              if (cap) setItinThought(cap);
-            },
-            { signal: ac.signal, requestId },
+              return (ev: Record<string, unknown>) => {
+                if (ac.signal.aborted) return;
+                const cap = streamEventToCaption(
+                  ev,
+                  itinStreamAssistantRef.current,
+                  itinStreamThinkingRef.current,
+                  { structuredStreamMode: "itinerary" },
+                );
+                if (cap) setItinThought(cap);
+                pushOverlay(ev);
+              };
+            })(),
+            { signal: ac.signal, requestId, refinementMessage: dest.itinerary_refinement_hint },
           );
           if (ac.signal.aborted) {
             logItin("expanded_fetch_aborted_after_resolve", { requestId, destId: dest.id });
@@ -1209,15 +1254,11 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                                   don’t collide). You can browse other cards; this one will fill in when its turn runs.
                                 </p>
                               ) : null}
-                              {itinThought.trim() ? (
-                                <p className="text-[11px] text-white/35 leading-relaxed whitespace-pre-wrap font-sans">
-                                  {itinThought.trim()}
-                                </p>
-                              ) : (
-                                <p className="text-[11px] text-white/25 leading-relaxed">
-                                  Working through pacing, highlights, and day structure…
-                                </p>
-                              )}
+                              <p className="text-[11px] text-white/25 leading-relaxed">
+                                {overlay.isVisible
+                                  ? "Live progress is shown in the overlay above."
+                                  : "Working through pacing, highlights, and day structure…"}
+                              </p>
                             </div>
                           </div>
                         ) : itinErrorKind ? (
@@ -1367,6 +1408,15 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
       {dest.pinned && (
         <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-indigo-500 to-purple-500" />
       )}
+
+      <StreamingOverlay
+        data-testid="wanderly-streaming-overlay"
+        isVisible={overlay.isVisible}
+        title={overlay.title}
+        subtitle={overlay.subtitle}
+        streamText={overlay.streamText}
+        isStreaming={overlay.isStreaming}
+      />
     </motion.div>
   );
 }

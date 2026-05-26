@@ -8,7 +8,7 @@ import {
   transportFromDest,
   tripWideStaysFromDest,
 } from "./bookingFlightPlan";
-import { buildLogisticsBreadcrumb, collectLodgingStayBlocks } from "./logisticsBreadcrumb";
+import { buildLogisticsBreadcrumb, collectLodgingStayBlocksForDest } from "./logisticsBreadcrumb";
 
 export function parsePriceDigits(s: string | undefined): number {
   const n = parseInt(String(s ?? "").replace(/[^\d]/g, ""), 10);
@@ -193,7 +193,7 @@ export function requiredCommercialFlightBookings(
 export function requiredHotelBookings(dest: DestCard): number | null {
   const stays = tripWideStaysFromDest(dest);
   if (stays.length > 0) return stays.length;
-  const blocks = collectLodgingStayBlocks(dest.itinerary);
+  const blocks = collectLodgingStayBlocksForDest(dest);
   if (blocks.length > 0) return blocks.length;
   if (!(dest.itinerary?.length) && !dest.booking_search_outline?.stays?.length) return null;
   return 0;

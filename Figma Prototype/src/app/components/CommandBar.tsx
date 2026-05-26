@@ -25,6 +25,14 @@ import {
   workspaceUserExplicitTravelerProfileEditMessage,
 } from "../lib/applyWorkspaceDto";
 import { logItin } from "../lib/itineraryDebug";
+import { enqueueBackgroundItineraryBuild } from "../lib/lazyItineraryPrefetch";
+import { cardStreamClose, cardStreamOpen } from "../lib/cardStreamOverlayBridge";
+import {
+  confirmTripWideItineraryRebuild,
+  isLazyOnlyCardItineraryEdit,
+  needsTripWideItineraryConfirm,
+  orchestrationForCardChat,
+} from "../lib/itineraryRouting";
 import { parallelPostRefineEnabled } from "../lib/parallelPostRefine";
 import { runPostRefineWorkspaceEffects } from "../lib/postRefineWorkspaceEffects";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
@@ -130,6 +138,8 @@ export function CommandBar() {
     setEnrichmentPending,
     pendingRefineText,
     setPendingRefineText,
+    pendingRefineOrchestration,
+    setPendingRefineOrchestration,
     composerPrefill,
     setComposerPrefill,
     expandedDest,
@@ -196,7 +206,65 @@ export function CommandBar() {
             stopOrchSpin();
           }
         }
-        const orch = orchResolved?.orchestration;
+        const expandedId = expandedDest ?? null;
+        if (expandedId) {
+          cardStreamOpen({
+            title: "Updating your trip",
+            subtitle: "Refining your workspace…",
+            destId: expandedId,
+          });
+        }
+        const orchRaw = orchResolved?.orchestration;
+        const orchNorm =
+          orchRaw && expandedId ? orchestrationForCardChat(orchRaw, expandedId) : orchRaw ?? null;
+        if (orchNorm && expandedId && needsTripWideItineraryConfirm(orchNorm)) {
+          const destName =
+            priorDestinations.find((d) => String(d.id) === expandedId)?.name ?? expandedId;
+          if (!confirmTripWideItineraryRebuild(destName)) {
+            addResponse({
+              type: "info",
+              text:
+                "Cancelled trip-wide update. To change **only this card**, say something like: redo the day-by-day plan for " +
+                destName +
+                " only.",
+            });
+            return;
+          }
+        }
+        if (orchNorm && expandedId && isLazyOnlyCardItineraryEdit(orchNorm, expandedId)) {
+          const card = priorDestinations.find((d) => String(d.id) === expandedId);
+          if (card) {
+            logItin("command_bar_route", { branch: "lazy_only_card_itinerary", destId: expandedId });
+            cardStreamOpen({
+              title: "Rebuilding itinerary",
+              subtitle: `Day-by-day plan for ${card.name}…`,
+              destId: expandedId,
+            });
+            const marked = {
+              ...card,
+              itinerary_dirty: true,
+              itinerary_refinement_hint: text,
+            };
+            setDestinations((prev) =>
+              prev.map((d) => (String(d.id) === expandedId ? marked : d)),
+            );
+            enqueueBackgroundItineraryBuild({
+              sessionId,
+              dest: marked,
+              profile: priorProfile,
+              setDestinations,
+              source: "command_bar_lazy_only",
+            });
+            addResponse({
+              type: "message",
+              role: "agent",
+              text:
+                "Rebuilding **only this card's** day-by-day plan (skipped full-trip refine). Watch the itinerary section on the card — this usually takes a few minutes.",
+            });
+            return;
+          }
+        }
+        const orch = orchNorm;
         setRefineUnlockCardNavigation(Boolean(orch && orch.lock_canvas_navigation === false));
 
         setWanderlyTurnTrace(newWanderlyTraceId());
@@ -228,7 +296,11 @@ export function CommandBar() {
           });
         };
         const out = useGeminiFirst
-          ? await refineTurn(sessionId, text, { confirmWorkspaceDrop: confirmWorkspaceDrop })
+          ? await refineTurn(sessionId, text, {
+              confirmWorkspaceDrop: confirmWorkspaceDrop,
+              orchestration: orch ?? undefined,
+              focusDestinationId: expandedDest ?? undefined,
+            })
           : await refineTurnStream(
               sessionId,
               text,
@@ -254,12 +326,16 @@ export function CommandBar() {
                   const note = (ev as { advisor_note?: unknown }).advisor_note;
                   if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
                 }
-                const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
+                const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current, {
+                  overlay: Boolean(expandedDest),
+                });
                 if (cap) setAgentStreamCaption(cap);
               },
               {
                 confirmWorkspaceDrop: confirmWorkspaceDrop,
                 signal: ac.signal,
+                orchestration: orch ?? undefined,
+                focusDestinationId: expandedDest ?? undefined,
                 onWorkspaceReady: parallelPost ? applyWorkspaceEffects : undefined,
               },
             );
@@ -302,6 +378,7 @@ export function CommandBar() {
         setPhase("complete");
         setAgentStatus("");
         setAgentStreamCaption("");
+        if (expandedDest) cardStreamClose(1000, expandedDest);
       }
     },
     [
@@ -328,18 +405,29 @@ export function CommandBar() {
     if (!pendingRefineText?.trim()) return;
     if (phase === "thinking" || phase === "streaming" || phase === "refining" || phase === "advising") return;
     const t = pendingRefineText.trim();
+    const orchHint = pendingRefineOrchestration;
     setPendingRefineText(null);
+    setPendingRefineOrchestration(null);
     if (destinations.length === 0) return;
     addResponse({ type: "message", role: "user", text: t });
     setInput("");
-    void runRefinePipeline(t, destinations, profile);
+    void runRefinePipeline(
+      t,
+      destinations,
+      profile,
+      false,
+      orchHint ? { session_id: sessionId, parse_ok: true, orchestration: orchHint } : null,
+    );
   }, [
     pendingRefineText,
+    pendingRefineOrchestration,
     phase,
     destinations,
     profile,
+    sessionId,
     addResponse,
     setPendingRefineText,
+    setPendingRefineOrchestration,
     runRefinePipeline,
   ]);
 
@@ -420,7 +508,71 @@ export function CommandBar() {
             return;
           }
         }
-        await runRefinePipeline(text, destinations, profile, false, orch);
+        const expandedId = expandedDest ?? null;
+        if (expandedId && plannerActions.has(action)) {
+          cardStreamOpen({
+            title: "AI agent working",
+            subtitle: "Understanding your request…",
+            destId: expandedId,
+          });
+        }
+        const orchNorm =
+          orch.parse_ok && orch.orchestration && expandedId
+            ? orchestrationForCardChat(orch.orchestration, expandedId)
+            : orch.orchestration;
+        if (orchNorm && expandedId && needsTripWideItineraryConfirm(orchNorm)) {
+          const destName =
+            destinations.find((d) => String(d.id) === expandedId)?.name ?? expandedId;
+          if (!confirmTripWideItineraryRebuild(destName)) {
+            addResponse({
+              type: "info",
+              text:
+                "Cancelled trip-wide update. To change **only this card**, rephrase for that destination only.",
+            });
+            return;
+          }
+        }
+        if (
+          orchNorm &&
+          expandedId &&
+          isLazyOnlyCardItineraryEdit(orchNorm, expandedId)
+        ) {
+          const card = destinations.find((d) => String(d.id) === expandedId);
+          if (card) {
+            logItin("command_bar_route", { branch: "lazy_only_card_itinerary", destId: expandedId });
+            cardStreamOpen({
+              title: "Rebuilding itinerary",
+              subtitle: `Day-by-day plan for ${card.name}…`,
+              destId: expandedId,
+            });
+            const marked = {
+              ...card,
+              itinerary_dirty: true,
+              itinerary_refinement_hint: text,
+            };
+            setDestinations((prev) =>
+              prev.map((d) => (String(d.id) === expandedId ? marked : d)),
+            );
+            enqueueBackgroundItineraryBuild({
+              sessionId,
+              dest: marked,
+              profile,
+              setDestinations,
+              source: "command_bar_lazy_only",
+            });
+            addResponse({
+              type: "message",
+              role: "agent",
+              text:
+                "Rebuilding **only this card's** day-by-day plan (skipped full-trip refine). Watch the itinerary section on the card.",
+            });
+            return;
+          }
+        }
+        await runRefinePipeline(text, destinations, profile, false, {
+          ...orch,
+          orchestration: orchNorm ?? orch.orchestration,
+        });
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         const msg = String(err instanceof Error ? err.message : err);
@@ -434,6 +586,7 @@ export function CommandBar() {
         setPhase("complete");
         setAgentStatus("");
         setAgentStreamCaption("");
+        if (expandedDest) cardStreamClose(1000, expandedDest);
       }
       return;
     }
@@ -543,7 +696,9 @@ export function CommandBar() {
               const note = (ev as { advisor_note?: unknown }).advisor_note;
               if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
             }
-            const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current);
+            const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current, {
+              overlay: Boolean(expandedDest),
+            });
             if (cap) setAgentStreamCaption(cap);
           },
           {

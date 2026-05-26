@@ -6,6 +6,7 @@ import {
   buildItineraryStalePlan,
   explainItineraryInvalidate,
   isPlanCompareOnlyQuestion,
+  stalePlanFromRefineDelivery,
   type ItineraryStalePlan,
 } from "./applyWorkspaceDto";
 import { logItin } from "./itineraryDebug";
@@ -72,17 +73,33 @@ export function runPostRefineWorkspaceEffects(args: PostRefineWorkspaceEffectsAr
     ...priorDestinations.map((d) => String(d.id)),
     ...incomingCardIds,
   ]);
-  const stalePlan: ItineraryStalePlan = buildItineraryStalePlan(
-    text,
-    priorProfile,
-    out.wanderly.profile_pills,
-    orch ?? null,
-    validIds,
-    expandedDest ?? null,
-  );
+  const serverStale =
+    "lazy_itinerary_needed_ids" in out || "inline_itinerary_applied_ids" in out
+      ? stalePlanFromRefineDelivery(
+          (out as WanderlyRefineResponse).lazy_itinerary_needed_ids,
+          validIds,
+          (out as WanderlyRefineResponse).inline_itinerary_applied_ids,
+        )
+      : null;
+  const stalePlan: ItineraryStalePlan =
+    serverStale ??
+    buildItineraryStalePlan(
+      text,
+      priorProfile,
+      out.wanderly.profile_pills,
+      orch ?? null,
+      validIds,
+      expandedDest ?? null,
+    );
+  const inlineApplied =
+    "inline_itinerary_applied_ids" in out
+      ? ((out as WanderlyRefineResponse).inline_itinerary_applied_ids ?? [])
+      : [];
   const invExplain = explainItineraryInvalidate(text, priorProfile, out.wanderly.profile_pills);
   logItin("refine_apply_workspace", {
     itineraryStalePlan: stalePlan,
+    inlineItineraryAppliedIds: inlineApplied,
+    serverStalePlan: serverStale != null,
     compareOnlyBypass: isPlanCompareOnlyQuestion(text),
     invalidateReasons: invExplain.reasons,
     messagePreview: text.slice(0, 160),
@@ -97,7 +114,22 @@ export function runPostRefineWorkspaceEffects(args: PostRefineWorkspaceEffectsAr
     priorProfile,
     itineraryStalePlan: stalePlan,
     profilePillMergeMode,
+    refinementMessage: stalePlan.mode !== "none" ? text : undefined,
   });
+  if (inlineApplied.length > 0 && stalePlan.mode === "none") {
+    addResponse({
+      type: "tip",
+      text: "Day-by-day plan updated in refine — no extra itinerary build needed for this card.",
+    });
+  } else if (
+    stalePlan.mode === "focus" &&
+    (out as WanderlyRefineResponse).lazy_itinerary_needed_ids?.length
+  ) {
+    addResponse({
+      type: "tip",
+      text: "Refine did not include a complete day-by-day plan — building itinerary with your request…",
+    });
+  }
   maybeStageAgentProfile({
     priorProfile,
     message: text,

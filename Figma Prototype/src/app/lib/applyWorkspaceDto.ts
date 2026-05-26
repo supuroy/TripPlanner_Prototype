@@ -106,9 +106,14 @@ export function mergeDestinationUiState(
           ? p.dismissed
           : Boolean(row.dismissed);
     const fromServer = inferItineraryDirtyFromPayload(row);
-    let itinerary_dirty = preservedItinerary
-      ? false
-      : p?.itinerary_dirty === true || fromServer;
+    let itinerary_dirty: boolean;
+    if (preservedItinerary) {
+      itinerary_dirty = false;
+    } else if (typeof row.itinerary_dirty === "boolean") {
+      itinerary_dirty = row.itinerary_dirty;
+    } else {
+      itinerary_dirty = p?.itinerary_dirty === true || fromServer;
+    }
     if (p && p.itinerary_dirty !== true && itinerary_dirty === true && (p.itinerary?.length ?? 0) > 0) {
       const sigP = itineraryCanonicalSignature(p.itinerary);
       if (sigP.length > 0 && sigP === itineraryCanonicalSignature(row.itinerary)) {
@@ -539,6 +544,34 @@ export function buildItineraryStalePlan(
   return { mode: "all" };
 }
 
+/**
+ * When the refine response includes server-side inline/lazy delivery metadata, prefer it over
+ * client heuristics so inline-success cards are not marked ``itinerary_dirty``.
+ */
+export function stalePlanFromRefineDelivery(
+  lazyNeededIds: string[] | undefined,
+  validDestinationIds: Set<string>,
+  inlineAppliedIds?: string[] | undefined,
+): ItineraryStalePlan | null {
+  const hasLazyField = lazyNeededIds !== undefined;
+  const hasInlineField = inlineAppliedIds !== undefined;
+  if (!hasLazyField && !hasInlineField) return null;
+  const lazy = (lazyNeededIds ?? []).map((x) => String(x).trim()).filter((id) => id && validDestinationIds.has(id));
+  if (lazy.length > 0) {
+    if (lazy.length >= validDestinationIds.size && [...validDestinationIds].every((id) => lazy.includes(id))) {
+      return { mode: "all" };
+    }
+    return { mode: "focus", ids: lazy };
+  }
+  const applied = (inlineAppliedIds ?? [])
+    .map((x) => String(x).trim())
+    .filter((id) => id && validDestinationIds.has(id));
+  if (applied.length > 0 && lazy.length === 0) {
+    return { mode: "none" };
+  }
+  return { mode: "none" };
+}
+
 /** Apply server Wanderly DTO into TripStore setters (v0 smoke + v1 orchestrator). */
 export function applyWanderlyWorkspace(
   w: WanderlyWorkspaceDTO,
@@ -562,6 +595,8 @@ export function applyWanderlyWorkspace(
      * - ``skip``: do not touch sidebar pills (itinerary-primary refines).
      */
     profilePillMergeMode?: "full" | "conservative" | "skip";
+    /** Stored on lazy-needed cards for the dedicated itinerary builder. */
+    refinementMessage?: string;
   },
 ) {
   const {
@@ -574,6 +609,7 @@ export function applyWanderlyWorkspace(
     itineraryStalePlan: explicitPlan,
     priorProfile,
     profilePillMergeMode,
+    refinementMessage,
   } = opts;
   const stalePlan: ItineraryStalePlan =
     explicitPlan ?? (markItinerariesStale ? { mode: "all" } : { mode: "none" });
@@ -617,10 +653,22 @@ export function applyWanderlyWorkspace(
         stalePlan.mode === "none"
           ? merged
           : stalePlan.mode === "all"
-            ? merged.map((d) => ({ ...resetDestinationBookingState(d), itinerary_dirty: true }))
+            ? merged.map((d) => ({
+                ...resetDestinationBookingState(d),
+                itinerary_dirty: true,
+                ...(refinementMessage?.trim()
+                  ? { itinerary_refinement_hint: refinementMessage.trim() }
+                  : {}),
+              }))
             : merged.map((d) =>
                 stalePlan.ids.includes(d.id)
-                  ? { ...resetDestinationBookingState(d), itinerary_dirty: true }
+                  ? {
+                      ...resetDestinationBookingState(d),
+                      itinerary_dirty: true,
+                      ...(refinementMessage?.trim()
+                        ? { itinerary_refinement_hint: refinementMessage.trim() }
+                        : { itinerary_refinement_hint: d.itinerary_refinement_hint }),
+                    }
                   : d,
               );
       if (stalePlan.mode !== "none") {
