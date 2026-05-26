@@ -23,7 +23,8 @@ import { computeTripDestDiskSig, computeTripPersistSig } from "../lib/tripPersis
 
 export { computeTripDestDiskSig } from "../lib/tripPersistSig";
 import { logItin } from "../lib/itineraryDebug";
-import { cardStreamPush } from "../lib/cardStreamOverlayBridge";
+import { cardStreamPush, isCardStreamOverlayArmed } from "../lib/cardStreamOverlayBridge";
+import { workspaceStreamPush } from "../lib/workspaceStreamOverlayBridge";
 import { registerItineraryLaneDepthSink } from "../lib/lazyItineraryPrefetch";
 import { waitForItinerariesBeforePlanReview } from "../lib/deferPlanReview";
 import { parallelPostRefineEnabled } from "../lib/parallelPostRefine";
@@ -628,12 +629,19 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [responses, setResponses] = useState<AgentResponse[]>([]);
   const [agentStatus, setAgentStatus] = useState("");
   const [agentStreamCaption, setAgentStreamCaptionState] = useState("");
-  const setAgentStreamCaption = useCallback((caption: string) => {
-    setAgentStreamCaptionState(caption);
-    cardStreamPush(caption);
-  }, []);
-  const [selectedDest, setSelectedDest] = useState<string | null>(null);
   const [expandedDest, setExpandedDest] = useState<string | null>(null);
+  const setAgentStreamCaption = useCallback(
+    (caption: string) => {
+      setAgentStreamCaptionState(caption);
+      if (expandedDest && isCardStreamOverlayArmed()) {
+        cardStreamPush(caption, expandedDest);
+      } else if (!expandedDest) {
+        workspaceStreamPush(caption);
+      }
+    },
+    [expandedDest],
+  );
+  const [selectedDest, setSelectedDest] = useState<string | null>(null);
   const [isCanvasCollapsed, setIsCanvasCollapsed] = useState(false);
   const [itineraryLaneQueueDepth, setItineraryLaneQueueDepth] = useState(0);
   const [hasStarted, setHasStarted] = useState(false);

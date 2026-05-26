@@ -20,31 +20,40 @@ type CardStreamOverlaySink = {
 };
 
 let sink: CardStreamOverlaySink | null = null;
-
-function targetsExpandedCard(destId?: string): boolean {
-  if (!sink) return false;
-  if (!destId) return true;
-  return destId === sink.destId;
-}
+/** When false, ``cardStreamPush`` is ignored (card Q&A / composer captions only). */
+let overlayArmed = false;
 
 export function registerCardStreamOverlaySink(next: CardStreamOverlaySink | null): void {
   sink = next;
+  if (!next) overlayArmed = false;
+}
+
+export function isCardStreamOverlayArmed(): boolean {
+  return overlayArmed;
+}
+
+export function setCardStreamOverlayArmed(armed: boolean): void {
+  overlayArmed = armed;
 }
 
 export function cardStreamOpen(opts: CardStreamOpenOpts): void {
-  if (!targetsExpandedCard(opts.destId)) return;
-  sink?.open(opts);
+  if (!sink || !opts.destId || opts.destId !== sink.destId) return;
+  overlayArmed = true;
+  sink.open(opts);
 }
 
 export function cardStreamPush(caption: string, destId?: string): void {
   const c = caption.trim();
-  if (!c || !targetsExpandedCard(destId)) return;
-  sink?.push(c);
+  if (!overlayArmed || !c || !sink || !destId || destId !== sink.destId) return;
+  sink.push(c);
 }
 
+/** Close when ``destId`` matches the registered card, or when omitted (single-card sink). */
 export function cardStreamClose(delayMs = 1000, destId?: string): void {
-  if (!targetsExpandedCard(destId)) return;
-  sink?.close(delayMs);
+  if (!sink) return;
+  if (destId !== undefined && destId !== sink.destId) return;
+  overlayArmed = false;
+  sink.close(delayMs);
 }
 
 /** Wrap TripStore ``setAgentStreamCaption`` so captions also feed the overlay when registered. */

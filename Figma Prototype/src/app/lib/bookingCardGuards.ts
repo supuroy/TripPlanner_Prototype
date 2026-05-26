@@ -37,38 +37,14 @@ export function hotelRowIsActionableHotel(h: HotelOption | undefined): boolean {
   const nm = (h.name || "").trim().toLowerCase();
   if (!nm || nm === "lodging results" || nm === "hotel listing") return false;
   if (!priceLooksLikeLiveBookableAmount(h.price)) return false;
-  if (!String(h.listing_url || "").trim()) return false;
-  return true;
+  if (String(h.listing_url || "").trim()) return true;
+  /** Matches logistics flip ``persistedHotelPickForStayRow`` after OTA merge. */
+  return h.isPlaceholder === false;
 }
 
+/** At least one OTA-priced flight or hotel row (partial multi-stay counts). */
 export function liveBookingExtractLooksActionable(dest: DestCard): boolean {
-  const flights = dest.flights || [];
-  const hotels = dest.hotels || [];
-
-  const flightsPass = (): boolean => {
-    if (!flights.length) return false;
-    for (const f of flights) {
-      const route = (f.route || "").trim();
-      if (!route || /^tbd$/i.test(route)) return false;
-      if (!priceLooksLikeLiveBookableAmount(f.price)) return false;
-    }
-    return true;
-  };
-
-  const hotelsPass = (): boolean => {
-    if (!hotels.length) return false;
-    for (const h of hotels) {
-      if (!hotelRowIsActionableHotel(h)) return false;
-    }
-    return true;
-  };
-
-  const fp = flightsPass();
-  const hp = hotelsPass();
-  if (!flights.length && hp) return true;
-  if (fp && !hotels.length) return true;
-  if (fp && hp) return true;
-  return false;
+  return destHasUserSelectedBooking(dest);
 }
 
 export function destHasPersistentBookingSummary(dest: DestCard): boolean {
@@ -116,7 +92,8 @@ export function bookingPaxFromProfile(profile: ProfilePill[]): number {
 export function hotelStayTotal(h: HotelOption): number {
   if (!priceLooksLikeLiveBookableAmount(h.price)) return 0;
   const per = parsePriceDigits(h.price);
-  return per * (h.nights || 0);
+  const nights = h.nights && h.nights > 0 ? h.nights : 1;
+  return per * nights;
 }
 
 export function activitySum(activities: { price?: string }[] | undefined): number {
@@ -147,6 +124,21 @@ export function destHasUserSelectedBooking(dest: DestCard): boolean {
     (dest.flights || []).some((f) => flightRowIsUserSelectedFlight(f)) ||
     (dest.hotels || []).some((h) => hotelRowIsActionableHotel(h))
   );
+}
+
+/** Whether the cost breakdown should list commercial flights (vs drive-only / surface trip). */
+export function commercialFlightsExpectedForCost(dest: DestCard): boolean {
+  if (isGroundOnlyTransport(dest)) return false;
+  if (dest.needs_commercial_flight === false) return false;
+  const tp = transportFromDest(dest);
+  const mode = String(tp?.primary_mode || "").toLowerCase();
+  if (mode === "commercial_air" || mode === "mixed") return true;
+  if (Array.isArray(tp?.commercial_flight_segments) && tp.commercial_flight_segments.length > 0) {
+    return true;
+  }
+  if (dest.needs_commercial_flight === true) return true;
+  if ((dest.flights || []).some((f) => parsePriceDigits(f.price) > 0)) return true;
+  return true;
 }
 
 /** Trip total from user-selected flight/hotel rows — matches ``BookingCostBreakdown`` when shown. */

@@ -48,6 +48,7 @@ import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/laz
 import { createCardStreamFromSseHandler } from "../lib/cardStreamFromSse";
 import { streamEventToCaption } from "../lib/streamCaption";
 import { useCardStreamingOverlay } from "../hooks/useCardStreamingOverlay";
+import { useWorkspaceStreamingOverlay } from "../hooks/useWorkspaceStreamingOverlay";
 import { StreamingOverlay } from "./StreamingOverlay";
 import { ConversationPanel } from "./ConversationPanel";
 import {
@@ -622,11 +623,9 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const itinStreamThinkingRef = useRef({ text: "" });
   const [bookingFace, setBookingFace] = useState(false);
 
+  /** Main-board planner/refine only — not card Q&A (``advising``). */
   const globalPlannerBusy =
-    phase === "thinking" ||
-    phase === "streaming" ||
-    phase === "refining" ||
-    phase === "advising";
+    phase === "thinking" || phase === "streaming" || phase === "refining";
 
   useEffect(() => {
     if (!itinLoading) return;
@@ -907,8 +906,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   }, [dest.itinerary]);
 
   const hasLogisticsFlip = (dest.itinerary?.length ?? 0) > 0;
-  const showLiveCostBreakdown =
-    Boolean(dest.liveBookingEstimates) && liveBookingExtractLooksActionable(dest);
+  const showLiveCostBreakdown = liveBookingExtractLooksActionable(dest);
 
   useEffect(() => {
     if (showLiveCostBreakdown) prefetchBookingCostBreakdown();
@@ -1695,6 +1693,7 @@ export function DestinationCanvas() {
     phase,
     refineUnlockCardNavigation,
   } = useTrip();
+  const { overlay: workspaceOverlay } = useWorkspaceStreamingOverlay();
   const [comparisonStartIndex, setComparisonStartIndex] = useState(0);
 
   /**
@@ -1853,23 +1852,33 @@ export function DestinationCanvas() {
         </div>
       ) : !isCanvasCollapsed ? (
         /* ── Horizontal Carousel view — card width scales with viewport (narrow phones). ── */
-        <div className="relative -mx-3 px-3 sm:-mx-6 sm:px-6">
-          <div className="overflow-x-auto overflow-y-visible pb-3 scrollbar-thin sm:pb-4">
-            <div className="flex gap-3 sm:gap-4" style={{ minWidth: "min-content" }}>
-              <AnimatePresence>
-                {sorted.map(d => (
-                  <div key={d.id} className="w-[clamp(220px,min(76vw,340px),340px)] flex-shrink-0">
-                    <GridCard dest={d} expandLocked={expandInteractionsLocked} />
-                  </div>
-                ))}
-              </AnimatePresence>
+        <div className="relative min-h-[280px]">
+          <StreamingOverlay
+            data-testid="wanderly-workspace-streaming-overlay"
+            isVisible={workspaceOverlay.isVisible}
+            title={workspaceOverlay.title}
+            subtitle={workspaceOverlay.subtitle}
+            streamText={workspaceOverlay.streamText}
+            isStreaming={workspaceOverlay.isStreaming}
+          />
+          <div className="relative -mx-3 px-3 sm:-mx-6 sm:px-6">
+            <div className="overflow-x-auto overflow-y-visible pb-3 scrollbar-thin sm:pb-4">
+              <div className="flex gap-3 sm:gap-4" style={{ minWidth: "min-content" }}>
+                <AnimatePresence>
+                  {sorted.map(d => (
+                    <div key={d.id} className="w-[clamp(220px,min(76vw,340px),340px)] flex-shrink-0">
+                      <GridCard dest={d} expandLocked={expandInteractionsLocked} />
+                    </div>
+                  ))}
+                </AnimatePresence>
+              </div>
             </div>
+
+            {/* Scroll hint gradient on right edge */}
+            {visible.length > 2 && (
+              <div className="absolute right-0 top-0 bottom-4 w-20 bg-gradient-to-l from-[#0a0a0f] to-transparent pointer-events-none" />
+            )}
           </div>
-          
-          {/* Scroll hint gradient on right edge */}
-          {visible.length > 2 && (
-            <div className="absolute right-0 top-0 bottom-4 w-20 bg-gradient-to-l from-[#0a0a0f] to-transparent pointer-events-none" />
-          )}
         </div>
       ) : null}
     </motion.div>

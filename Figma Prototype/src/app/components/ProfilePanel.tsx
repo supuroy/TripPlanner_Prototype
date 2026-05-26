@@ -470,6 +470,18 @@ function generateReaction(key: string, value: string): ProfileReaction | null {
 
 // ── Components ──
 
+/** Profile-change advisor uses a blocking Cursor call (server timeout ~120s). */
+const PROFILE_ADVISOR_CLIENT_TIMEOUT_MS = 90_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+    }),
+  ]);
+}
+
 const PROFILE_OPTIONS: Record<string, string[]> = {
   when: ["Mar 1–7", "Mar 8–14", "Mar 15–22", "Apr 1–8", "Flexible"],
   who: ["Solo traveler", "2 travelers", "Family (4)", "Group (6+)"],
@@ -811,6 +823,7 @@ export function ProfilePanel() {
   const { executeAction } = useActionExecutor();
   const [draftProfile, setDraftProfile] = useState<ProfilePill[] | null>(null);
   const [applyBusy, setApplyBusy] = useState(false);
+  const [advisorBusy, setAdvisorBusy] = useState(false);
 
   const profileSig = useMemo(
     () =>
@@ -862,89 +875,102 @@ export function ProfilePanel() {
     }
 
     setApplyBusy(true);
+    let deltas: Array<{ key: string; old: string; new: string; label: string }> = [];
+    let finalPills: ProfilePill[] = nextDraft;
     try {
       const { wanderly } = await profilePatch(sessionId, nextDraft as WanderlyProfilePillDTO[]);
       const serverPills = wanderly.profile_pills?.length
         ? mapDtoPillsToProfile(wanderly.profile_pills)
         : null;
-      const finalPills = mergeSubmittedProfileWithServerPills(nextDraft, priorProfile, serverPills);
+      finalPills = mergeSubmittedProfileWithServerPills(nextDraft, priorProfile, serverPills);
       applyProfilePillBatch(finalPills);
       setDraftProfile(null);
 
-      const deltas = finalPills.flatMap((p) => {
+      deltas = finalPills.flatMap((p) => {
         const o = priorProfile.find((x) => x.key === p.key);
         if (!o || o.value === p.value) return [];
         return [{ key: p.key, old: o.value, new: p.value, label: p.label }];
       });
-      if (deltas.length === 0) return;
+    } catch {
+      addInsight("warning", "Could not save traveler profile to the server. Check your connection and try again.");
+      return;
+    } finally {
+      setApplyBusy(false);
+    }
 
-      const runAdvisor = async () => {
-        const pill_key = deltas.length === 1 ? deltas[0].key : "multiple";
-        const old_value =
-          deltas.length === 1 ? deltas[0].old : deltas.map((d) => `${d.key}: ${d.old}`).join(" | ");
-        const new_value =
-          deltas.length === 1 ? deltas[0].new : deltas.map((d) => `${d.key}: ${d.new}`).join(" | ");
-        const { result } = await profileChangeAdvisor({
+    if (deltas.length === 0) return;
+
+    const runAdvisor = async () => {
+      const pill_key = deltas.length === 1 ? deltas[0].key : "multiple";
+      const old_value =
+        deltas.length === 1 ? deltas[0].old : deltas.map((d) => `${d.key}: ${d.old}`).join(" | ");
+      const new_value =
+        deltas.length === 1 ? deltas[0].new : deltas.map((d) => `${d.key}: ${d.new}`).join(" | ");
+      const { result } = await withTimeout(
+        profileChangeAdvisor({
           session_id: sessionId,
           pill_key,
           old_value,
           new_value,
           profile_pills: finalPills as unknown as WanderlyProfilePillDTO[],
           destinations: destForAdvisor,
-        });
-        if (result.skipped || (!result.headline && !(result.suggestions?.length))) {
-          const d0 = deltas[0];
-          applyLocalGenerateReaction(d0.key, d0.new, d0.label, addInsight, setDestinations);
-          return;
-        }
-        if (result.warnings && result.warnings.length > 0) {
-          setTimeout(() => {
-            setDestinations((prev) =>
-              prev.map((d) => {
-                const hit = result.warnings!.find((w) => w.destination_id === d.id);
-                if (hit) return { ...d, warnings: [hit.text] };
-                return { ...d, warnings: undefined };
-              }),
-            );
-          }, 200);
-        } else {
-          setTimeout(() => {
-            setDestinations((prev) => prev.map((d) => ({ ...d, warnings: undefined })));
-          }, 200);
-        }
-        const actions: SuggestedAction[] = (result.suggestions || []).map((s, i) => ({
-          id: `advisor-refine:${i}`,
-          label: s.label,
-          description: s.description,
-          icon: s.icon || "✨",
-          refinePrompt: s.refine_prompt,
-        }));
-        const headline = (result.headline || "").trim();
-        if (actions.length > 0 && headline) {
-          setTimeout(() => {
-            addInsight(result.warnings?.length ? "warning" : "tip", headline, undefined, actions);
-          }, 450);
-        } else if (headline) {
-          setTimeout(() => addInsight("info", headline), 450);
-        } else if (actions.length > 0) {
-          setTimeout(
-            () => addInsight("tip", "Here are some next steps for your planner:", undefined, actions),
-            450,
+        }),
+        PROFILE_ADVISOR_CLIENT_TIMEOUT_MS,
+        "Profile change check",
+      );
+      if (result.skipped || (!result.headline && !(result.suggestions?.length))) {
+        const d0 = deltas[0];
+        applyLocalGenerateReaction(d0.key, d0.new, d0.label, addInsight, setDestinations);
+        return;
+      }
+      if (result.warnings && result.warnings.length > 0) {
+        setTimeout(() => {
+          setDestinations((prev) =>
+            prev.map((d) => {
+              const hit = result.warnings!.find((w) => w.destination_id === d.id);
+              if (hit) return { ...d, warnings: [hit.text] };
+              return { ...d, warnings: undefined };
+            }),
           );
-        }
-      };
+        }, 200);
+      } else {
+        setTimeout(() => {
+          setDestinations((prev) => prev.map((d) => ({ ...d, warnings: undefined })));
+        }, 200);
+      }
+      const actions: SuggestedAction[] = (result.suggestions || []).map((s, i) => ({
+        id: `advisor-refine:${i}`,
+        label: s.label,
+        description: s.description,
+        icon: s.icon || "✨",
+        refinePrompt: s.refine_prompt,
+      }));
+      const headline = (result.headline || "").trim();
+      if (actions.length > 0 && headline) {
+        setTimeout(() => {
+          addInsight(result.warnings?.length ? "warning" : "tip", headline, undefined, actions);
+        }, 450);
+      } else if (headline) {
+        setTimeout(() => addInsight("info", headline), 450);
+      } else if (actions.length > 0) {
+        setTimeout(
+          () => addInsight("tip", "Here are some next steps for your planner:", undefined, actions),
+          450,
+        );
+      }
+    };
 
+    setAdvisorBusy(true);
+    void (async () => {
       try {
         await runAdvisor();
       } catch {
         const d0 = deltas[0];
         applyLocalGenerateReaction(d0.key, d0.new, d0.label, addInsight, setDestinations);
+      } finally {
+        setAdvisorBusy(false);
       }
-    } catch {
-      addInsight("warning", "Could not save traveler profile to the server. Check your connection and try again.");
-    } finally {
-      setApplyBusy(false);
-    }
+    })();
   }, [
     draftProfile,
     profile,
@@ -990,6 +1016,16 @@ export function ProfilePanel() {
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
           <span className="text-[11px] text-white/30 uppercase tracking-widest">Traveler Profile</span>
         </div>
+        {applyBusy && (
+          <div className="mb-2 rounded-lg border border-indigo-400/25 bg-indigo-500/10 px-2.5 py-2 text-[11px] text-indigo-100/90 leading-snug">
+            Saving traveler profile to your trip file…
+          </div>
+        )}
+        {advisorBusy && !applyBusy && (
+          <div className="mb-2 rounded-lg border border-indigo-400/20 bg-indigo-500/5 px-2.5 py-2 text-[11px] text-white/55 leading-snug">
+            Travel agent is checking how your change fits each destination (usually under a minute)…
+          </div>
+        )}
         {hasPending && (
           <div className="mb-2 rounded-lg border border-amber-400/25 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-100/90 leading-snug">
             You have unsaved traveler settings. Press <span className="font-medium text-white">Update trip</span> to save

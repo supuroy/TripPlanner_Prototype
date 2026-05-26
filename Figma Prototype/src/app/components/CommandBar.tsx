@@ -27,6 +27,7 @@ import {
 import { logItin } from "../lib/itineraryDebug";
 import { enqueueBackgroundItineraryBuild } from "../lib/lazyItineraryPrefetch";
 import { cardStreamClose, cardStreamOpen } from "../lib/cardStreamOverlayBridge";
+import { workspaceStreamClose, workspaceStreamOpen } from "../lib/workspaceStreamOverlayBridge";
 import {
   confirmTripWideItineraryRebuild,
   isLazyOnlyCardItineraryEdit,
@@ -188,6 +189,19 @@ export function CommandBar() {
       streamDraftRef.current = { text: "" };
       thinkingDraftRef.current = { text: "" };
       setAgentStreamCaption("Starting refine…");
+      const expandedId = expandedDest ?? null;
+      if (expandedId) {
+        cardStreamOpen({
+          title: "Updating your trip",
+          subtitle: "Refining your workspace…",
+          destId: expandedId,
+        });
+      } else {
+        workspaceStreamOpen({
+          title: "Updating your trip",
+          subtitle: "Streaming from the travel agent…",
+        });
+      }
       const ac = new AbortController();
       setPlannerAbortController(ac);
       let orchResolved: WanderlyOrchestrateResponse | null = orchestrationHint;
@@ -205,14 +219,6 @@ export function CommandBar() {
           } finally {
             stopOrchSpin();
           }
-        }
-        const expandedId = expandedDest ?? null;
-        if (expandedId) {
-          cardStreamOpen({
-            title: "Updating your trip",
-            subtitle: "Refining your workspace…",
-            destId: expandedId,
-          });
         }
         const orchRaw = orchResolved?.orchestration;
         const orchNorm =
@@ -327,7 +333,7 @@ export function CommandBar() {
                   if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
                 }
                 const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current, {
-                  overlay: Boolean(expandedDest),
+                  overlay: true,
                 });
                 if (cap) setAgentStreamCaption(cap);
               },
@@ -379,6 +385,7 @@ export function CommandBar() {
         setAgentStatus("");
         setAgentStreamCaption("");
         if (expandedDest) cardStreamClose(1000, expandedDest);
+        else workspaceStreamClose(1000);
       }
     },
     [
@@ -515,6 +522,11 @@ export function CommandBar() {
             subtitle: "Understanding your request…",
             destId: expandedId,
           });
+        } else if (!expandedId && plannerActions.has(action)) {
+          workspaceStreamOpen({
+            title: "AI agent working",
+            subtitle: "Understanding your request…",
+          });
         }
         const orchNorm =
           orch.parse_ok && orch.orchestration && expandedId
@@ -587,6 +599,7 @@ export function CommandBar() {
         setAgentStatus("");
         setAgentStreamCaption("");
         if (expandedDest) cardStreamClose(1000, expandedDest);
+        else workspaceStreamClose(1000);
       }
       return;
     }
@@ -598,6 +611,12 @@ export function CommandBar() {
     streamDraftRef.current = { text: "" };
     thinkingDraftRef.current = { text: "" };
     setAgentStreamCaption(useGeminiFirst ? "Running full planner (may take a few minutes)…" : "Getting your trip ready…");
+    if (!expandedDest) {
+      workspaceStreamOpen({
+        title: "Planning your trip",
+        subtitle: useGeminiFirst ? "Running full planner…" : "Streaming from the travel agent…",
+      });
+    }
     try {
       setWanderlyTurnTrace(newWanderlyTraceId());
       const plannerAbort = new AbortController();
@@ -697,7 +716,7 @@ export function CommandBar() {
               if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
             }
             const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current, {
-              overlay: Boolean(expandedDest),
+              overlay: true,
             });
             if (cap) setAgentStreamCaption(cap);
           },
@@ -726,6 +745,7 @@ export function CommandBar() {
       setPhase("complete");
       setAgentStatus("");
       setAgentStreamCaption("");
+      if (!expandedDest) workspaceStreamClose(1000);
     }
   };
 

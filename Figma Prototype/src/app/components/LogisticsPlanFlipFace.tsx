@@ -238,7 +238,7 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
           const nextHotels = [...(d.hotels || [])];
           if (rowIndex < 0 || rowIndex >= nextHotels.length) return d;
           nextHotels[rowIndex] = { ...nextHotels[rowIndex], ...updated, best: true };
-          return { ...d, hotels: nextHotels };
+          return { ...d, hotels: nextHotels, liveBookingEstimates: true };
         });
         const sid = sessionId.trim();
         if (sid) {

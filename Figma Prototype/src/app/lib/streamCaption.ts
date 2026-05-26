@@ -62,6 +62,18 @@ export function runStatusCaption(status: string): string | null {
   return null;
 }
 
+/** Human status while structured JSON streams — overlay only (no raw payload). */
+export const OVERLAY_STRUCTURED_PLANNER_STATUS: Record<StructuredStreamMode, string> = {
+  workspace: "Updating your trip cards and traveler profile…",
+  itinerary: "Building your day-by-day outline…",
+};
+
+function overlayThinkingCaption(thinkingDraft: { text: string }, thinkWindow: number): string {
+  const t = thinkingDraft.text.replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  return t.length > thinkWindow ? `…${t.slice(-thinkWindow)}` : t;
+}
+
 /** Rolling preview of streamed assistant JSON so the UI does not look frozen while tokens arrive. */
 export function structuredPlannerStreamCaption(
   oneLine: string,
@@ -77,6 +89,27 @@ export function structuredPlannerStreamCaption(
       : `Filling sidebar & trip cards — ${tail || "…"}`;
   if (!thinking) return mid;
   return `Considering options — ${thinking.slice(-320)}\n\n${mid}`;
+}
+
+/** Overlay stream: model reasoning only, or a short status — never raw workspace/itinerary JSON. */
+export function overlayStructuredPlannerCaption(
+  thinkingDraft: { text: string },
+  mode: StructuredStreamMode,
+  thinkWindow: number,
+): string {
+  const thinking = overlayThinkingCaption(thinkingDraft, thinkWindow);
+  if (thinking) return thinking;
+  return OVERLAY_STRUCTURED_PLANNER_STATUS[mode];
+}
+
+export function looksLikeStructuredPlannerPayload(oneLine: string): boolean {
+  return (
+    /"assistant_markdown"\s*:/.test(oneLine) ||
+    /"destinations"\s*:/.test(oneLine) ||
+    /"profile_pills"\s*:/.test(oneLine) ||
+    /"itinerary"\s*:/.test(oneLine) ||
+    (/[\[{]/.test(oneLine[0] || "") && /"day"\s*:/.test(oneLine))
+  );
 }
 
 export type StreamCaptionOpts = {
@@ -129,13 +162,10 @@ export function streamEventToCaption(
     assistantDraft.text += ev.delta;
     const oneLine = assistantDraft.text.replace(/\s+/g, " ").trim();
     if (!oneLine) return "";
-    const looksLikeStructuredPayload =
-      /"assistant_markdown"\s*:/.test(oneLine) ||
-      /"destinations"\s*:/.test(oneLine) ||
-      /"profile_pills"\s*:/.test(oneLine) ||
-      /"itinerary"\s*:/.test(oneLine) ||
-      (/[\[{]/.test(oneLine[0] || "") && /"day"\s*:/.test(oneLine));
-    if (looksLikeStructuredPayload) {
+    if (looksLikeStructuredPlannerPayload(oneLine)) {
+      if (overlay) {
+        return overlayStructuredPlannerCaption(thinkingDraft, structuredMode, thinkWindow);
+      }
       return structuredPlannerStreamCaption(oneLine, thinkingDraft, structuredMode, structuredTail);
     }
     const proseWindow = oneLine.length > proseWindowMax ? `…${oneLine.slice(-proseWindowMax)}` : oneLine;

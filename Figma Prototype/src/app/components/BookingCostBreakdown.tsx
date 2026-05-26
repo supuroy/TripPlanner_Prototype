@@ -1,6 +1,13 @@
 import { Plane, Hotel, Luggage } from "lucide-react";
 import type { DestCard } from "./TripStore";
-import { activitySum, hotelStayTotal, parsePriceDigits } from "../lib/bookingCardGuards";
+import {
+  activitySum,
+  commercialFlightsExpectedForCost,
+  flightRowIsUserSelectedFlight,
+  hotelRowIsActionableHotel,
+  hotelStayTotal,
+  parsePriceDigits,
+} from "../lib/bookingCardGuards";
 
 export function BookingCostBreakdown({
   dest,
@@ -14,8 +21,13 @@ export function BookingCostBreakdown({
   const flights = dest.flights || [];
   const hotels = dest.hotels || [];
   const acts = dest.activities || [];
-  const flightNum = flights.reduce((s, f) => s + parsePriceDigits(f.price), 0);
-  const hotelSum = hotels.reduce((s, h) => s + hotelStayTotal(h), 0);
+  const flightsExpected = commercialFlightsExpectedForCost(dest);
+  const flightNum = flightsExpected
+    ? flights.filter((f) => flightRowIsUserSelectedFlight(f)).reduce((s, f) => s + parsePriceDigits(f.price), 0)
+    : 0;
+  const hotelSum = hotels
+    .filter((h) => hotelRowIsActionableHotel(h))
+    .reduce((s, h) => s + hotelStayTotal(h), 0);
   const actSum = activitySum(acts);
   const total = flightNum + hotelSum + actSum;
   return (
@@ -24,13 +36,23 @@ export function BookingCostBreakdown({
         Cost breakdown · {paxCount} traveler{paxCount === 1 ? "" : "s"}
       </p>
       <div className="mt-3 space-y-2">
-        <div className="flex items-center justify-between gap-2 text-[12px]">
-          <span className="flex min-w-0 items-center gap-2 text-white/60">
-            <Plane className="h-3.5 w-3.5 shrink-0 text-blue-400" aria-hidden />
-            <span className="truncate">Flights</span>
-          </span>
-          <span className="shrink-0 tabular-nums text-white/85">${flightNum.toLocaleString()}</span>
-        </div>
+        {flightsExpected ? (
+          <div className="flex items-center justify-between gap-2 text-[12px]">
+            <span className="flex min-w-0 items-center gap-2 text-white/60">
+              <Plane className="h-3.5 w-3.5 shrink-0 text-blue-400" aria-hidden />
+              <span className="truncate">Flights</span>
+            </span>
+            <span className="shrink-0 tabular-nums text-white/85">${flightNum.toLocaleString()}</span>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-2 text-[12px]">
+            <span className="flex min-w-0 items-center gap-2 text-white/35 line-through decoration-white/25">
+              <Plane className="h-3.5 w-3.5 shrink-0 text-blue-400/35" aria-hidden />
+              <span className="truncate">Flights</span>
+            </span>
+            <span className="shrink-0 text-[11px] text-white/35">Drive only</span>
+          </div>
+        )}
         <div className="flex items-center justify-between gap-2 text-[12px]">
           <span className="flex min-w-0 items-center gap-2 text-white/60">
             <Hotel className="h-3.5 w-3.5 shrink-0 text-purple-400" aria-hidden />

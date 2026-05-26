@@ -2,10 +2,25 @@
  * Merge planner SSE / wait-spinner captions into a rolling log for the card streaming overlay.
  */
 
-import { isRotatingWaitCaption } from "./streamCaption";
+import { isRotatingWaitCaption, OVERLAY_STRUCTURED_PLANNER_STATUS } from "./streamCaption";
+
+const OVERLAY_PLANNER_STATUS_LINES = new Set<string>(Object.values(OVERLAY_STRUCTURED_PLANNER_STATUS));
 
 function normalizeStreamLine(s: string): string {
   return s.replace(/\s+/g, " ").trim();
+}
+
+const STRUCTURED_PLANNER_SECTION =
+  /(?:Filling sidebar & trip cards —|Building your day-by-day outline —)/;
+
+function isStructuredPlannerStreamCaption(s: string): boolean {
+  return STRUCTURED_PLANNER_SECTION.test(s);
+}
+
+/** JSON / outline tail after the `` — `` section header (used for incremental compare). */
+function structuredPlannerTail(s: string): string {
+  const m = s.match(/(?:Filling sidebar & trip cards —|Building your day-by-day outline —)([\s\S]*)$/);
+  return m ? m[1].trim() : s.trim();
 }
 
 /** True when ``next`` is the same stream line growing (thinking / JSON tail), not a new thought. */
@@ -21,6 +36,20 @@ function isIncrementalStreamUpdate(last: string, next: string): boolean {
     const tail = a.slice(-72);
     if (b.includes(tail.slice(0, 36))) return true;
   }
+  /** Sliding windows (``…`` + last N chars) — same stream, window moved forward. */
+  if (a.length > 48 && b.length > 48) {
+    const tailLen = Math.min(96, a.length, b.length);
+    const aTail = a.slice(-tailLen);
+    const bTail = b.slice(-tailLen);
+    if (aTail === bTail) return true;
+    if (bTail.startsWith(aTail.slice(0, Math.min(48, aTail.length)))) return true;
+    if (aTail.startsWith(bTail.slice(0, Math.min(48, bTail.length)))) return true;
+  }
+  if (isStructuredPlannerStreamCaption(last) || isStructuredPlannerStreamCaption(next)) {
+    const aJson = structuredPlannerTail(last);
+    const bJson = structuredPlannerTail(next);
+    if (aJson && bJson && (bJson.startsWith(aJson) || aJson.startsWith(bJson))) return true;
+  }
   return false;
 }
 
@@ -32,6 +61,31 @@ export function mergeStreamCaptionLog(log: string, nextCaption: string): string 
   if (log === next) return log;
   if (next.startsWith(log)) return next;
   if (log.endsWith(next)) return log;
+
+  /**
+   * Planner workspace/itinerary overlay captions are two paragraphs
+   * (thinking + ``Filling sidebar… — {json tail}``). Only the last paragraph was
+   * compared before, so each token appended the full dual-paragraph string again.
+   */
+  if (OVERLAY_PLANNER_STATUS_LINES.has(next)) {
+    if (!log || OVERLAY_PLANNER_STATUS_LINES.has(log) || isIncrementalStreamUpdate(log, next)) {
+      return next;
+    }
+  }
+
+  if (isStructuredPlannerStreamCaption(next)) {
+    if (!log || isStructuredPlannerStreamCaption(log)) {
+      const logTail = structuredPlannerTail(log);
+      const nextTail = structuredPlannerTail(next);
+      if (
+        !log ||
+        isIncrementalStreamUpdate(log, next) ||
+        isIncrementalStreamUpdate(logTail, nextTail)
+      ) {
+        return next;
+      }
+    }
+  }
 
   const parts = log.split("\n\n");
   const last = parts[parts.length - 1] ?? "";

@@ -2,9 +2,9 @@ import { useState, useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { Send, X, MessageSquare, ChevronDown, Sparkles, Globe, Loader2 } from "lucide-react";
 import { advisorFeedStream, orchestrateTurn } from "../../api/wanderly";
-import { createCardStreamFromSseHandler } from "../lib/cardStreamFromSse";
 import {
   startRotatingWaitCaption,
+  streamEventToCaption,
   WAIT_ORCHESTRATE_CAPTIONS,
   WAIT_ADVISOR_CAPTIONS,
   WAIT_WEB_CAPTIONS,
@@ -181,11 +181,6 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     }
 
     setIsTyping(true);
-    cardStreamOpen({
-      title: "AI agent working",
-      subtitle: `Helping with ${destName}…`,
-      destId,
-    });
     if (replyTimerRef.current) clearTimeout(replyTimerRef.current);
     replyTimerRef.current = null;
     void (async () => {
@@ -232,23 +227,19 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
         }
 
         if (isAdvisorPath) {
-          cardStreamOpen({
-            title: "Answering your question",
-            subtitle: `About ${destName}…`,
-            destId,
-            preserveLog: false,
-          });
           let stopAdvSpin: (() => void) | null = startRotatingWaitCaption(
             setAgentStreamCaption,
             WAIT_ADVISOR_CAPTIONS,
           );
-          const onAdvisorEvent = createCardStreamFromSseHandler({
-            destId,
-            onLiveCaption: () => {
-              stopAdvSpin?.();
-              stopAdvSpin = null;
-            },
-          });
+          const advisorAssistantDraft = { text: "" };
+          const advisorThinkingDraft = { text: "" };
+          const onAdvisorEvent = (ev: Record<string, unknown>) => {
+            const cap = streamEventToCaption(ev, advisorAssistantDraft, advisorThinkingDraft);
+            if (!cap) return;
+            stopAdvSpin?.();
+            stopAdvSpin = null;
+            setAgentStreamCaption(cap);
+          };
           let out: Awaited<ReturnType<typeof advisorFeedStream>>;
           try {
             out = await advisorFeedStream(sid0, userMessage, onAdvisorEvent, {
@@ -395,19 +386,16 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
     const q = msg.webSearchQuery?.trim();
     if (!sid || !q) return;
     setWebLookupMessageId(msg.id);
-    cardStreamOpen({
-      title: "Searching the web",
-      subtitle: `Looking up details for ${destName}…`,
-      destId,
-    });
     let stopWeb: (() => void) | null = startRotatingWaitCaption(setAgentStreamCaption, WAIT_WEB_CAPTIONS);
-    const onWebEvent = createCardStreamFromSseHandler({
-      destId,
-      onLiveCaption: () => {
-        stopWeb?.();
-        stopWeb = null;
-      },
-    });
+    const webAssistantDraft = { text: "" };
+    const webThinkingDraft = { text: "" };
+    const onWebEvent = (ev: Record<string, unknown>) => {
+      const cap = streamEventToCaption(ev, webAssistantDraft, webThinkingDraft);
+      if (!cap) return;
+      stopWeb?.();
+      stopWeb = null;
+      setAgentStreamCaption(cap);
+    };
     try {
       const userQ = lastCardUserQuestionRef.current.trim() || q;
       const out = await advisorFeedStream(sid, userQ, onWebEvent, {
