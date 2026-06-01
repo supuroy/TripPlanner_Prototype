@@ -1,0 +1,2629 @@
+{
+  "catalog_version": 1,
+  "catalog_kind": "trail_feature",
+  "written_at_utc": "2026-06-01T07:55:45Z",
+  "source": {
+    "listing_url": "https://www.alltrails.com/directory/trail-features/hot-springs/A/1",
+    "method": "playwright_feature_batch"
+  },
+  "feature_slug": "hot-springs",
+  "feature_name": "Hot Springs",
+  "trail_count": 316,
+  "trails": [
+    {
+      "trail_id": "hot-springs:us-washington-silver-falls-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/silver-falls-trail",
+      "name": "#1 - Silver Falls Loop",
+      "difficulty": "Easy",
+      "length_mi": 2.9,
+      "rating": 4.8,
+      "park_code": "mora"
+    },
+    {
+      "trail_id": "hot-springs:us-arizona-sheep-bridge-hot-spring-from-fr205",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/sheep-bridge-hot-spring-from-fr205",
+      "name": "#1 - Sheep Bridge Hot Spring from FR205",
+      "difficulty": "Moderate",
+      "length_mi": 52.1,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-washington-olympic-hot-springs-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/olympic-hot-springs-trail",
+      "name": "#1 - Olympic Hot Springs Trail",
+      "difficulty": "Hard",
+      "length_mi": 21.8,
+      "rating": 4.6,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "hot-springs:us-washington-boulder-lakes-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/boulder-lakes-trail",
+      "name": "#2 - Boulder Lake Trail",
+      "difficulty": "Hard",
+      "length_mi": 12.2,
+      "rating": 4.2,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "hot-springs:us-washington-olympic-hot-springs-appleton-pass-and-sol-duc-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/olympic-hot-springs-appleton-pass-and-sol-duc-loop-trail",
+      "name": "#3 - Olympic Hot Springs, Appleton Pass, and Sol Duc Loop Trail",
+      "difficulty": "Hard",
+      "length_mi": 24.8,
+      "rating": 4.2,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "hot-springs:us-washington-pacific-northwest-trail-stage-50-mink-lake-to-bogachiel-rainforest",
+      "source_url": "https://www.alltrails.com/trail/us/washington/pacific-northwest-trail-stage-50-mink-lake-to-bogachiel-rainforest",
+      "name": "#4 - Pacific Northwest Trail: Stage 50 - Mink Lake to Bogachiel Rainforest",
+      "difficulty": "Hard",
+      "length_mi": 23.6,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-washington-pacific-northwest-trail-stage-49-olympic-hot-springs-to-mink-lake",
+      "source_url": "https://www.alltrails.com/trail/us/washington/pacific-northwest-trail-stage-49-olympic-hot-springs-to-mink-lake",
+      "name": "#5 - Pacific Northwest Trail: Stage 49 - Olympic Hot Springs to Mink Lake",
+      "difficulty": "Hard",
+      "length_mi": 21.3,
+      "rating": 5
+    },
+    {
+      "trail_id": "hot-springs:us-washington-everett-peak-and-mount-appleton-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/everett-peak-and-mount-appleton-loop-trail",
+      "name": "#6 - Everett Peak, and Mount Appleton Loop Trail",
+      "difficulty": "Hard",
+      "length_mi": 17.6,
+      "rating": 3.1,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-peregrine-peak-via-alum-cave-bluffs-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/peregrine-peak-via-alum-cave-bluffs-trail",
+      "name": "#1 - Peregrine Peak via Alum Cave Bluff Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.7,
+      "rating": 4.8,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-myrtle-point-and-mount-leconte-via-alum-cave-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/myrtle-point-and-mount-leconte-via-alum-cave-trail",
+      "name": "#2 - Myrtle Point and Mount LeConte via Alum Cave Trail",
+      "difficulty": "Hard",
+      "length_mi": 12,
+      "rating": 4.9,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-cataract-falls--2",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/cataract-falls--2",
+      "name": "#3 - Cataract Falls",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-huskey-branch-falls-via-little-river-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/huskey-branch-falls-via-little-river-trail",
+      "name": "#4 - Huskey Branch Falls via Little River Trail",
+      "difficulty": "Easy",
+      "length_mi": 4.3,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-appalachian-trail-newfound-gap-to-sweat-heifer-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/appalachian-trail-newfound-gap-to-sweat-heifer-creek-trail",
+      "name": "#5 - Appalachian Trail: Newfound Gap to Sweat Heifer Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.4,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-trillium-gap-trail-to-grotto-falls",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/trillium-gap-trail-to-grotto-falls",
+      "name": "#6 - Trillium Gap Trail to Grotto Falls",
+      "difficulty": "Moderate",
+      "length_mi": 7.2,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-appalachian-trail-to-mount-kephart-and-icewater-spring-shelter",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/appalachian-trail-to-mount-kephart-and-icewater-spring-shelter",
+      "name": "#7 - Appalachian Trail to Mount Kephart and Icewater Spring Shelter",
+      "difficulty": "Moderate",
+      "length_mi": 6.4,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-rainbow-falls-trail-and-cliff-top-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/rainbow-falls-trail-and-cliff-top-trail",
+      "name": "#8 - Rainbow Falls Trail and Cliff Tops Trail",
+      "difficulty": "Hard",
+      "length_mi": 13.5,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-baskins-creek-falls--4",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/baskins-creek-falls--4",
+      "name": "#9 - Baskins Creek Falls via Rainbow Falls Trailhead",
+      "difficulty": "Moderate",
+      "length_mi": 3.8,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mount-leconte-via-trillium-gap",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mount-leconte-via-trillium-gap",
+      "name": "#10 - Mount LeConte via Trillium Gap",
+      "difficulty": "Hard",
+      "length_mi": 13.1,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-jakes-creek-trail-to-avent-cabin",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/jakes-creek-trail-to-avent-cabin",
+      "name": "#12 - Jakes Creek Trail to Avent Cabin",
+      "difficulty": "Easy",
+      "length_mi": 2.7,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-brushy-mountain--3",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/brushy-mountain--3",
+      "name": "#13 - Brushy Mountain",
+      "difficulty": "Hard",
+      "length_mi": 6.6,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-baskin-creek-falls",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/baskin-creek-falls",
+      "name": "#14 - Baskins Creek Falls via Graveyard Ridge Trailhead",
+      "difficulty": "Moderate",
+      "length_mi": 3.2,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-metcalf-bottoms-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/metcalf-bottoms-trail",
+      "name": "#15 - Metcalf Bottoms Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.4,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-rhododendron-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/rhododendron-creek-trail",
+      "name": "#16 - Engine Creek to Grapeyard Creek",
+      "difficulty": "Moderate",
+      "length_mi": 6.9,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mount-leconte-via-rainbow-falls-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mount-leconte-via-rainbow-falls-trail",
+      "name": "#17 - Mount LeConte via Rainbow Falls Trail",
+      "difficulty": "Hard",
+      "length_mi": 13.5,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-bullhead-to-the-pulpit",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/bullhead-to-the-pulpit",
+      "name": "#18 - Bullhead to the Pulpit",
+      "difficulty": "Moderate",
+      "length_mi": 6.5,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-courthouse-rock-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/courthouse-rock-trail",
+      "name": "#19 - Courthouse Rock Trail",
+      "difficulty": "Moderate",
+      "length_mi": 2.3,
+      "rating": 4.3,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-noah-bud-ogle-self-guiding-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/noah-bud-ogle-self-guiding-trail",
+      "name": "#20 - Noah Bud Ogle Place Nature Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.8,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-cataract-falls-accessible",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/cataract-falls-accessible",
+      "name": "#21 - Cataract Falls Short Route",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 4.1,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-road-prong-via-chimney-tops-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/road-prong-via-chimney-tops-trail",
+      "name": "#22 - Road Prong via Chimney Tops Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.7,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-old-sugarlands-trail-to-rock-house",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/old-sugarlands-trail-to-rock-house",
+      "name": "#23 - Old Sugarlands Trail to Rock House",
+      "difficulty": "Moderate",
+      "length_mi": 5.8,
+      "rating": 4.4,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-newfound-gap-to-indian-gap",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/newfound-gap-to-indian-gap",
+      "name": "#24 - Newfound Gap to Indian Gap",
+      "difficulty": "Moderate",
+      "length_mi": 3.3,
+      "rating": 4.4,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-little-brier-gap-via-little-greenbrier-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/little-brier-gap-via-little-greenbrier-trail",
+      "name": "#25 - Walker Sisters Home via Little Greenbrier Trail",
+      "difficulty": "Moderate",
+      "length_mi": 5,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mile-high-leconte-challenge",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mile-high-leconte-challenge",
+      "name": "#26 - Mile High LeConte Challenge",
+      "difficulty": "Hard",
+      "length_mi": 21,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-newfound-gap-road-drive",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/newfound-gap-road-drive",
+      "name": "#27 - Newfound Gap Road Drive",
+      "difficulty": "Moderate",
+      "length_mi": 29.3,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-quilliam-cave-via-courthouse-rock-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/quilliam-cave-via-courthouse-rock-trail",
+      "name": "#28 - Quilliam Cave via Courthouse Rock Trail",
+      "difficulty": "Moderate",
+      "length_mi": 2.9,
+      "rating": 4.3,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-little-mountain-via-little-greenbrier-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/little-mountain-via-little-greenbrier-trail",
+      "name": "#29 - Little Mountain via Little Greenbrier Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.8,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-newfound-gap-to-grassy-patch",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/newfound-gap-to-grassy-patch",
+      "name": "#30 - Newfound Gap to Grassy Patch",
+      "difficulty": "Hard",
+      "length_mi": 13.5,
+      "rating": 4.8,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-grapeyard-ridge-trail-to-campsite-32",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/grapeyard-ridge-trail-to-campsite-32",
+      "name": "#31 - Grapeyard Ridge Trail to Campsite 32",
+      "difficulty": "Moderate",
+      "length_mi": 6.4,
+      "rating": 4.4,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-riverview-quiet-walkway",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/riverview-quiet-walkway",
+      "name": "#32 - Riverview Quiet Walkway",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 3.8,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-spruce-fir-self-guiding-nature-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/spruce-fir-self-guiding-nature-trail",
+      "name": "#33 - Spruce Fir Nature Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.4,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-little-brier-gap-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/little-brier-gap-trail",
+      "name": "#34 - Little Brier Gap Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.9,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-appalachian-trail-newfound-gap-to-davenport-gap",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/appalachian-trail-newfound-gap-to-davenport-gap",
+      "name": "#35 - Appalachian Trail: Newfound Gap to Davenport Gap",
+      "difficulty": "Hard",
+      "length_mi": 31,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-bullhead-view-quiet-walkway--2",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/bullhead-view-quiet-walkway--2",
+      "name": "#36 - Bullhead View Quiet Walkway",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-newfound-gap-charlies-bunion-dry-sluice-and-kephart-prong",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/newfound-gap-charlies-bunion-dry-sluice-and-kephart-prong",
+      "name": "#37 - Newfound Gap, Charlie\u2019s Bunion, Dry Sluice and Kephart Prong",
+      "difficulty": "Hard",
+      "length_mi": 11.2,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-chimney-tops-and-road-prong-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/chimney-tops-and-road-prong-trail",
+      "name": "#38 - Chimney Tops and Road Prong Trail",
+      "difficulty": "Hard",
+      "length_mi": 8.5,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-deep-creek-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/deep-creek-trail--2",
+      "name": "#39 - Deep Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 14.1,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-peregrine-peak-and-rainbow-falls-via-alum-cave-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/peregrine-peak-and-rainbow-falls-via-alum-cave-trail",
+      "name": "#40 - Peregrine Peak and Rainbow Falls via Alum Cave Trail",
+      "difficulty": "Hard",
+      "length_mi": 17.3,
+      "rating": 4.9,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-roundtop-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/roundtop-trail--2",
+      "name": "#41 - Roundtop Trail",
+      "difficulty": "Hard",
+      "length_mi": 14.9,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-laurel-falls-quiet-walkway",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/laurel-falls-quiet-walkway",
+      "name": "#42 - Laurel Falls Quiet Walkway",
+      "difficulty": "Easy",
+      "length_mi": 0.4,
+      "rating": 4.4,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-hickory-flat-branch-quiet-walkway",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/hickory-flat-branch-quiet-walkway",
+      "name": "#43 - Hickory Flats Quiet Walkway",
+      "difficulty": "Easy",
+      "length_mi": 0.8,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-road-prong-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/road-prong-trail",
+      "name": "#44 - Road Prong Trail",
+      "difficulty": "Moderate",
+      "length_mi": 6.2,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-jakes-creek-via-miry-ridge-trail-and-appalachian-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/jakes-creek-via-miry-ridge-trail-and-appalachian-trail-loop",
+      "name": "#45 - Jakes Creek via Miry Ridge Trail and Appalachian Trail Loop",
+      "difficulty": "Hard",
+      "length_mi": 25.7,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-trillium-gap-grotto-falls-brushy-mountain-bull-head-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/trillium-gap-grotto-falls-brushy-mountain-bull-head-trail-loop",
+      "name": "#46 - Trillium Gap, Grotto Falls, Brushy Mountain, Bull Head Trail Loop",
+      "difficulty": "Hard",
+      "length_mi": 16.3,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-curry-mountain-meigs-mountain-and-meigs-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/curry-mountain-meigs-mountain-and-meigs-creek-trail",
+      "name": "#47 - Curry Mountain, Meigs Mountain and Meigs Creek Trail",
+      "difficulty": "Hard",
+      "length_mi": 8.6,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-laurel-falls-via-little-greenbrier-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/laurel-falls-via-little-greenbrier-trail",
+      "name": "#48 - Laurel Falls via Little Greenbrier Trail",
+      "difficulty": "Hard",
+      "length_mi": 12.2,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-big-white-oak-quiet-walkway",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/big-white-oak-quiet-walkway",
+      "name": "#49 - Big White Oak Quiet Walkway",
+      "difficulty": "Easy",
+      "length_mi": 0.6,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-balsam-point-quiet-walkway--2",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/balsam-point-quiet-walkway--2",
+      "name": "#50 - Balsam Point Quiet Walkway",
+      "difficulty": "Moderate",
+      "length_mi": 0.2,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-martha-mccarter-manway-to-old-settlers-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/martha-mccarter-manway-to-old-settlers-trail",
+      "name": "#51 - Martha McCarter Manway via Old Settlers Trail",
+      "difficulty": "Hard",
+      "length_mi": 14.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-sugarland-mountain-trail-to-huskey-gap",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/sugarland-mountain-trail-to-huskey-gap",
+      "name": "#52 - Sugarland Mountain and Huskey Gap Trail",
+      "difficulty": "Moderate",
+      "length_mi": 11,
+      "rating": 3.7
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-foothills-parkway-wear-valley-to-chilhowee",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/foothills-parkway-wear-valley-to-chilhowee",
+      "name": "#53 - Foothills Parkway: Wear Valley to Chilhowee",
+      "difficulty": "Hard",
+      "length_mi": 31.7,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-elkmont-to-mt-collins-loop--2",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/elkmont-to-mt-collins-loop--2",
+      "name": "#54 - Elkmont to Mt Collins Loop",
+      "difficulty": "Hard",
+      "length_mi": 28.5,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mount-collins-via-little-river-trail-and-sugarland-mountain-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mount-collins-via-little-river-trail-and-sugarland-mountain-trail",
+      "name": "#55 - Mount Collins via Little River Trail and Sugarland Mountain Trail",
+      "difficulty": "Hard",
+      "length_mi": 24.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-huskey-gap-to-fighting-creek-gap",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/huskey-gap-to-fighting-creek-gap",
+      "name": "#56 - Huskey Gap to Fighting Creek Gap",
+      "difficulty": "Moderate",
+      "length_mi": 4.8,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-mount-leconte-and-rainbow-falls-and-grotto-falls-via-appalachian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/mount-leconte-and-rainbow-falls-and-grotto-falls-via-appalachian-trail",
+      "name": "#57 - Mount LeConte and Rainbow Falls and Grotto Falls via Appalachian Trail",
+      "difficulty": "Hard",
+      "length_mi": 30.7,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-grapeyard-ridge-trail-to-campsite-32-via-roaring-fork",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/grapeyard-ridge-trail-to-campsite-32-via-roaring-fork",
+      "name": "#58 - Grapeyard Ridge Trail to Campsite 32 Via Roaring Fork",
+      "difficulty": "Hard",
+      "length_mi": 8.7,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-newfound-to-road-prong",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/newfound-to-road-prong",
+      "name": "#59 - Newfound to Road Prong",
+      "difficulty": "Hard",
+      "length_mi": 7.9,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-30-three-forks-camp-via-huskey-gap-and-little-river-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/30-three-forks-camp-via-huskey-gap-and-little-river-trail",
+      "name": "#60 - 30 Three Forks Camp via Huskey Gap and Little River Trail",
+      "difficulty": "Hard",
+      "length_mi": 18.6,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-elkmont-to-fontana-lake",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/elkmont-to-fontana-lake",
+      "name": "Elkmont to Fontana Lake",
+      "length_mi": 40.7
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-appalachian-trail-west",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/appalachian-trail-west",
+      "name": "Appalachian Trail: Newfound Gap to Fontana Lake"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-chestnut-top-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/chestnut-top-trail",
+      "name": "Chestnut Top Trail",
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-washington-goldmyer-hot-springs-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/goldmyer-hot-springs-trail",
+      "name": "#1 - Goldmyer Hot Springs Trail",
+      "difficulty": "Moderate",
+      "length_mi": 10.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-washington-sol-duc-falls-nature-trail-to-appleton-pass-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/sol-duc-falls-nature-trail-to-appleton-pass-trail",
+      "name": "#1 - Sol Duc Falls Nature Trail to Appleton Pass Trail",
+      "difficulty": "Hard",
+      "length_mi": 14.6,
+      "rating": 4.6,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "hot-springs:us-washington-little-divide-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/little-divide-loop",
+      "name": "#2 - Little Divide Loop, Mink Lake",
+      "difficulty": "Hard",
+      "length_mi": 14.9,
+      "rating": 4.5,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "hot-springs:us-california-dirty-socks-hot-spring",
+      "source_url": "https://www.alltrails.com/trail/us/california/dirty-socks-hot-spring",
+      "name": "#1 - Dirty Socks Hot Spring",
+      "difficulty": "Easy",
+      "length_mi": 0.8,
+      "rating": 4
+    },
+    {
+      "trail_id": "hot-springs:us-california-horseshoe-meadow-to-the-kern-river",
+      "source_url": "https://www.alltrails.com/trail/us/california/horseshoe-meadow-to-the-kern-river",
+      "name": "#2 - Horseshoe Meadow to the Kern River",
+      "difficulty": "Hard",
+      "length_mi": 37.8,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-california-low-tide-trail-to-mickey-s-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/low-tide-trail-to-mickey-s-beach",
+      "name": "#1 - Low Tide Trail to Mickey's Beach",
+      "difficulty": "Moderate",
+      "length_mi": 0.4,
+      "rating": 2.8
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-deep-creek-waterfall-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/deep-creek-waterfall-loop",
+      "name": "#1 - Deep Creek Waterfall Loop",
+      "difficulty": "Moderate",
+      "length_mi": 2.5,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-deep-creek-loop-and-indian-creek-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/deep-creek-loop-and-indian-creek-loop-trail",
+      "name": "#2 - Deep Creek, Loop and Indian Creek Loop Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.6,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-clingmans-dome-bypass",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/clingmans-dome-bypass",
+      "name": "#3 - Mount Buckley via Kuwohi Bypass Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.7,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-lonesome-pine-overlook--2",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/lonesome-pine-overlook--2",
+      "name": "#4 - Lonesome Pine Overlook",
+      "difficulty": "Hard",
+      "length_mi": 7,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-forney-ridge-trail-to-clingmans-dome-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/forney-ridge-trail-to-clingmans-dome-loop",
+      "name": "#5 - Kuwohi Trail to Forney Ridge Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.5,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-lakeshore-and-tunnel-bypass-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/lakeshore-and-tunnel-bypass-trail-loop",
+      "name": "#6 - Lakeshore and Tunnel Bypass Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 2.2,
+      "rating": 4.4,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-double-spring-gap-shelter-and-clingmans-dome-via-appalachian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/double-spring-gap-shelter-and-clingmans-dome-via-appalachian-trail",
+      "name": "#7 - Double Spring Gap Shelter and Kuwohi via Appalachian Trail",
+      "difficulty": "Hard",
+      "length_mi": 6.5,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-whiteoak-branch-to-forney-creek-road-to-nowhere",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/whiteoak-branch-to-forney-creek-road-to-nowhere",
+      "name": "#8 - Whiteoak Branch to Forney Creek - Road to Nowhere",
+      "difficulty": "Moderate",
+      "length_mi": 8.1,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-deep-creek-indian-creek-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/deep-creek-indian-creek-loop",
+      "name": "#9 - Deep Creek, Indian Creek Loop",
+      "difficulty": "Hard",
+      "length_mi": 13.3,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-nolan-s-creek-trail-to-lower-noland-creek-boater-camp-66",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/nolan-s-creek-trail-to-lower-noland-creek-boater-camp-66",
+      "name": "#10 - Nolan\u2019s Creek Trail to Lower Noland Creek Boater Camp #66",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.4,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-mingus-creek",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/mingus-creek",
+      "name": "#12 - Mingus Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 5.9,
+      "rating": 4.4,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-deep-creek-horse-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/deep-creek-horse-trail",
+      "name": "#13 - Deep Creek Horse Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.7,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-noland-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/noland-creek-trail",
+      "name": "#15 - Noland Creek Trail",
+      "difficulty": "Hard",
+      "length_mi": 18.6,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-appalachian-trail-lake-fontana-dam-to-clingmans-dome",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/appalachian-trail-lake-fontana-dam-to-clingmans-dome",
+      "name": "#16 - Appalachian Trail: Kuwohi to Lake Fontana Dam",
+      "difficulty": "Hard",
+      "length_mi": 32.2,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-thomas-divide-newton-bald-and-mingus-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/thomas-divide-newton-bald-and-mingus-creek-trail",
+      "name": "#17 - Thomas Divide, Newton Bald and Mingus Creek Trail",
+      "difficulty": "Hard",
+      "length_mi": 11.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-deep-creek-to-clingmans-dome-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/deep-creek-to-clingmans-dome-loop",
+      "name": "#18 - Noland Divide Trail, Kuwohi, and Deep Creek Loop",
+      "difficulty": "Hard",
+      "length_mi": 34.9,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-kephart-prong-trail-charlies-bunion-mount-leconte",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/kephart-prong-trail-charlies-bunion-mount-leconte",
+      "name": "#19 - Kephart Prong Trail, Charlies Bunion, and Mount LeConte",
+      "difficulty": "Strenuous",
+      "length_mi": 24.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-noland-divide-trail-to-deep-creek-trailloop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/noland-divide-trail-to-deep-creek-trailloop",
+      "name": "#20 - Noland Divide Trail to Deep Creek Trail Loop",
+      "difficulty": "Hard",
+      "length_mi": 18.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-newton-bald-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/newton-bald-trail",
+      "name": "#21 - Newton Bald Trail",
+      "difficulty": "Hard",
+      "length_mi": 9.4,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-thomas-divide-deep-low-gap-and-indian-creek-motor-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/thomas-divide-deep-low-gap-and-indian-creek-motor-trail",
+      "name": "#22 - Thomas Divide, Deep Low Gap, and Indian Creek Motor Trail",
+      "difficulty": "Hard",
+      "length_mi": 12.4,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-bradley-fork-dry-sluice-gap-hughes-ridge-and-chasteen-creek-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/bradley-fork-dry-sluice-gap-hughes-ridge-and-chasteen-creek-loop",
+      "name": "#23 - Bradley Fork, Dry Sluice Gap, Hughes Ridge and Chasteen Creek Loop",
+      "difficulty": "Hard",
+      "length_mi": 24.8,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-thomas-divide-indian-creek-motor-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/thomas-divide-indian-creek-motor-trail-loop",
+      "name": "#24 - Thomas Divide and Indian Creek Motor Trail Loop",
+      "difficulty": "Hard",
+      "length_mi": 14.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-forney-ridge-trail-from-clingman-s-dome-to-buckhorn-bald",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/forney-ridge-trail-from-clingman-s-dome-to-buckhorn-bald",
+      "name": "#25 - Forney Ridge Trail from Kuwohi to Buckhorn Bald",
+      "difficulty": "Moderate",
+      "length_mi": 7.6,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-newtown-bald-via-mingus-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/newtown-bald-via-mingus-creek-trail",
+      "name": "#26 - Newtown Bald via Mingus Creek Trail",
+      "difficulty": "Hard",
+      "length_mi": 12,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-forney-ridge-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/forney-ridge-creek-trail",
+      "name": "#27 - Forney Ridge and Forney Creek Loop",
+      "difficulty": "Hard",
+      "length_mi": 19,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-white-oak-branch-forney-creek-trail-to-jonas-creek-campsite-70",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/white-oak-branch-forney-creek-trail-to-jonas-creek-campsite-70",
+      "name": "#28 - White Oak Branch, Forney Creek Trail to Jonas Creek (Campsite 70)",
+      "difficulty": "Moderate",
+      "length_mi": 6.2,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-bradley-fork-to-dry-sluice-gap-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/bradley-fork-to-dry-sluice-gap-trail",
+      "name": "#29 - Bradley Fork to Dry Sluice Gap Trail",
+      "difficulty": "Hard",
+      "length_mi": 16.9,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-goldmine-forney-and-noland-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/goldmine-forney-and-noland-loop",
+      "name": "#30 - Goldmine, Forney and Noland Loop",
+      "difficulty": "Hard",
+      "length_mi": 21.4,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-lakeshore-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/lakeshore-loop",
+      "name": "Lakeshore Loop",
+      "length_mi": 46.9
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-mountains-to-sea-trail-mst-segment-1",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/mountains-to-sea-trail-mst-segment-1",
+      "name": "Mountains-to-Sea Trail (MST) Segment 1",
+      "park_code": "blripa4"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-eagle-creek-spence-field-and-hazel-creek-loop-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/eagle-creek-spence-field-and-hazel-creek-loop-trail--2",
+      "name": "Eagle Creek, Spence Field, and Hazel Creek Loop Trail"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-goshen-prong-via-appalachian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/goshen-prong-via-appalachian-trail",
+      "name": "Goshen Prong via Appalachian Trail"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-forney-ridge-and-noland-divide-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/forney-ridge-and-noland-divide-loop-trail",
+      "name": "Forney Ridge and Noland Divide Loop Trail"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-springhouse-branch-trail-via-forney-ridge-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/springhouse-branch-trail-via-forney-ridge-trail",
+      "name": "Springhouse Branch Trail via Forney Ridge Trail"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-silers-bald-via-lakeshore-trail-bear-creek-trail-and-welch-ridge-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/silers-bald-via-lakeshore-trail-bear-creek-trail-and-welch-ridge-trail",
+      "name": "Silers Bald via Lakeshore Trail, Bear Creek Trail, and Welch Ridge"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-forney-creek-to-noland-creek-extended-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/forney-creek-to-noland-creek-extended-loop",
+      "name": "Forney Creek to Noland Creek Extended Loop"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-high-rocks-via-bear-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/high-rocks-via-bear-creek-trail",
+      "name": "High Rocks via Bear Creek Trail"
+    },
+    {
+      "trail_id": "hot-springs:us-colorado-south-canyon-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/colorado/south-canyon-hot-springs",
+      "name": "#1 - South Canyon Hot Springs",
+      "difficulty": "Moderate",
+      "length_mi": 0.2,
+      "rating": 4
+    },
+    {
+      "trail_id": "hot-springs:us-colorado-conundrum-creek-trail-to-conundrum-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/colorado/conundrum-creek-trail-to-conundrum-hot-springs",
+      "name": "#1 - Conundrum Hot Springs via Conundrum Creek Trail",
+      "difficulty": "Hard",
+      "length_mi": 17.1,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-colorado-conundrum-to-copper-lake-to-east-maroon",
+      "source_url": "https://www.alltrails.com/trail/us/colorado/conundrum-to-copper-lake-to-east-maroon",
+      "name": "#2 - Conundrum to Copper Lake to East Maroon",
+      "difficulty": "Hard",
+      "length_mi": 21.4,
+      "rating": 5
+    },
+    {
+      "trail_id": "hot-springs:us-texas-the-river-road-trail",
+      "source_url": "https://www.alltrails.com/trail/us/texas/the-river-road-trail",
+      "name": "#1 - The River Road OHV Trail",
+      "difficulty": "Moderate",
+      "length_mi": 50.7,
+      "rating": 4.5,
+      "park_code": "bibe"
+    },
+    {
+      "trail_id": "hot-springs:us-washington-beckler-river-ohv-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/beckler-river-ohv-trail",
+      "name": "#1 - Beckler River OHV Trail",
+      "difficulty": "Hard",
+      "length_mi": 30.3,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-washington-lovers-lane-b-loop-and-sol-duc-nature-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lovers-lane-b-loop-and-sol-duc-nature-trail-loop",
+      "name": "#1 - Lovers Lane, B-Loop, and Sol Duc Nature Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 5.8,
+      "rating": 4.7,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "hot-springs:us-washington-mink-lake-trail-to-blackwood-lake",
+      "source_url": "https://www.alltrails.com/trail/us/washington/mink-lake-trail-to-blackwood-lake",
+      "name": "#2 - Mink Lake Trail to Blackwood Lake",
+      "difficulty": "Hard",
+      "length_mi": 9.5,
+      "rating": 4.2,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "hot-springs:us-oregon-terwilliger-cougar-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/oregon/terwilliger-cougar-hot-springs",
+      "name": "#1 - Terwilliger (Cougar) Hot Springs",
+      "difficulty": "Easy",
+      "length_mi": 0.9,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-oregon-mckenzie-river-national-recreational-trail-clear-lake-to-trail-bridge",
+      "source_url": "https://www.alltrails.com/trail/us/oregon/mckenzie-river-national-recreational-trail-clear-lake-to-trail-bridge",
+      "name": "#2 - McKenzie River National Recreational Trail: Clear Lake to Trail Bridge",
+      "difficulty": "Moderate",
+      "length_mi": 13.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-oregon-belknap-hot-springs-resort",
+      "source_url": "https://www.alltrails.com/trail/us/oregon/belknap-hot-springs-resort",
+      "name": "#3 - Belknap Hot Springs Resort",
+      "difficulty": "Easy",
+      "length_mi": 0.5,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-spruce-flats-falls-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/spruce-flats-falls-trail",
+      "name": "#1 - Buckeye Trail to Spruce Flats Falls",
+      "difficulty": "Moderate",
+      "length_mi": 1.7,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-cades-cove-loop-road",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/cades-cove-loop-road",
+      "name": "#2 - Cades Cove Loop Road",
+      "difficulty": "Easy",
+      "length_mi": 10.5,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-meigs-creek-trail-short-version",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/meigs-creek-trail-short-version",
+      "name": "#3 - Meigs Creek Cascade via Meigs Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.6,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-whiteoak-sinks",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/whiteoak-sinks",
+      "name": "#4 - Whiteoak Sinks",
+      "difficulty": "Moderate",
+      "length_mi": 4.7,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-rocky-top-via-anthony-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/rocky-top-via-anthony-creek-trail",
+      "name": "#6 - Rocky Top via Anthony Creek Trail",
+      "difficulty": "Hard",
+      "length_mi": 12.6,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-john-oliver-cabin-access",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/john-oliver-cabin-access",
+      "name": "#7 - John Oliver Cabin Access",
+      "difficulty": "Easy",
+      "length_mi": 0.5,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-cades-cove-to-ledbetter-ridge",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/cades-cove-to-ledbetter-ridge",
+      "name": "#8 - Cades Cove to Ledbetter Ridge",
+      "difficulty": "Moderate",
+      "length_mi": 5.1,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-schoolhouse-gap-trail-turkeypen-ridge-trail-and-finley-cane-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/schoolhouse-gap-trail-turkeypen-ridge-trail-and-finley-cane-trail-loop",
+      "name": "#9 - Schoolhouse Gap, Turkeypen Ridge, and Finley Cane Loop",
+      "difficulty": "Moderate",
+      "length_mi": 8.8,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-lumber-ridge-trail--3",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/lumber-ridge-trail--3",
+      "name": "#10 - Lumber Ridge Trail",
+      "difficulty": "Moderate",
+      "length_mi": 8.3,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-camp-18-via-bote-mountain-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/camp-18-via-bote-mountain-trail",
+      "name": "#15 - Camp #18 via Bote Mountain Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.6,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-anthony-creek-bote-mountain-lead-cove-and-crib-gap-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/anthony-creek-bote-mountain-lead-cove-and-crib-gap-trail",
+      "name": "#16 - Anthony Creek, Bote Mountain, Lead Cove and Crib Gap Trail",
+      "difficulty": "Moderate",
+      "length_mi": 8.5,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-rich-mountain-to-indian-grave-gap",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/rich-mountain-to-indian-grave-gap",
+      "name": "#17 - Rich Mountain to Indian Grave Gap",
+      "difficulty": "Hard",
+      "length_mi": 4.2,
+      "rating": 4.4,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-elijah-oliver-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/elijah-oliver-trail--2",
+      "name": "#18 - Elijah Oliver Trail via Abrams Falls Trailhead",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-middle-prong-lynn-camp-miry-ridge-panthercreek-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/middle-prong-lynn-camp-miry-ridge-panthercreek-loop",
+      "name": "#19 - Middle Prong, Lynn Camp, Miry Ridge-Panther Creek Loop",
+      "difficulty": "Hard",
+      "length_mi": 14.7,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-spence-field-from-lead-cove-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/spence-field-from-lead-cove-trail",
+      "name": "#21 - Spence Field via Lead Cove Trail",
+      "difficulty": "Hard",
+      "length_mi": 9.6,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-thunderhead-mountain",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/thunderhead-mountain",
+      "name": "#22 - Thunderhead Mountain",
+      "difficulty": "Hard",
+      "length_mi": 14.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-wet-bottom-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/wet-bottom-trail",
+      "name": "#23 - Wet Bottom Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.7,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-turkeypen-ridge-trail-to-white-oak-sinks",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/turkeypen-ridge-trail-to-white-oak-sinks",
+      "name": "#24 - Turkeypen Ridge Trail to White Oak Sinks",
+      "difficulty": "Moderate",
+      "length_mi": 8.5,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-abram-falls-hatcher-mountain-copper-road-and-wet-bottom-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/abram-falls-hatcher-mountain-copper-road-and-wet-bottom-loop",
+      "name": "#25 - Abram Falls, Hatcher Mountain, Cooper Road and Wet Bottom Loop",
+      "difficulty": "Hard",
+      "length_mi": 13.4,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-crib-gap-turkeypen-ridge-schoolhouse-gap",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/crib-gap-turkeypen-ridge-schoolhouse-gap",
+      "name": "#28 - Crib Gap, Turkeypen Ridge, and Schoolhouse Gap",
+      "difficulty": "Moderate",
+      "length_mi": 6.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-rabbit-creek-trail-to-abrams-falls-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/rabbit-creek-trail-to-abrams-falls-trail-loop",
+      "name": "#29 - Rabbit Creek Trail to Abrams Falls Trail Loop",
+      "difficulty": "Hard",
+      "length_mi": 11.1,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-abrams-falls-and-little-bottoms-to-abrams-creek-campground",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/abrams-falls-and-little-bottoms-to-abrams-creek-campground",
+      "name": "#30 - Abrams Falls and Little Bottoms to Abrams Creek Campground",
+      "difficulty": "Moderate",
+      "length_mi": 8.7,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-thunderhead-mounatian-from-lead-cove-trailhead",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/thunderhead-mounatian-from-lead-cove-trailhead",
+      "name": "#31 - Thunderhead Mountain from Lead Cove Trailhead",
+      "difficulty": "Hard",
+      "length_mi": 12.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-west-prong-trail-to-bote-mountain-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/west-prong-trail-to-bote-mountain-trail",
+      "name": "#32 - West Prong Trail to Bote Mountain Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.8,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-cerulean-knob-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/cerulean-knob-loop",
+      "name": "#33 - Cerulean Knob Loop",
+      "difficulty": "Hard",
+      "length_mi": 12.1,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-rabbit-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/rabbit-creek-trail",
+      "name": "#34 - Rabbit Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 7.7,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-lynn-camp-prong-and-appalachian-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/lynn-camp-prong-and-appalachian-trail--2",
+      "name": "#35 - Lynn Camp Prong and Appalachian Trail Loop",
+      "difficulty": "Hard",
+      "length_mi": 20.7,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-russell-field-trail-to-mollies-ridge-shelter",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/russell-field-trail-to-mollies-ridge-shelter",
+      "name": "#37 - Russell Field Trail to Mollies Ridge Shelter",
+      "difficulty": "Hard",
+      "length_mi": 16.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-lumber-ridge-to-middle-prong-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/lumber-ridge-to-middle-prong-loop",
+      "name": "#38 - Lumber Ridge to Middle Prong Loop",
+      "difficulty": "Hard",
+      "length_mi": 20.2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-cooper-road-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/cooper-road-trail--2",
+      "name": "#39 - Cooper Road Trail",
+      "difficulty": "Hard",
+      "length_mi": 11.3,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-anthony-creek-russell-field-appalachian-and-bote-mountain-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/anthony-creek-russell-field-appalachian-and-bote-mountain-loop",
+      "name": "#40 - Anthony Creek, Russell Field, Appalachian, and Bote Mountain Loop",
+      "difficulty": "Hard",
+      "length_mi": 14.7,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mount-glory-via-bear-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mount-glory-via-bear-creek-trail",
+      "name": "Mount Glory via Bear Creek Trail",
+      "length_mi": 21.1
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-anthony-creek-trail-to-middle-prong-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/anthony-creek-trail-to-middle-prong-trail",
+      "name": "Anthony Creek and Middle Prong Trail"
+    },
+    {
+      "trail_id": "hot-springs:us-california-high-sierra-trail-crescent-meadow-to-whitney-portal",
+      "source_url": "https://www.alltrails.com/trail/us/california/high-sierra-trail-crescent-meadow-to-whitney-portal",
+      "name": "#1 - High Sierra Trail: Crescent Meadow to Whitney Portal",
+      "difficulty": "Hard",
+      "length_mi": 71.6,
+      "rating": 4.8,
+      "park_code": "seki"
+    },
+    {
+      "trail_id": "hot-springs:us-california-high-sierra-trail-hst-upper-funston-meadow-to-junction-meadow",
+      "source_url": "https://www.alltrails.com/trail/us/california/high-sierra-trail-hst-upper-funston-meadow-to-junction-meadow",
+      "name": "#2 - High Sierra Trail (HST): Upper Funston Meadow to Junction Meadow",
+      "difficulty": "Hard",
+      "length_mi": 9.4,
+      "rating": 4.5,
+      "park_code": "seki"
+    },
+    {
+      "trail_id": "hot-springs:us-california-agua-caliente-hot-spring",
+      "source_url": "https://www.alltrails.com/trail/us/california/agua-caliente-hot-spring",
+      "name": "#1 - Agua Caliente Hot Spring via Marsh Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.6,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-california-octillo-ridge-trail-and-storybook-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/octillo-ridge-trail-and-storybook-trail",
+      "name": "#2 - Octillo Ridge Trail and Storybook Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.9,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-california-agua-caliente-hot-springs-overlook-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/agua-caliente-hot-springs-overlook-loop",
+      "name": "#3 - Agua Caliente Hot Springs Overlook Loop",
+      "difficulty": "Hard",
+      "length_mi": 1.7,
+      "rating": 3.3
+    },
+    {
+      "trail_id": "hot-springs:us-california-sykes-hot-springs-via-pine-ridge-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/sykes-hot-springs-via-pine-ridge-trail",
+      "name": "#1 - Sykes Hot Springs via Pine Ridge Trail",
+      "difficulty": "Hard",
+      "length_mi": 20.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-california-big-sur-sykes-hot-springs-extended-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/big-sur-sykes-hot-springs-extended-loop",
+      "name": "#2 - Big Sur Sykes Hot Springs Extended Loop",
+      "difficulty": "Hard",
+      "length_mi": 34.2,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-grand-prismatic-hot-spring",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/grand-prismatic-hot-spring",
+      "name": "#1 - Grand Prismatic Hot Spring Overlook Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-huckleberry-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/huckleberry-hot-springs",
+      "name": "#2 - Huckleberry Hot Springs",
+      "difficulty": "Easy",
+      "length_mi": 1.2,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-snake-river-south-boundary-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/snake-river-south-boundary-loop",
+      "name": "#3 - Snake River South Boundary Loop",
+      "difficulty": "Moderate",
+      "length_mi": 28,
+      "rating": 4.6,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-sheridan-lake-via-snake-river-canyon-and-south-boundary-trails",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/sheridan-lake-via-snake-river-canyon-and-south-boundary-trails",
+      "name": "#4 - Sheridan Lake via Snake River Canyon and South Boundary Trails",
+      "difficulty": "Hard",
+      "length_mi": 36.1,
+      "rating": 4.2,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-colorado-strawberry-park-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/colorado/strawberry-park-hot-springs",
+      "name": "#1 - Strawberry Park Hot Springs",
+      "difficulty": "Moderate",
+      "length_mi": 6.4,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-oregon-north-umpqua-trail-dread-and-terror-segment",
+      "source_url": "https://www.alltrails.com/trail/us/oregon/north-umpqua-trail-dread-and-terror-segment",
+      "name": "#1 - North Umpqua Trail: Dread and Terror Segment",
+      "difficulty": "Hard",
+      "length_mi": 13,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-nevada-gold-strike-hot-springs-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/gold-strike-hot-springs-trail",
+      "name": "#1 - Goldstrike Canyon Trail",
+      "difficulty": "Hard",
+      "length_mi": 5.5,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-nevada-secret-canyon-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/secret-canyon-trail",
+      "name": "#2 - Secret Canyon Trail to Lone Palm Hot Springs",
+      "difficulty": "Strenuous",
+      "length_mi": 3.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-nevada-arizona-ringbolt-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/arizona-ringbolt-hot-springs",
+      "name": "#3 - Arizona (Ringbolt) Hot Springs Loop",
+      "difficulty": "Hard",
+      "length_mi": 6.1,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-nevada-colorado-river-paddle-hoover-dam-to-willow-beach",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/colorado-river-paddle-hoover-dam-to-willow-beach",
+      "name": "#4 - Colorado River Paddle: Hoover Dam to Willow Beach",
+      "difficulty": "Moderate",
+      "length_mi": 11.9,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "hot-springs:us-nevada-moon-scape-kayak-and-hike-route",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/moon-scape-kayak-and-hike-route",
+      "name": "#5 - Moon Scape Kayak and Hike Route",
+      "difficulty": "Moderate",
+      "length_mi": 2.6,
+      "rating": 3.5
+    },
+    {
+      "trail_id": "hot-springs:us-nevada-weeping-springs-and-bighorn-canyon-loop",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/weeping-springs-and-bighorn-canyon-loop",
+      "name": "#6 - Weeping Springs and Bighorn Canyon Loop",
+      "difficulty": "Strenuous",
+      "length_mi": 4.5,
+      "rating": 5
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-upper-geyser-basin",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/upper-geyser-basin",
+      "name": "#1 - Upper Geyser Basin",
+      "difficulty": "Easy",
+      "length_mi": 3.2,
+      "rating": 4.8,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-fairy-falls--4",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/fairy-falls--4",
+      "name": "#2 - Fairy Falls Trail",
+      "difficulty": "Easy",
+      "length_mi": 4.9,
+      "rating": 4.6,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-mammoth-terraces",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/mammoth-terraces",
+      "name": "#3 - Mammoth Terraces",
+      "difficulty": "Easy",
+      "length_mi": 2.2,
+      "rating": 4.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-upper-geyser-basin-and-old-faithful-observation-point-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/upper-geyser-basin-and-old-faithful-observation-point-loop",
+      "name": "#4 - Upper Geyser Basin and Old Faithful Observation Point Loop",
+      "difficulty": "Moderate",
+      "length_mi": 4.9,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-west-thumb-geyser-basin",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/west-thumb-geyser-basin",
+      "name": "#5 - West Thumb Geyser Basin Trail",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-midway-geyser-basin-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/midway-geyser-basin-trail",
+      "name": "#6 - Midway Geyser Basin Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 4.6,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-mystic-falls-fairy-creek-and-little-firehole-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/mystic-falls-fairy-creek-and-little-firehole-loop",
+      "name": "#7 - Mystic Falls, Fairy Creek and Little Firehole Loop",
+      "difficulty": "Moderate",
+      "length_mi": 3.6,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-yellowstone-falls-crystal-falls-and-inspiration-point-via-north-rim-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/yellowstone-falls-crystal-falls-and-inspiration-point-via-north-rim-trail",
+      "name": "#8 - Inspiration Point, Yellowstone and Crystal Falls via North Rim Trail",
+      "difficulty": "Moderate",
+      "length_mi": 6.6,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-mud-volcano-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/mud-volcano-trail",
+      "name": "#9 - Mud Volcano Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.8,
+      "rating": 4.6,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-artists-paint-pots",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/artists-paint-pots",
+      "name": "#10 - Artists Paintpots Trail",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4.6,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-fairy-creek-trail-to-imperial-geyser",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/fairy-creek-trail-to-imperial-geyser",
+      "name": "#11 - Imperial Geyser via Fairy Falls Trail",
+      "difficulty": "Easy",
+      "length_mi": 6.7,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-fairy-falls-and-imperial-geyser-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/fairy-falls-and-imperial-geyser-loop",
+      "name": "#12 - Fairy Falls and Imperial Geyser Loop",
+      "difficulty": "Moderate",
+      "length_mi": 8.8,
+      "rating": 4.6,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-solitary-geyser",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/solitary-geyser",
+      "name": "#13 - Solitary Geyser",
+      "difficulty": "Moderate",
+      "length_mi": 1.7,
+      "rating": 4.6,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-lone-star-geyser-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/lone-star-geyser-trail",
+      "name": "#14 - Lone Star Geyser Trail",
+      "difficulty": "Easy",
+      "length_mi": 5.3,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-yellowstone-observation-point",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/yellowstone-observation-point",
+      "name": "#15 - Old Faithful Observation Point",
+      "difficulty": "Moderate",
+      "length_mi": 1.4,
+      "rating": 4.6,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-black-sand-basin-loop-yellowstone-np",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/black-sand-basin-loop-yellowstone-np",
+      "name": "#16 - Black Sand Basin Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.5,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-old-faithful-to-madison-junction",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/old-faithful-to-madison-junction",
+      "name": "#17 - Old Faithful to Madison Junction",
+      "difficulty": "Easy",
+      "length_mi": 16.7,
+      "rating": 4.4,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-biscuit-basing-to-morning-glory-pool",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/biscuit-basing-to-morning-glory-pool",
+      "name": "#18 - Biscuit Basin to Morning Glory Pool",
+      "difficulty": "Easy",
+      "length_mi": 2,
+      "rating": 4.8,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-mystic-falls-geyser-basin-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/mystic-falls-geyser-basin-loop",
+      "name": "#19 - Mystic Falls and Geyser Basin Loop",
+      "difficulty": "Moderate",
+      "length_mi": 8.5,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-cdt-observation-point-and-upper-geyser-hill-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/cdt-observation-point-and-upper-geyser-hill-loop",
+      "name": "#20 - CDT, Observation Point, and Upper Geyser Hill",
+      "difficulty": "Moderate",
+      "length_mi": 6,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-fairy-falls-lollipop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/fairy-falls-lollipop-trail",
+      "name": "#21 - Fairy Falls Lollipop Trail",
+      "difficulty": "Moderate",
+      "length_mi": 8.5,
+      "rating": 4.6,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-howard-eaton-lone-star-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/howard-eaton-lone-star-loop-trail",
+      "name": "#22 - Howard Eaton and Lone Star Trail",
+      "difficulty": "Moderate",
+      "length_mi": 8.5,
+      "rating": 4.4,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-fountain-flat-drive",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/fountain-flat-drive",
+      "name": "#23 - Fountain Flat Drive",
+      "difficulty": "Easy",
+      "length_mi": 4.4,
+      "rating": 4.2,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-sentinel-meadows-to-queens-laundry",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/sentinel-meadows-to-queens-laundry",
+      "name": "#24 - Sentinel Meadows to Queen's Laundry",
+      "difficulty": "Moderate",
+      "length_mi": 5,
+      "rating": 4.2,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-mystic-falls-to-ferry-creek-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/mystic-falls-to-ferry-creek-loop",
+      "name": "#25 - Mystic Falls to Ferry Creek Loop",
+      "difficulty": "Hard",
+      "length_mi": 17.8,
+      "rating": 4.4,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-terrace-springs-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/terrace-springs-trail",
+      "name": "#26 - Terrace Springs Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.2,
+      "rating": 4.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-firehole-falls-via-little-firehole-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/firehole-falls-via-little-firehole-trail",
+      "name": "#27 - Firehole Falls via Little Firehole Trail",
+      "difficulty": "Moderate",
+      "length_mi": 10.3,
+      "rating": 4.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-firehole-lake-drive",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/firehole-lake-drive",
+      "name": "#28 - Firehole Lake Drive",
+      "difficulty": "Easy",
+      "length_mi": 3.3,
+      "rating": 4.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-sentinel-meadows-fairy-falls-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/sentinel-meadows-fairy-falls-loop-trail",
+      "name": "#29 - Sentinel Meadows and Fairy Falls Loop",
+      "difficulty": "Moderate",
+      "length_mi": 10.4,
+      "rating": 4.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-shoshone-geyser-basin-via-lone-star-geyser",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/shoshone-geyser-basin-via-lone-star-geyser",
+      "name": "#30 - Shoshone Geyser Basin via Lone Star Geyser",
+      "difficulty": "Moderate",
+      "length_mi": 23.1,
+      "rating": 4.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-sentinel-meadows-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/sentinel-meadows-trail",
+      "name": "#31 - Sentinel Meadows Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.5,
+      "rating": 4.3,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-belcher-river-trail-lone-star-trailhead-to-belcher-ranger-station",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/belcher-river-trail-lone-star-trailhead-to-belcher-ranger-station",
+      "name": "#32 - Bechler River Trail: Lone Star Trailhead to Belcher Ranger Station",
+      "difficulty": "Moderate",
+      "length_mi": 34.1,
+      "rating": 4.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-montana-biscuit-basin-to-fountain-flats-via-fairy-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/montana/biscuit-basin-to-fountain-flats-via-fairy-creek-trail",
+      "name": "#33 - Biscuit Basin to Fountain Flats via Fairy Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 16.5,
+      "rating": 4.2,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-montana-cdt-section-97-howard-eaton-trailhead-to-idaho-border",
+      "source_url": "https://www.alltrails.com/trail/us/montana/cdt-section-97-howard-eaton-trailhead-to-idaho-border",
+      "name": "#34 - CDT Section 97: Howard Eaton Trailhead to Idaho Border",
+      "difficulty": "Hard",
+      "length_mi": 16.8,
+      "rating": 3.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-idaho-island-park-to-old-faithful--2",
+      "source_url": "https://www.alltrails.com/trail/us/idaho/island-park-to-old-faithful--2",
+      "name": "#35 - Island Park to Old Faithful",
+      "difficulty": "Hard",
+      "length_mi": 39.3,
+      "rating": 3.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-summit-lake-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/summit-lake-trail",
+      "name": "#36 - Summit Lake Trail",
+      "difficulty": "Hard",
+      "length_mi": 34.3,
+      "rating": 3.1,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-biscuit-basin-interpretive-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/biscuit-basin-interpretive-trail",
+      "name": "#37 - Biscuit Basin Interpretive Trail [CLOSED]",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 4.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-yellowstone-lake-to-old-faithful-via-southern-boundary",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/yellowstone-lake-to-old-faithful-via-southern-boundary",
+      "name": "Yellowstone Lake to Old Faithful via Southern Boundary",
+      "length_mi": 145.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-heart-lake-thorofare-trail-and-lynx-creek-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/heart-lake-thorofare-trail-and-lynx-creek-loop",
+      "name": "Heart Lake, Thorofare Trail, and Lynx Creek Loop",
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-sevenmile-hole-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/sevenmile-hole-trail",
+      "name": "Seven Mile Hole Trail",
+      "difficulty": "difficult",
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-california-devil-s-kitchen-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/devil-s-kitchen-trail",
+      "name": "#1 - Devil's Kitchen Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.8,
+      "rating": 4.6,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-california-terminal-geyser-boiling-springs-lake",
+      "source_url": "https://www.alltrails.com/trail/us/california/terminal-geyser-boiling-springs-lake",
+      "name": "#2 - Terminal Geyser & Boiling Springs Lake",
+      "difficulty": "Moderate",
+      "length_mi": 5.8,
+      "rating": 4.5,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-california-kings-creek-falls-to-devils-kitchen--2",
+      "source_url": "https://www.alltrails.com/trail/us/california/kings-creek-falls-to-devils-kitchen--2",
+      "name": "#3 - King's Creek Falls to Devil's Kitchen",
+      "difficulty": "Hard",
+      "length_mi": 14.3,
+      "rating": 3.9,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-california-dream-lake",
+      "source_url": "https://www.alltrails.com/trail/us/california/dream-lake",
+      "name": "#4 - Dream Lake Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 3.3,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-california-drake-lake-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/drake-lake-trail",
+      "name": "#5 - Drake Lake Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.7,
+      "rating": 3.7,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-california-bumpass-hell",
+      "source_url": "https://www.alltrails.com/trail/us/california/bumpass-hell",
+      "name": "#6 - Bumpass Hell Trail [CLOSED]",
+      "difficulty": "Moderate",
+      "length_mi": 3,
+      "rating": 4.8,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-california-bumpas-hell-to-cold-boiling-lake",
+      "source_url": "https://www.alltrails.com/trail/us/california/bumpas-hell-to-cold-boiling-lake",
+      "name": "#7 - Cold Boiling Lake Trail to Bumpass Hell [CLOSED]",
+      "difficulty": "Moderate",
+      "length_mi": 5.1,
+      "rating": 4.8,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-california-bumpass-hell-from-southwest-campground",
+      "source_url": "https://www.alltrails.com/trail/us/california/bumpass-hell-from-southwest-campground",
+      "name": "#8 - Bumpass Hell from Southwest Campground [CLOSED]",
+      "difficulty": "Hard",
+      "length_mi": 11.8,
+      "rating": 4.3,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mount-cammerer-via-appalachian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mount-cammerer-via-appalachian-trail",
+      "name": "#1 - Mount Cammerer via Appalachian Trail",
+      "difficulty": "Hard",
+      "length_mi": 11.4,
+      "rating": 4.8,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-balsam-mountain-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/balsam-mountain-loop",
+      "name": "#2 - Balsam Mountain Loop",
+      "difficulty": "Hard",
+      "length_mi": 25.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-appalachian-trail-davenport-gap-to-fontana-dam",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/appalachian-trail-davenport-gap-to-fontana-dam",
+      "name": "#3 - Appalachian Trail: Davenport Gap to Fontana Dam",
+      "difficulty": "Hard",
+      "length_mi": 76.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-california-kings-canyon-national-scenic-byway",
+      "source_url": "https://www.alltrails.com/trail/us/california/kings-canyon-national-scenic-byway",
+      "name": "#1 - Kings Canyon National Scenic Byway",
+      "difficulty": "Moderate",
+      "length_mi": 75.1,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "hot-springs:us-california-hot-springs-canyon-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/hot-springs-canyon-trail",
+      "name": "#1 - Hot Springs Canyon Trail",
+      "difficulty": "Moderate",
+      "length_mi": 2.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-california-hot-springs-trail-and-edison-catway",
+      "source_url": "https://www.alltrails.com/trail/us/california/hot-springs-trail-and-edison-catway",
+      "name": "#2 - Hot Springs Trail and Edison Catway",
+      "difficulty": "Moderate",
+      "length_mi": 3.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-california-little-caliente-hot-spring-trail-from-camino-cielo",
+      "source_url": "https://www.alltrails.com/trail/us/california/little-caliente-hot-spring-trail-from-camino-cielo",
+      "name": "#3 - Little Caliente Hot Spring Trail from Camino Cielo",
+      "difficulty": "Hard",
+      "length_mi": 13.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-california-little-caliente-hot-spring-from-mono-campground-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/little-caliente-hot-spring-from-mono-campground-trail",
+      "name": "#4 - Little Caliente Hot Spring from Mono Campground Trail",
+      "difficulty": "Moderate",
+      "length_mi": 2.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-california-hot-creek-interpretive-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/hot-creek-interpretive-trail",
+      "name": "#1 - Hot Creek Interpretive Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-california-wild-willy-s-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/california/wild-willy-s-hot-springs",
+      "name": "#2 - Wild Willy's Hot Springs",
+      "difficulty": "Easy",
+      "length_mi": 0.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-california-iva-bells-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/california/iva-bells-hot-springs",
+      "name": "#3 - Iva Bell Hot Springs via Fish Creek Trail",
+      "difficulty": "Hard",
+      "length_mi": 23.4,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-california-hilltop-hot-springs-pulkey-s-pool",
+      "source_url": "https://www.alltrails.com/trail/us/california/hilltop-hot-springs-pulkey-s-pool",
+      "name": "#4 - Hilltop Hot Springs (Pulkey's Pool)",
+      "difficulty": "Easy",
+      "length_mi": 0.5,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-california-crab-cooker-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/california/crab-cooker-hot-springs",
+      "name": "#5 - Crab Cooker Hot Springs",
+      "difficulty": "Easy",
+      "length_mi": 0.2,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-california-the-hot-tub",
+      "source_url": "https://www.alltrails.com/trail/us/california/the-hot-tub",
+      "name": "#6 - The Rock Tub Hotsprings",
+      "difficulty": "Easy",
+      "length_mi": 0.3,
+      "rating": 4
+    },
+    {
+      "trail_id": "hot-springs:us-california-hot-springs-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/hot-springs-loop",
+      "name": "#7 - Hot Springs Loop",
+      "difficulty": "Moderate",
+      "length_mi": 3.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-california-john-muir-trail-from-reds-meadow-to-piute-pass",
+      "source_url": "https://www.alltrails.com/trail/us/california/john-muir-trail-from-reds-meadow-to-piute-pass",
+      "name": "#8 - John Muir Trail from Reds Meadow to Piute Pass",
+      "difficulty": "Hard",
+      "length_mi": 64.8,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-california-shepherd-hot-spring",
+      "source_url": "https://www.alltrails.com/trail/us/california/shepherd-hot-spring",
+      "name": "#9 - Shepherd Hot Spring",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-california-dinosaur-falls",
+      "source_url": "https://www.alltrails.com/trail/us/california/dinosaur-falls",
+      "name": "#10 - Dinosaur Falls Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.7,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-california-fish-creek-to-iva-bell-lost-keys-purple-lake-duck-lake-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/fish-creek-to-iva-bell-lost-keys-purple-lake-duck-lake-loop",
+      "name": "Fish Creek, Iva Bell, Lost Keys, Purple and Duck Lake Loop"
+    },
+    {
+      "trail_id": "hot-springs:us-california-iva-bell-hot-springs-and-lost-keys-lakes",
+      "source_url": "https://www.alltrails.com/trail/us/california/iva-bell-hot-springs-and-lost-keys-lakes",
+      "name": "Iva Bell Hot Springs and Lost Keys Lakes"
+    },
+    {
+      "trail_id": "hot-springs:us-california-clear-creek-route-to-mount-shasta",
+      "source_url": "https://www.alltrails.com/trail/us/california/clear-creek-route-to-mount-shasta",
+      "name": "#1 - Mount Shasta via Clear Creek Route",
+      "difficulty": "Strenuous",
+      "length_mi": 12,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-california-horse-camp-trail-to-hidden-valley-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/horse-camp-trail-to-hidden-valley-trail",
+      "name": "#2 - Horse Camp Trail to Hidden Valley Trail",
+      "difficulty": "Hard",
+      "length_mi": 5.9,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-arizona-sheep-bridge-hot-spring-via-w-table-mesa-rd",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/sheep-bridge-hot-spring-via-w-table-mesa-rd",
+      "name": "#1 - Sheep Bridge Hot Spring via W Table Mesa Rd",
+      "difficulty": "Moderate",
+      "length_mi": 92.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-idaho-iron-creek-to-grandjean--2",
+      "source_url": "https://www.alltrails.com/trail/us/idaho/iron-creek-to-grandjean--2",
+      "name": "#1 - Iron Creek Campground to Grandjean",
+      "difficulty": "Hard",
+      "length_mi": 14,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-idaho-bear-valley-hot-springs-via-bear-valley-road",
+      "source_url": "https://www.alltrails.com/trail/us/idaho/bear-valley-hot-springs-via-bear-valley-road",
+      "name": "#2 - Bear Valley Hot Springs from Fir Creek Campground",
+      "difficulty": "Moderate",
+      "length_mi": 7.5,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-idaho-loon-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/idaho/loon-creek-trail",
+      "name": "#3 - Loon Creek Trail",
+      "difficulty": "Hard",
+      "length_mi": 11.5,
+      "rating": 3.9
+    },
+    {
+      "trail_id": "hot-springs:us-idaho-middle-fork-salmon-river--2",
+      "source_url": "https://www.alltrails.com/trail/us/idaho/middle-fork-salmon-river--2",
+      "name": "#4 - Middle Fork Salmon River Paddle Route",
+      "difficulty": "Hard",
+      "length_mi": 95.3,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-washington-baker-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/washington/baker-hot-springs",
+      "name": "#1 - Baker Hot Springs",
+      "difficulty": "Easy",
+      "length_mi": 0.6,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-washington-baker-hot-springs-via-swift-creek-campground",
+      "source_url": "https://www.alltrails.com/trail/us/washington/baker-hot-springs-via-swift-creek-campground",
+      "name": "#2 - Baker Hot Springs via Swift Creek Campground",
+      "difficulty": "Moderate",
+      "length_mi": 7.8,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-hemphill-bald-via-cataloochee-divide-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/hemphill-bald-via-cataloochee-divide-trail",
+      "name": "#1 - Hemphill Bald via Cataloochee Divide Trail",
+      "difficulty": "Moderate",
+      "length_mi": 8.7,
+      "rating": 4.7,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-ferguson-cabin-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/ferguson-cabin-trail-loop",
+      "name": "#2 - Ferguson Cabin Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 3.5,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-swag-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/swag-loop",
+      "name": "#3 - Swag Loop",
+      "difficulty": "Hard",
+      "length_mi": 8.5,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-big-creek-and-mt-sterling-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/big-creek-and-mt-sterling-loop",
+      "name": "#4 - Big Creek and Mt Sterling Loop",
+      "difficulty": "Hard",
+      "length_mi": 27.5,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-big-creek-perimeter-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/big-creek-perimeter-loop",
+      "name": "#5 - Big Creek Perimeter Loop",
+      "difficulty": "Hard",
+      "length_mi": 33.7,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-long-bunk-trail-via-mount-sterling-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/long-bunk-trail-via-mount-sterling-trail",
+      "name": "#6 - Long Bunk Trail via Mount Sterling Trail",
+      "difficulty": "Hard",
+      "length_mi": 10.1,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-mt-cammerer-and-mt-sterling-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/mt-cammerer-and-mt-sterling-loop",
+      "name": "#7 - Mt. Cammerer and Mt. Sterling Loop",
+      "difficulty": "Hard",
+      "length_mi": 29.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-davenport-gap-to-low-gap-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/davenport-gap-to-low-gap-loop-trail",
+      "name": "#8 - Davenport Gap to Low Gap Loop Trail",
+      "difficulty": "Hard",
+      "length_mi": 20.6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-mount-sterling-backpacking-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/mount-sterling-backpacking-trail",
+      "name": "#9 - Mount Sterling Backpacking Trail",
+      "difficulty": "Hard",
+      "length_mi": 27.8,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-pretty-hollow-gap-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/pretty-hollow-gap-trail--2",
+      "name": "#10 - Pretty Hollow Gap Trail [CLOSED]",
+      "difficulty": "Hard",
+      "length_mi": 11,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-balsam-mountain-loop-from-pine-oak-gap",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/balsam-mountain-loop-from-pine-oak-gap",
+      "name": "#11 - Balsam Mountain Loop from Pine Oak Gap [CLOSED]",
+      "difficulty": "Hard",
+      "length_mi": 16,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-polls-gap-rough-fork-tr-to-caldwell-fork-tr",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/polls-gap-rough-fork-tr-to-caldwell-fork-tr",
+      "name": "#12 - Polls Gap-Rough Fork Tr to Caldwell Fork Tr [CLOSED]",
+      "difficulty": "Moderate",
+      "length_mi": 9.7,
+      "rating": 3.9
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-spruce-mountain-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/spruce-mountain-trail",
+      "name": "#13 - Spruce Mountain Trail [CLOSED]",
+      "difficulty": "Moderate",
+      "length_mi": 2.2,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-pin-oak-gap-to-big-creek",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/pin-oak-gap-to-big-creek",
+      "name": "#14 - Pin Oak Gap to Big Creek [CLOSED]",
+      "difficulty": "Hard",
+      "length_mi": 17,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-washington-olympic-peninsula-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/olympic-peninsula-loop",
+      "name": "#1 - Olympic Peninsula Loop Drive",
+      "difficulty": "Easy",
+      "length_mi": 329.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-sutton-ridge-overlook-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/sutton-ridge-overlook-trail",
+      "name": "#1 - Sutton Ridge Overlook Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.1,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mount-cammerer-loop-low-gap-and-lower-cammerer",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mount-cammerer-loop-low-gap-and-lower-cammerer",
+      "name": "#2 - Mount Cammerer Loop - Low Gap and Lower Cammerer",
+      "difficulty": "Hard",
+      "length_mi": 16,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-tricorner-knob-and-mount-guyot-via-snake-den-ridge-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/tricorner-knob-and-mount-guyot-via-snake-den-ridge-trail",
+      "name": "#3 - Tricorner Knob and Mount Guyot via Snake Den Ridge Trail",
+      "difficulty": "Hard",
+      "length_mi": 19,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-low-gap-trail-to-appalachian-trail-to-gabes-mountain-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/low-gap-trail-to-appalachian-trail-to-gabes-mountain-trail-loop",
+      "name": "#4 - Low Gap and Gabes Mountain Trail Loop",
+      "difficulty": "Hard",
+      "length_mi": 20.9,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mt-cammerer-backpacking-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mt-cammerer-backpacking-loop",
+      "name": "#5 - Mt. Cammerer Backpacking Loop",
+      "difficulty": "Hard",
+      "length_mi": 31.2,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-snake-den-ridge-trail-to-low-den-gap-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/snake-den-ridge-trail-to-low-den-gap-trail-loop",
+      "name": "#6 - Snake Den Ridge Trail to Low Den Gap Trail Loop",
+      "difficulty": "Hard",
+      "length_mi": 27.1,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-cosby-campground-to-davenport-gap",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/cosby-campground-to-davenport-gap",
+      "name": "#7 - Cosby Campground to Davenport Gap",
+      "difficulty": "Moderate",
+      "length_mi": 10,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mt-sterling-loop-via-low-gap-big-creek-swallow-fork",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mt-sterling-loop-via-low-gap-big-creek-swallow-fork",
+      "name": "#8 - Mount Sterling Loop (via Low Gap, Big Creek, Swallow Fork)",
+      "difficulty": "Hard",
+      "length_mi": 28.1,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-mount-cammerer-to-clingmans-dome-via-appalachian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/mount-cammerer-to-clingmans-dome-via-appalachian-trail",
+      "name": "#9 - Appalachian Trail: Mount Cammerer to Kuwohi",
+      "difficulty": "Hard",
+      "length_mi": 35.5,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-tennessee-cosby-to-big-creek-via-gabes-mt-maddron-bald-and-appalachian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/tennessee/cosby-to-big-creek-via-gabes-mt-maddron-bald-and-appalachian-trail",
+      "name": "#10 - Cosby to Big Creek via Gabes Mt, Maddron Bald, and Appalachian Trail",
+      "difficulty": "Hard",
+      "length_mi": 25.4,
+      "rating": 3.7
+    },
+    {
+      "trail_id": "hot-springs:us-california-deep-creek-hot-springs-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/deep-creek-hot-springs-trail",
+      "name": "#1 - Deep Creek Hot Springs Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-california-bradford-trail-and-pct-deep-creek-hot-springs-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/bradford-trail-and-pct-deep-creek-hot-springs-loop",
+      "name": "#2 - Deep Creek Hot Springs via Bradford and Pacific Crest Trail",
+      "difficulty": "Hard",
+      "length_mi": 13.9,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-washington-sulphur-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/sulphur-creek-trail",
+      "name": "#1 - Sulphur Creek Trail [CLOSED]",
+      "difficulty": "Moderate",
+      "length_mi": 4,
+      "rating": 2.2
+    },
+    {
+      "trail_id": "hot-springs:us-arizona-verde-hot-spring",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/verde-hot-spring",
+      "name": "#1 - Verde Hot Spring",
+      "difficulty": "Easy",
+      "length_mi": 1.8,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-astoria-mineral-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/astoria-mineral-hot-springs",
+      "name": "#1 - Astoria Mineral Hot Springs",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 3.9
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-turquoise-lake-via-granite-highline-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/turquoise-lake-via-granite-highline-trail",
+      "name": "#2 - Turquoise Lake via Granite Creek Trail",
+      "difficulty": "Hard",
+      "length_mi": 23.8,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-gros-ventre-slide-bridger-teton-national-forest",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/gros-ventre-slide-bridger-teton-national-forest",
+      "name": "#3 - Gros Ventre Slide: Bridger-Teton National Forest",
+      "difficulty": "Easy",
+      "length_mi": 12.8,
+      "rating": 4.6,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-granite-creek-falls-and-granite-hot-springs-via-granite-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/granite-creek-falls-and-granite-hot-springs-via-granite-creek-trail",
+      "name": "#4 - Granite Creek Falls and Granite Hot Springs via Granite Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 2.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-granite-falls-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/granite-falls-trail",
+      "name": "#5 - Granite Falls Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-granite-highline-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/granite-highline-trail",
+      "name": "#6 - Granite Highline Trail",
+      "difficulty": "Hard",
+      "length_mi": 46.2,
+      "rating": 3.8
+    },
+    {
+      "trail_id": "hot-springs:us-new-mexico-san-antonio-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/new-mexico/san-antonio-hot-springs",
+      "name": "#1 - San Antonio Hot Springs",
+      "difficulty": "Moderate",
+      "length_mi": 1.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-new-mexico-sulphur-springs-trail",
+      "source_url": "https://www.alltrails.com/trail/us/new-mexico/sulphur-springs-trail",
+      "name": "#2 - Sulphur Springs Trail",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "hot-springs:us-colorado-conundrum-hot-springs-via-copper-creek-and-conundrum-trail",
+      "source_url": "https://www.alltrails.com/trail/us/colorado/conundrum-hot-springs-via-copper-creek-and-conundrum-trail",
+      "name": "#1 - Conundrum Hot Springs via Copper Creek and Conundrum Trail",
+      "difficulty": "Hard",
+      "length_mi": 17.7,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-new-mexico-monumental-loop-2-0",
+      "source_url": "https://www.alltrails.com/trail/us/new-mexico/monumental-loop-2-0",
+      "name": "#1 - Monumental Loop 2.0",
+      "difficulty": "Moderate",
+      "length_mi": 249.4,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-wiggins-cemetery-via-deep-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/wiggins-cemetery-via-deep-creek-trail",
+      "name": "#1 - Wiggins Cemetery via Deep Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-mingus-creek-cemetery",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/mingus-creek-cemetery",
+      "name": "#2 - Mingus Creek Cemetery",
+      "difficulty": "Moderate",
+      "length_mi": 4.2,
+      "rating": 4.5,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-mt-collins-shelter-to-clingman-forney-trail-to-camp-68--2",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/mt-collins-shelter-to-clingman-forney-trail-to-camp-68--2",
+      "name": "#6 - Mt. Collins Shelter, Forney Trail and Camp 68",
+      "difficulty": "Hard",
+      "length_mi": 14.8,
+      "rating": 4.6,
+      "park_code": "grsm"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-davenport-gap-shelter-via-appalachian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/davenport-gap-shelter-via-appalachian-trail",
+      "name": "#9 - Davenport Gap Shelter via Appalachian Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.9,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-deep-creek-martins-gap-deep-low-gap-and-thomas-divide-loop",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/deep-creek-martins-gap-deep-low-gap-and-thomas-divide-loop",
+      "name": "#20 - Deep Creek, Martins Gap, Deep Low Gap, and Thomas Divide Loop",
+      "difficulty": "Hard",
+      "length_mi": 18.4,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-collins-creek",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/collins-creek",
+      "name": "#21 - Collins Creek Quiet Walkway",
+      "difficulty": "Easy",
+      "length_mi": 0.9,
+      "rating": 3.8
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-swinging-bridge-quiet-walkway",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/swinging-bridge-quiet-walkway",
+      "name": "#22 - Swinging Bridge Quiet Walkway",
+      "difficulty": "Moderate",
+      "length_mi": 1.2,
+      "rating": 2.8
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-deep-creek-to-noland-creek",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/deep-creek-to-noland-creek",
+      "name": "#23 - Deep Creek to Noland Creek",
+      "difficulty": "Hard",
+      "length_mi": 18.9,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-balsam-mountain-nature-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/balsam-mountain-nature-trail--2",
+      "name": "#24 - Balsam Mountain Nature Trail [CLOSED]",
+      "difficulty": "Easy",
+      "length_mi": 1.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-heintooga-round-bottom-road",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/heintooga-round-bottom-road",
+      "name": "#25 - Heintooga Round Bottom Road Scenic Drive [CLOSED]",
+      "difficulty": "Moderate",
+      "length_mi": 16.8,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-benton-mackaye-trail-smokemount-to-big-creek",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/benton-mackaye-trail-smokemount-to-big-creek",
+      "name": "Benton MacKaye Trail: Smokemont to Big Creek"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-forney-ridge-to-silers-bald-to-clingman",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/forney-ridge-to-silers-bald-to-clingman",
+      "name": "Forney Ridge to Silers Bald to Kuwohi Loop"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-sugarland-mountain-to-road-prong-trail",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/sugarland-mountain-to-road-prong-trail",
+      "name": "Sugarland Mountain to Road Prong Trail"
+    },
+    {
+      "trail_id": "hot-springs:us-california-boiling-springs-lake-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/california/boiling-springs-lake-trail--2",
+      "name": "#1 - Boiling Springs Lake Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.5,
+      "rating": 4.4,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-california-boiling-springs-lake-via-kings-creek-and-pacific-crest-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/boiling-springs-lake-via-kings-creek-and-pacific-crest-trail",
+      "name": "#2 - Boiling Springs Lake via Kings Creek and Pacific Crest Trail",
+      "difficulty": "Hard",
+      "length_mi": 13.4,
+      "rating": 4.7,
+      "park_code": "lavo"
+    },
+    {
+      "trail_id": "hot-springs:us-nevada-rogers-warm-spring",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/rogers-warm-spring",
+      "name": "#1 - Rogers Warm Spring",
+      "difficulty": "Easy",
+      "length_mi": 0.2,
+      "rating": 3.8
+    },
+    {
+      "trail_id": "hot-springs:us-california-mount-shasta-via-avalanche-gulch-route",
+      "source_url": "https://www.alltrails.com/trail/us/california/mount-shasta-via-avalanche-gulch-route",
+      "name": "#1 - Mount Shasta via Avalanche Gulch Route",
+      "difficulty": "Strenuous",
+      "length_mi": 10.4,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "hot-springs:us-california-mount-shasta-summit-via-hotlum-bolam-ridge-route",
+      "source_url": "https://www.alltrails.com/trail/us/california/mount-shasta-summit-via-hotlum-bolam-ridge-route",
+      "name": "#2 - Mount Shasta Summit via Hotlum Bolam Ridge Route",
+      "difficulty": "Strenuous",
+      "length_mi": 13,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-california-pct-from-spillway-to-deep-creek-hot-springs",
+      "source_url": "https://www.alltrails.com/trail/us/california/pct-from-spillway-to-deep-creek-hot-springs",
+      "name": "#1 - Deep Creek Hot Springs via Pacific Crest Trail",
+      "difficulty": "Hard",
+      "length_mi": 12.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "hot-springs:us-california-pacific-crest-trail-mojave-river-forks-to-polique-canyon",
+      "source_url": "https://www.alltrails.com/trail/us/california/pacific-crest-trail-mojave-river-forks-to-polique-canyon",
+      "name": "#2 - Pacific Crest Trail: Mojave River Forks to Polique Canyon",
+      "difficulty": "Hard",
+      "length_mi": 34.7,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "hot-springs:us-montana-upper-terrace-scenic-drive-loop",
+      "source_url": "https://www.alltrails.com/trail/us/montana/upper-terrace-scenic-drive-loop",
+      "name": "#1 - Upper Terrace Scenic Drive Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.3,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-palette-spring-via-mammoth-terraces",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/palette-spring-via-mammoth-terraces",
+      "name": "#2 - Palette Spring via Mammoth Terraces",
+      "difficulty": "Easy",
+      "length_mi": 0.3,
+      "rating": 4.5,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-osprey-falls-bunsen-peak-terrace-mountain-combination",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/osprey-falls-bunsen-peak-terrace-mountain-combination",
+      "name": "#3 - Bunsen Peak via Osprey Falls, Howard Eaton, Mammoth, Golden Gate Loop",
+      "difficulty": "Hard",
+      "length_mi": 13.6,
+      "rating": 4.7,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-wyoming-solfatara-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/solfatara-creek-trail",
+      "name": "#4 - Solfatara Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 13,
+      "rating": 4.4,
+      "park_code": "yell"
+    },
+    {
+      "trail_id": "hot-springs:us-north-carolina-lakeshore-trail-mill-branch-to-proctor",
+      "source_url": "https://www.alltrails.com/trail/us/north-carolina/lakeshore-trail-mill-branch-to-proctor",
+      "name": "#1 - Lakeshore Trail: Mill Branch to Proctor",
+      "difficulty": "Moderate",
+      "length_mi": 3.4,
+      "rating": 4.8
+    }
+  ]
+}

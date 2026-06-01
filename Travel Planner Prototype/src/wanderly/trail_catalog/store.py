@@ -35,6 +35,25 @@ def park_catalog_path(park_code: str) -> Path:
     return catalog_root() / "parks" / f"{park_code.lower()}.json"
 
 
+def feature_catalog_path(feature_slug: str) -> Path:
+    return catalog_root() / "features" / f"{feature_slug.lower()}.json"
+
+
+def load_feature_catalog(
+    feature_slug: str,
+    *,
+    catalog_path: Path | None = None,
+) -> dict[str, Any]:
+    path = catalog_path or feature_catalog_path(feature_slug)
+    if not path.is_file():
+        raise FileNotFoundError(f"No feature catalog at {path}")
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    trails = doc.get("trails")
+    if not isinstance(trails, list):
+        raise ValueError(f"Invalid feature catalog (missing trails[]): {path}")
+    return doc
+
+
 def load_park_catalog(park_code: str, *, catalog_path: Path | None = None) -> dict[str, Any]:
     path = catalog_path or park_catalog_path(park_code)
     if not path.is_file():
@@ -55,17 +74,20 @@ def entry_by_trail_id(doc: dict[str, Any], trail_id: str) -> dict[str, Any] | No
 
 
 def to_compact_row(entry: dict[str, Any]) -> dict[str, Any]:
-    return {
+    row = {
         "trail_id": entry.get("trail_id"),
         "name": clean_trail_name(str(entry.get("name") or "")),
         "park_code": entry.get("park_code"),
-        "distance_mi": entry.get("distance_mi"),
+        "distance_mi": entry.get("length_mi") if entry.get("length_mi") is not None else entry.get("distance_mi"),
         "difficulty": entry.get("difficulty"),
         "route_type": entry.get("route_type"),
         "source_url": entry.get("source_url"),
         "tags": list(entry.get("tags") or []),
         "rating": entry.get("rating"),
     }
+    if entry.get("location_label"):
+        row["location_label"] = entry.get("location_label")
+    return row
 
 
 def load_park_trails_compact(

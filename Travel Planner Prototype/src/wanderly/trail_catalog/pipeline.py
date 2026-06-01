@@ -165,21 +165,26 @@ def destination_card_from_trail(
     entry: dict[str, Any],
     *,
     reason: str,
+    park_code: str | None = None,
 ) -> dict[str, Any]:
     name = clean_trail_name(str(entry.get("name") or ""))
     tid = str(entry.get("trail_id") or "")
+    pc = (park_code or entry.get("park_code") or "").strip().lower()
+    grounding: dict[str, Any] = {
+        "trail_id": tid,
+        "source_url": entry.get("source_url"),
+        "status": "catalog",
+        "catalog_version": 1,
+    }
+    if pc:
+        grounding["park_code"] = pc
     return {
         "id": tid,
         "name": name,
         "country": entry.get("country") or "United States",
         "region": entry.get("region") or "Wyoming",
         "hook": reason or f"Catalog-grounded {name} backpacking option.",
-        "grounding": {
-            "trail_id": tid,
-            "source_url": entry.get("source_url"),
-            "status": "catalog",
-            "catalog_version": 1,
-        },
+        "grounding": grounding,
         "tags": list(entry.get("tags") or []),
         "distance_mi": entry.get("distance_mi"),
         "difficulty": entry.get("difficulty"),

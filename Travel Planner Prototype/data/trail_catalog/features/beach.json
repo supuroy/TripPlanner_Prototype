@@ -1,0 +1,3437 @@
+{
+  "catalog_version": 1,
+  "catalog_kind": "trail_feature",
+  "written_at_utc": "2026-06-01T09:45:16Z",
+  "source": {
+    "listing_url": "https://www.alltrails.com/directory/trail-features/beach/A/1",
+    "method": "playwright_feature_batch"
+  },
+  "feature_slug": "beach",
+  "feature_name": "Beach",
+  "trail_count": 435,
+  "trails": [
+    {
+      "trail_id": "beach:us-utah-tropic-reservoir",
+      "source_url": "https://www.alltrails.com/trail/us/utah/tropic-reservoir",
+      "name": "#1 - Tropic Reservoir",
+      "difficulty": "Easy",
+      "length_mi": 1.7,
+      "rating": 3.8
+    },
+    {
+      "trail_id": "beach:us-arizona-oak-creek-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/oak-creek-trail--2",
+      "name": "#1 - Oak Creek Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.4,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-california-four-mile-trail-to-panorama-trail-to-mist-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/four-mile-trail-to-panorama-trail-to-mist-trail",
+      "name": "#1 - Four Mile Trail, Panorama Trail, Mist Trail",
+      "difficulty": "Hard",
+      "length_mi": 14.3,
+      "rating": 4.9,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-little-yosemite-valley--2",
+      "source_url": "https://www.alltrails.com/trail/us/california/little-yosemite-valley--2",
+      "name": "#2 - Little Yosemite Valley",
+      "difficulty": "Hard",
+      "length_mi": 7.9,
+      "rating": 4.8,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-yosemite-village-to-mirror-lake",
+      "source_url": "https://www.alltrails.com/trail/us/california/yosemite-village-to-mirror-lake",
+      "name": "#3 - Yosemite Village to Mirror Lake",
+      "difficulty": "Easy",
+      "length_mi": 4.7,
+      "rating": 4.7,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-little-yosemite-valley-via-john-muir-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/little-yosemite-valley-via-john-muir-trail",
+      "name": "#4 - Little Yosemite Valley via John Muir Trail",
+      "difficulty": "Hard",
+      "length_mi": 10.6,
+      "rating": 4.8,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-mirror-lake-valley-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/mirror-lake-valley-loop-trail",
+      "name": "#5 - Mirror Lake and Valley Loop Trail",
+      "difficulty": "Moderate",
+      "length_mi": 10.4,
+      "rating": 4.6,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-valley-floor-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/valley-floor-loop-trail",
+      "name": "#6 - Valley Loop Trail",
+      "difficulty": "Moderate",
+      "length_mi": 20.5,
+      "rating": 4.6,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-yosemite-grand-tour",
+      "source_url": "https://www.alltrails.com/trail/us/california/yosemite-grand-tour",
+      "name": "#7 - Yosemite Grand Tour",
+      "difficulty": "Hard",
+      "length_mi": 16.8,
+      "rating": 4.9,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-yosemite-valley-loop-trail-walk",
+      "source_url": "https://www.alltrails.com/trail/us/california/yosemite-valley-loop-trail-walk",
+      "name": "#8 - Yosemite Valley Loop Trail",
+      "difficulty": "Moderate",
+      "length_mi": 20.4,
+      "rating": 4.6,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-mirror-lake-snow-creek-and-upper-yosemite-falls-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/mirror-lake-snow-creek-and-upper-yosemite-falls-loop",
+      "name": "#9 - Mirror Lake, Snow Creek, and Upper Yosemite Falls Loop",
+      "difficulty": "Hard",
+      "length_mi": 17.7,
+      "rating": 4.8,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-merced-lake-high-sierra-camp-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/merced-lake-high-sierra-camp-trail",
+      "name": "#10 - Merced Lake High Sierra Camp Trail",
+      "difficulty": "Hard",
+      "length_mi": 27.6,
+      "rating": 4.7,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-tenaya-lake-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/tenaya-lake-trail",
+      "name": "#11 - Tenaya Lake Trail",
+      "difficulty": "Easy",
+      "length_mi": 3.5,
+      "rating": 4.8,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-tenaya-lake-to-may-lake-to-murphy-creek",
+      "source_url": "https://www.alltrails.com/trail/us/california/tenaya-lake-to-may-lake-to-murphy-creek",
+      "name": "#13 - Tenaya Lake to May Lake to Murphy Creek",
+      "difficulty": "Hard",
+      "length_mi": 10.6,
+      "rating": 4.8,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-mist-trail-cloud-rest-may-lake-and-snow-creek-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/mist-trail-cloud-rest-may-lake-and-snow-creek-loop",
+      "name": "#14 - Mist Trail, Cloud Rest, May Lake and Snow Creek Loop",
+      "difficulty": "Hard",
+      "length_mi": 35,
+      "rating": 4.8,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-half-dome-john-muir-trail-and-merced-lake-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/half-dome-john-muir-trail-and-merced-lake-trail",
+      "name": "#16 - Half Dome, John Muir Trail, and Merced Lake Trail",
+      "difficulty": "Strenuous",
+      "length_mi": 26.8,
+      "rating": 4.9,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-the-john-muir-trail-tenaya-lake-sunrise-lakes-and-cathedral-lakes",
+      "source_url": "https://www.alltrails.com/trail/us/california/the-john-muir-trail-tenaya-lake-sunrise-lakes-and-cathedral-lakes",
+      "name": "#17 - The John Muir Trail, Tenaya Lake, Sunrise Lakes, and Cathedral Lakes",
+      "difficulty": "Hard",
+      "length_mi": 15.2,
+      "rating": 5,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-merced-lake-to-half-dome-loop-via-john-muir-pack-and-cloud-rest-trails",
+      "source_url": "https://www.alltrails.com/trail/us/california/merced-lake-to-half-dome-loop-via-john-muir-pack-and-cloud-rest-trails",
+      "name": "#18 - Merced Lake, Half Dome, and Clouds Rest Loop via JMT",
+      "difficulty": "Strenuous",
+      "length_mi": 35.3,
+      "rating": 4.7,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-merced-lake-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/merced-lake-loop",
+      "name": "#19 - Merced Lake Loop Trail",
+      "difficulty": "Hard",
+      "length_mi": 34.4,
+      "rating": 4.7,
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-california-full-north-rim",
+      "source_url": "https://www.alltrails.com/trail/us/california/full-north-rim",
+      "name": "Full North Rim",
+      "park_code": "yose"
+    },
+    {
+      "trail_id": "beach:us-washington-snolqualmie-valley-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/snolqualmie-valley-trail",
+      "name": "#1 - Snoqualmie Valley Trail",
+      "difficulty": "Moderate",
+      "length_mi": 30.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-montana-avalanche-lake--6",
+      "source_url": "https://www.alltrails.com/trail/us/montana/avalanche-lake--6",
+      "name": "#1 - Avalanche Lake",
+      "difficulty": "Moderate",
+      "length_mi": 6,
+      "rating": 4.8,
+      "park_code": "glac"
+    },
+    {
+      "trail_id": "beach:us-utah-green-river-labyrinth-paddle-ruby-ranch-to-mineral-bottom",
+      "source_url": "https://www.alltrails.com/trail/us/utah/green-river-labyrinth-paddle-ruby-ranch-to-mineral-bottom",
+      "name": "#1 - Green River Labyrinth Paddle: Ruby Ranch to Mineral Bottom",
+      "difficulty": "Moderate",
+      "length_mi": 46,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-utah-bowknot-mining-cabins-and-overlook-trail-boat-in",
+      "source_url": "https://www.alltrails.com/trail/us/utah/bowknot-mining-cabins-and-overlook-trail-boat-in",
+      "name": "#2 - Bowknot Mining Cabins and Overlook Trail (Boat In)",
+      "difficulty": "Moderate",
+      "length_mi": 1.2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-moments-in-time-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/moments-in-time-trail",
+      "name": "#1 - Moments in Time Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 4.8,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "beach:us-washington-striped-peak-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/striped-peak-trail",
+      "name": "#2 - Striped Peak Loop",
+      "difficulty": "Moderate",
+      "length_mi": 6.4,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-bluff-trail-at-salt-creek",
+      "source_url": "https://www.alltrails.com/trail/us/washington/bluff-trail-at-salt-creek",
+      "name": "#3 - Bluff Trail at Salt Creek",
+      "difficulty": "Easy",
+      "length_mi": 0.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-port-angeles-waterfront",
+      "source_url": "https://www.alltrails.com/trail/us/washington/port-angeles-waterfront",
+      "name": "#4 - Port Angeles Waterfront",
+      "difficulty": "Easy",
+      "length_mi": 3.1,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "beach:us-washington-beach-to-bunker-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/beach-to-bunker-trail",
+      "name": "#5 - Beach to Bunker Trail",
+      "difficulty": "Easy",
+      "length_mi": 2,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-olympic-discovery-trail-siebert-creek-to-hollywood-beach",
+      "source_url": "https://www.alltrails.com/trail/us/washington/olympic-discovery-trail-siebert-creek-to-hollywood-beach",
+      "name": "#6 - Olympic Discovery Trail: Siebert Creek to Hollywood Beach",
+      "difficulty": "Moderate",
+      "length_mi": 9.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-elwha-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/elwha-beach-trail",
+      "name": "#7 - Elwha Beach Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.6,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-washington-olympic-discovery-trail-port-angeles-waterfront",
+      "source_url": "https://www.alltrails.com/trail/us/washington/olympic-discovery-trail-port-angeles-waterfront",
+      "name": "#8 - Olympic Discovery Trail: Port Angeles Waterfront",
+      "difficulty": "Easy",
+      "length_mi": 8.4,
+      "rating": 4
+    },
+    {
+      "trail_id": "beach:us-washington-port-angeles-to-sequim-bay-state-park-via-olympic-discovery-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/port-angeles-to-sequim-bay-state-park-via-olympic-discovery-trail",
+      "name": "#9 - Olympic Discovery Trail: Port Angeles to Sequim Bay State Park",
+      "difficulty": "Moderate",
+      "length_mi": 31.3,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-hurricane-ridge-loop-from-port-angeles",
+      "source_url": "https://www.alltrails.com/trail/us/washington/hurricane-ridge-loop-from-port-angeles",
+      "name": "#10 - Hurricane Ridge Loop From Port Angeles",
+      "difficulty": "Hard",
+      "length_mi": 38.7,
+      "rating": 4.5,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "beach:us-maine-the-beehive-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/the-beehive-loop-trail",
+      "name": "#1 - The Beehive Loop Trail",
+      "difficulty": "Hard",
+      "length_mi": 1.6,
+      "rating": 4.9,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-gorham-mountain-loop",
+      "source_url": "https://www.alltrails.com/trail/us/maine/gorham-mountain-loop",
+      "name": "#2 - Gorham Mountain Loop",
+      "difficulty": "Moderate",
+      "length_mi": 3.1,
+      "rating": 4.8,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-ocean-path-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/maine/ocean-path-trail--2",
+      "name": "#3 - Ocean Path Trail",
+      "difficulty": "Easy",
+      "length_mi": 4.1,
+      "rating": 4.7,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-beehive-gorham-mountain-and-ocean-path-loop",
+      "source_url": "https://www.alltrails.com/trail/us/maine/beehive-gorham-mountain-and-ocean-path-loop",
+      "name": "#4 - Beehive, Gorham Mountain and Ocean Path Loop",
+      "difficulty": "Hard",
+      "length_mi": 3.6,
+      "rating": 4.9,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-the-bowl-via-beehive-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/the-bowl-via-beehive-trail",
+      "name": "#5 - The Bowl via Beehive Trail",
+      "difficulty": "Hard",
+      "length_mi": 1.5,
+      "rating": 4.9,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-bar-island-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/bar-island-trail",
+      "name": "#6 - Bar Island Trail",
+      "difficulty": "Easy",
+      "length_mi": 2,
+      "rating": 4.5,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-great-head-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/great-head-trail",
+      "name": "#7 - Great Head Trail (Short Option)",
+      "difficulty": "Moderate",
+      "length_mi": 1.6,
+      "rating": 4.8,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-acadia-park-loop-road",
+      "source_url": "https://www.alltrails.com/trail/us/maine/acadia-park-loop-road",
+      "name": "#8 - Acadia Park Loop Road",
+      "difficulty": "Moderate",
+      "length_mi": 24.6,
+      "rating": 4.7,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-bar-harbor-shore-path",
+      "source_url": "https://www.alltrails.com/trail/us/maine/bar-harbor-shore-path",
+      "name": "#9 - Bar Harbor Shore Path",
+      "difficulty": "Easy",
+      "length_mi": 1.5,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-maine-bar-island-loop-2",
+      "source_url": "https://www.alltrails.com/trail/us/maine/bar-island-loop-2",
+      "name": "#10 - Bar Island Loop",
+      "difficulty": "Easy",
+      "length_mi": 2.4,
+      "rating": 4.5,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-beech-cliff-ladder-and-canada-cliff-loop",
+      "source_url": "https://www.alltrails.com/trail/us/maine/beech-cliff-ladder-and-canada-cliff-loop",
+      "name": "#11 - Beech Cliff Ladder and Canada Cliff Loop",
+      "difficulty": "Moderate",
+      "length_mi": 1.7,
+      "rating": 4.8,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-flying-mountain-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/flying-mountain-trail",
+      "name": "#12 - Flying Mountain Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.5,
+      "rating": 4.8,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-otter-point",
+      "source_url": "https://www.alltrails.com/trail/us/maine/otter-point",
+      "name": "#14 - Otter Point",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.8,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-beehive-the-bowl-gorham-mountain",
+      "source_url": "https://www.alltrails.com/trail/us/maine/beehive-the-bowl-gorham-mountain",
+      "name": "#16 - Beehive, The Bowl, and Gorham Mountain",
+      "difficulty": "Hard",
+      "length_mi": 2.3,
+      "rating": 4.8,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-ocean-path-trail-to-schooner-head-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/ocean-path-trail-to-schooner-head-trail",
+      "name": "#17 - Ocean Path Trail and Schooner Head Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.7,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-beech-cliff-trail-via-beech-cliff-loop",
+      "source_url": "https://www.alltrails.com/trail/us/maine/beech-cliff-trail-via-beech-cliff-loop",
+      "name": "#18 - Beech Cliff Trail via Beech Cliff Loop",
+      "difficulty": "Moderate",
+      "length_mi": 1.6,
+      "rating": 4.7,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-sundew-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/sundew-trail",
+      "name": "#19 - Sundew Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.8,
+      "rating": 4.6,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-flying-mountain-valley-peak-st-sauveur-peak-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/flying-mountain-valley-peak-st-sauveur-peak-trail",
+      "name": "#22 - Flying Mountain, Valley Peak and St Sauveur Peak Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.2,
+      "rating": 4.7,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-compass-harbor-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/compass-harbor-trail",
+      "name": "#23 - Compass Harbor Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 4.6,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-quarry-path-and-otter-cove-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/quarry-path-and-otter-cove-trail",
+      "name": "#24 - Quarry Path and Otter Cove Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.6,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-north-gorham-mountain-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/north-gorham-mountain-trail",
+      "name": "#25 - North Gorham Mountain Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.8,
+      "rating": 4.7,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-hunters-beach-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/maine/hunters-beach-trail--2",
+      "name": "#26 - Hunters Beach Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.6,
+      "rating": 4.7,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-champlain-bowl-loop",
+      "source_url": "https://www.alltrails.com/trail/us/maine/champlain-bowl-loop",
+      "name": "#27 - Champlain-Bowl Loop",
+      "difficulty": "Hard",
+      "length_mi": 5.2,
+      "rating": 4.8,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-hunters-beach-and-cliffs-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/hunters-beach-and-cliffs-trail",
+      "name": "#28 - Hunters Beach and Cliffs Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-maine-quarry-path-to-gorham-mountain-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/quarry-path-to-gorham-mountain-trail",
+      "name": "#29 - Quarry Path to Gorham Mountain Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.3,
+      "rating": 4.8,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-otter-cove-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/otter-cove-trail",
+      "name": "#30 - Otter Cove Trail",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4.5,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-mount-desert-island-marathon",
+      "source_url": "https://www.alltrails.com/trail/us/maine/mount-desert-island-marathon",
+      "name": "Mount Desert Island Marathon",
+      "length_mi": 26.4
+    },
+    {
+      "trail_id": "beach:us-maine-dorr-cadillac-pemetic-and-dike-peak-loop",
+      "source_url": "https://www.alltrails.com/trail/us/maine/dorr-cadillac-pemetic-and-dike-peak-loop",
+      "name": "Dorr, Cadillac, Pemetic and Dike Peak Loop",
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-precipice-trail-champlain-south-ridge-the-beehive-and-the-bowl-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/precipice-trail-champlain-south-ridge-the-beehive-and-the-bowl-trail",
+      "name": "Precipice, Champlain South Ridge, The Beehive, and The Bowl Trail [CLOSED]",
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-emery-path-schiff-path-cadillac-dorr-connector-gorge-path-hemlock-and-jesup-path-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/maine/emery-path-schiff-path-cadillac-dorr-connector-gorge-path-hemlock-and-jesup-path-trail-loop",
+      "name": "Emery, Schiff, Cadillac-Dorr Connector, Gorge, Hemlock, and Jesup Path",
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-dorr-mountain-north-ridge-trail-to-ladder-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/dorr-mountain-north-ridge-trail-to-ladder-trail",
+      "name": "Dorr Mountain North Ridge Trail to Ladder Trail",
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-schiff-path-to-dorr-mountain",
+      "source_url": "https://www.alltrails.com/trail/us/maine/schiff-path-to-dorr-mountain",
+      "name": "Schiff Path to Dorr Mountain",
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-dorr-mountain-via-wild-gardens-kurt-diedrichs-climb-schiff-path-and-emery-path",
+      "source_url": "https://www.alltrails.com/trail/us/maine/dorr-mountain-via-wild-gardens-kurt-diedrichs-climb-schiff-path-and-emery-path",
+      "name": "Dorr Mountain via Wild Gardens, Kurt Diedrichs, Schiff, and Emery Path",
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-champlain-north-ridge-to-champlain-south-ridge-to-gorham-mountain-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/champlain-north-ridge-to-champlain-south-ridge-to-gorham-mountain-trail",
+      "name": "Champlain North Ridge, South Ridge, and Gorham Mountain Trail",
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-cadillac-mountain-via-nature-center",
+      "source_url": "https://www.alltrails.com/trail/us/maine/cadillac-mountain-via-nature-center",
+      "name": "Cadillac Mountain via Nature Center",
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-maine-hemlock-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/hemlock-trail",
+      "name": "Hemlock Trail",
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-new-jersey-appalachian-trail-delaware-water-gap-national-recreation-area",
+      "source_url": "https://www.alltrails.com/trail/us/new-jersey/appalachian-trail-delaware-water-gap-national-recreation-area",
+      "name": "#1 - Appalachian Trail: Delaware Water Gap National Recreation Area",
+      "difficulty": "Hard",
+      "length_mi": 25.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-arizona-butcher-jones-trail",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/butcher-jones-trail",
+      "name": "#1 - Butcher Jones Trail",
+      "difficulty": "Moderate",
+      "length_mi": 5.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-montana-saint-mary-lake-trail",
+      "source_url": "https://www.alltrails.com/trail/us/montana/saint-mary-lake-trail",
+      "name": "#1 - Red Eagle Lake via Saint Mary Lake and Red Eagle Lake Trail",
+      "difficulty": "Hard",
+      "length_mi": 20.7,
+      "rating": 4.7,
+      "park_code": "glac"
+    },
+    {
+      "trail_id": "beach:us-washington-blackbird-island-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/blackbird-island-trail",
+      "name": "#1 - Blackbird Island Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-old-pipeline-bed-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/old-pipeline-bed-trail",
+      "name": "#2 - Old Pipeline Bed Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.4,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-washington-lake-wenatchee-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lake-wenatchee-trail",
+      "name": "#3 - Lake Wenatchee North: Summer Route",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-lake-wenatchee-north-xc-ski-route",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lake-wenatchee-north-xc-ski-route",
+      "name": "#4 - Lake Wenatchee North XC Ski Route",
+      "difficulty": "Moderate",
+      "length_mi": 3.3,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-lake-wenatchee-north-snowshoe-trails",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lake-wenatchee-north-snowshoe-trails",
+      "name": "#5 - Lake Wenatchee North Snowshoe Trails",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-enchantment-park-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/enchantment-park-loop",
+      "name": "#6 - Enchantment Park Loop",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-pea-vine-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/pea-vine-trail",
+      "name": "#7 - Pea Vine Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.2,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-washington-barn-beach-pea-vine-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/barn-beach-pea-vine-trail",
+      "name": "#8 - Barn Beach Pea Vine Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.3,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "beach:us-washington-lake-wenatchee-camp-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lake-wenatchee-camp-loop",
+      "name": "#9 - Lake Wenatchee Camp Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 3.9
+    },
+    {
+      "trail_id": "beach:us-washington-wenatchee-lake-paddle",
+      "source_url": "https://www.alltrails.com/trail/us/washington/wenatchee-lake-paddle",
+      "name": "#10 - Wenatchee Lake Paddle",
+      "difficulty": "Moderate",
+      "length_mi": 4.3,
+      "rating": 5
+    },
+    {
+      "trail_id": "beach:us-arizona-bright-angel-trail--11",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/bright-angel-trail--11",
+      "name": "#1 - Bright Angel Trail",
+      "difficulty": "Hard",
+      "length_mi": 16.4,
+      "rating": 4.9,
+      "park_code": "grca"
+    },
+    {
+      "trail_id": "beach:us-arizona-south-kaibab-trail-to-phantom-ranch",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/south-kaibab-trail-to-phantom-ranch",
+      "name": "#2 - South Kaibab Trail to Phantom Ranch",
+      "difficulty": "Hard",
+      "length_mi": 14.8,
+      "rating": 4.9,
+      "park_code": "grca"
+    },
+    {
+      "trail_id": "beach:us-arizona-south-kaibab-phantom-ranch-and-bright-angel-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/south-kaibab-phantom-ranch-and-bright-angel-trail-loop",
+      "name": "#3 - South Kaibab, Phantom Ranch, and Bright Angel Trail",
+      "difficulty": "Strenuous",
+      "length_mi": 17.3,
+      "rating": 4.9,
+      "park_code": "grca"
+    },
+    {
+      "trail_id": "beach:us-arizona-south-to-north-kaibab-trail",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/south-to-north-kaibab-trail",
+      "name": "#4 - Rim-to-Rim: South Kaibab to North Kaibab Trail",
+      "difficulty": "Strenuous",
+      "length_mi": 21.4,
+      "rating": 4.9,
+      "park_code": "grca"
+    },
+    {
+      "trail_id": "beach:us-arizona-rim-to-rim-trail-segment-indian-garden-to-colorado-river",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/rim-to-rim-trail-segment-indian-garden-to-colorado-river",
+      "name": "#5 - Havasupai Gardens to Colorado River",
+      "difficulty": "Hard",
+      "length_mi": 6.4,
+      "rating": 4.7,
+      "park_code": "grca"
+    },
+    {
+      "trail_id": "beach:us-arizona-arizona-trail-passage-38-grand-canyon-inner-gorge-2",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/arizona-trail-passage-38-grand-canyon-inner-gorge-2",
+      "name": "#6 - Arizona Trail (AZT): Passage 38 - Grand Canyon - Inner Gorge",
+      "difficulty": "Hard",
+      "length_mi": 21.7,
+      "rating": 4.9,
+      "park_code": "grca"
+    },
+    {
+      "trail_id": "beach:us-arizona-clear-creek-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/arizona/clear-creek-trail--2",
+      "name": "#7 - Clear Creek Trail via South Kaibab Trail",
+      "difficulty": "Hard",
+      "length_mi": 33.1,
+      "rating": 4.7,
+      "park_code": "grca"
+    },
+    {
+      "trail_id": "beach:us-california-torrey-pines-beach-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/torrey-pines-beach-trail-loop",
+      "name": "#1 - Torrey Pines Beach Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 2.3,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-torrey-pines-state-beach-and-broken-hill-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/torrey-pines-state-beach-and-broken-hill-trail-loop",
+      "name": "#2 - Torrey Pines State Beach and Broken Hill Loop",
+      "difficulty": "Moderate",
+      "length_mi": 3.5,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-red-butte-yucca-point-and-razor-point-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/red-butte-yucca-point-and-razor-point-trail",
+      "name": "#3 - Red Butte, Yucca Point, and Razor Point Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-guy-fleming-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/guy-fleming-trail",
+      "name": "#4 - Guy Fleming Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-del-mar-shores-beach-walk",
+      "source_url": "https://www.alltrails.com/trail/us/california/del-mar-shores-beach-walk",
+      "name": "#5 - Del Mar Shores Beach Walk",
+      "difficulty": "Easy",
+      "length_mi": 5.3,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-seagrove-park-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/seagrove-park-loop",
+      "name": "#6 - Seagrove Park Loop",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 4
+    },
+    {
+      "trail_id": "beach:us-wyoming-jenny-lake-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/jenny-lake-trail",
+      "name": "#1 - Jenny Lake Trail",
+      "difficulty": "Moderate",
+      "length_mi": 7.3,
+      "rating": 4.8,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-string-lake-trail--6",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/string-lake-trail--6",
+      "name": "#2 - String Lake Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.7,
+      "rating": 4.7,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-phelps-lake-lake-creek-and-woodland-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/phelps-lake-lake-creek-and-woodland-loop",
+      "name": "#3 - Phelps Lake, Lake Creek, and Woodland Loop",
+      "difficulty": "Moderate",
+      "length_mi": 6.7,
+      "rating": 4.8,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-leigh-lake-trail-short-version",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/leigh-lake-trail-short-version",
+      "name": "#4 - Leigh Lake Trail: Short Version",
+      "difficulty": "Easy",
+      "length_mi": 2.9,
+      "rating": 4.7,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-leigh-lake-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/leigh-lake-trail",
+      "name": "#5 - Leigh Lake Trail",
+      "difficulty": "Easy",
+      "length_mi": 7.3,
+      "rating": 4.7,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-bearpaw-and-trapper-lake-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/bearpaw-and-trapper-lake-trail",
+      "name": "#6 - Bearpaw and Trapper Lake Trail",
+      "difficulty": "Moderate",
+      "length_mi": 9.2,
+      "rating": 4.7,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-hanging-canyon-to-lake-of-the-crags",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/hanging-canyon-to-lake-of-the-crags",
+      "name": "#7 - Hanging Canyon and Lake of the Crags via Lake of the Crags Trail",
+      "difficulty": "Strenuous",
+      "length_mi": 7.8,
+      "rating": 4.7,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-paintbrush-canyon-string-lake-loop-trail-to-lake-solitude",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/paintbrush-canyon-string-lake-loop-trail-to-lake-solitude",
+      "name": "#8 - Paintbrush Canyon & String Lake Loop Trail to Lake Solitude",
+      "difficulty": "Hard",
+      "length_mi": 21.2,
+      "rating": 4.8,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-granite-canyon-fox-creek-pass-and-death-canyon-loop",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/granite-canyon-fox-creek-pass-and-death-canyon-loop",
+      "name": "#9 - Granite Canyon, Fox Creek Pass and Death Canyon Loop",
+      "difficulty": "Hard",
+      "length_mi": 24.5,
+      "rating": 4.9,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-granite-canyon-to-phelps-lake",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/granite-canyon-to-phelps-lake",
+      "name": "#10 - Granite Canyon to Phelps Lake Loop",
+      "difficulty": "Hard",
+      "length_mi": 13.4,
+      "rating": 4.6,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-death-canyon-th-to-jenny-lake-dock",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/death-canyon-th-to-jenny-lake-dock",
+      "name": "#11 - Death Canyon Trailhead to Jenny Lake Dock [CLOSED]",
+      "difficulty": "Hard",
+      "length_mi": 32.2,
+      "rating": 5,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-wyoming-the-grand-teton-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/the-grand-teton-loop-trail",
+      "name": "The Grand Teton Loop Trail [CLOSED]",
+      "length_mi": 36,
+      "park_code": "grte"
+    },
+    {
+      "trail_id": "beach:us-california-point-lobos-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/point-lobos-loop-trail",
+      "name": "#1 - Point Lobos Loop",
+      "difficulty": "Moderate",
+      "length_mi": 6.3,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "beach:us-california-lace-lichen-north-shore-and-cannery-point-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/lace-lichen-north-shore-and-cannery-point-trail",
+      "name": "#2 - Lace Lichen, North Shore, and Cannery Point Trail",
+      "difficulty": "Easy",
+      "length_mi": 3.2,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "beach:us-california-cypress-grove-trail-via-south-shore-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/cypress-grove-trail-via-south-shore-trail",
+      "name": "#3 - Cypress Grove Trail via South Shore Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.8,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "beach:us-california-cypress-grove-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/cypress-grove-trail",
+      "name": "#4 - Cypress Grove Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.8,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-bird-island-trail--3",
+      "source_url": "https://www.alltrails.com/trail/us/california/bird-island-trail--3",
+      "name": "#5 - Bird Island Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.8,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "beach:us-california-soberanes-point-and-whale-peak",
+      "source_url": "https://www.alltrails.com/trail/us/california/soberanes-point-and-whale-peak",
+      "name": "#6 - Soberanes Point and Whale Peak",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "beach:us-california-moss-cove-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/moss-cove-trail",
+      "name": "#7 - Moss Cove Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.7,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-17-mile-drive-to-carmel-road-ride",
+      "source_url": "https://www.alltrails.com/trail/us/california/17-mile-drive-to-carmel-road-ride",
+      "name": "#8 - 17-Mile Drive to Carmel Road Ride",
+      "difficulty": "Easy",
+      "length_mi": 7.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-california-carmel-beach-city-park-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/carmel-beach-city-park-trail",
+      "name": "#9 - Carmel Beach City Park Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-carmel-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/carmel-beach",
+      "name": "#10 - Carmel Beach",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-monterey-peninsula-recreational-trail-and-asilomar-ave-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/monterey-peninsula-recreational-trail-and-asilomar-ave-loop",
+      "name": "#11 - Monterey Peninsula Recreational Trail and Asilomar Ave Loop",
+      "difficulty": "Easy",
+      "length_mi": 4.1,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-soberanes-canyon-and-whale-peak-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/soberanes-canyon-and-whale-peak-loop",
+      "name": "#13 - Soberanes Canyon and Whale Peak Loop",
+      "difficulty": "Moderate",
+      "length_mi": 4.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-sea-lion-point-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/sea-lion-point-trail",
+      "name": "#14 - Sea Lion Point Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-monterey-bay-coastal-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/california/monterey-bay-coastal-trail--2",
+      "name": "#15 - Monterey Bay Coastal Trail",
+      "difficulty": "Moderate",
+      "length_mi": 13.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-monterey-waterfront-city-walk",
+      "source_url": "https://www.alltrails.com/trail/us/california/monterey-waterfront-city-walk",
+      "name": "#16 - Monterey Waterfront City Walk",
+      "difficulty": "Easy",
+      "length_mi": 4.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-south-plateau-trail-to-bird-island",
+      "source_url": "https://www.alltrails.com/trail/us/california/south-plateau-trail-to-bird-island",
+      "name": "#17 - South Plateau Trail to Bird Island",
+      "difficulty": "Easy",
+      "length_mi": 1.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-asilomar-state-beach-and-coast-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/asilomar-state-beach-and-coast-trail",
+      "name": "#18 - Asilomar State Beach and Coast Trail",
+      "difficulty": "Easy",
+      "length_mi": 3.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-shoreline-stroll-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/shoreline-stroll-trail",
+      "name": "#19 - Shoreline Stroll Trail",
+      "difficulty": "Easy",
+      "length_mi": 9.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-garrapata-state-park-bluff-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/garrapata-state-park-bluff-trail",
+      "name": "#20 - Garrapata Bluff Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-carmel-meadows-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/carmel-meadows-trail",
+      "name": "Carmel Meadows Trail"
+    },
+    {
+      "trail_id": "beach:us-washington-east-lake-sammamish-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/east-lake-sammamish-trail",
+      "name": "#1 - East Lake Sammamish Trail",
+      "difficulty": "Easy",
+      "length_mi": 10,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-lake-sammamish-issaquah-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lake-sammamish-issaquah-creek-trail",
+      "name": "#2 - Lake Sammamish Issaquah Creek Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4
+    },
+    {
+      "trail_id": "beach:us-washington-tibbets-beach-and-sunset-beach",
+      "source_url": "https://www.alltrails.com/trail/us/washington/tibbets-beach-and-sunset-beach",
+      "name": "#3 - Tibbets Beach and Sunset Beach",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-issaquah-creek-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/issaquah-creek-loop",
+      "name": "#4 - Issaquah Creek Loop",
+      "difficulty": "Easy",
+      "length_mi": 3,
+      "rating": 3.5
+    },
+    {
+      "trail_id": "beach:us-washington-homestead-trail-and-orchard-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/homestead-trail-and-orchard-loop",
+      "name": "#5 - Homestead Trail and Orchard Loop",
+      "difficulty": "Easy",
+      "length_mi": 2.4,
+      "rating": 3.7
+    },
+    {
+      "trail_id": "beach:us-washington-jogger-s-loop-2",
+      "source_url": "https://www.alltrails.com/trail/us/washington/jogger-s-loop-2",
+      "name": "#6 - Jogger's Loop",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "beach:us-washington-lake-samammish-kayak",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lake-samammish-kayak",
+      "name": "#7 - Lake Samammish Kayak",
+      "difficulty": "Moderate",
+      "length_mi": 15.1,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "beach:us-colorado-bear-creek-lake-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/colorado/bear-creek-lake-trail-loop",
+      "name": "#1 - Bear Creek Lake Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 9.5,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-maine-somes-sound-paddle-route",
+      "source_url": "https://www.alltrails.com/trail/us/maine/somes-sound-paddle-route",
+      "name": "#3 - Somes Sound Paddle Route",
+      "difficulty": "Easy",
+      "length_mi": 5.1,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-maine-valley-cove-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/valley-cove-trail",
+      "name": "#4 - Valley Cove Trail [CLOSED]",
+      "difficulty": "Moderate",
+      "length_mi": 2.9,
+      "rating": 4.6,
+      "park_code": "acad"
+    },
+    {
+      "trail_id": "beach:us-oregon-maple-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/oregon/maple-trail--2",
+      "name": "#1 - Maple Trail",
+      "difficulty": "Easy",
+      "length_mi": 3.2,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "beach:us-oregon-high-water-loop",
+      "source_url": "https://www.alltrails.com/trail/us/oregon/high-water-loop",
+      "name": "#2 - High Water Loop",
+      "difficulty": "Moderate",
+      "length_mi": 3.9,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "beach:us-oregon-rooster-rock-beach",
+      "source_url": "https://www.alltrails.com/trail/us/oregon/rooster-rock-beach",
+      "name": "#3 - Rooster Rock Beach via Sand Island Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.8,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-ohlone-wilderness-regional-trail-del-valle-to-mission-peak",
+      "source_url": "https://www.alltrails.com/trail/us/california/ohlone-wilderness-regional-trail-del-valle-to-mission-peak",
+      "name": "#1 - Ohlone Wilderness Regional Trail: Mission Peak to Del Valle",
+      "difficulty": "Hard",
+      "length_mi": 28.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-washington-devils-punchbowl-via-spruce-railroad-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/devils-punchbowl-via-spruce-railroad-trail",
+      "name": "#1 - Devil's Punchbowl via Spruce Railroad Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.4,
+      "rating": 4.7,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "beach:us-washington-spruce-railroad-trail-lake-crescent",
+      "source_url": "https://www.alltrails.com/trail/us/washington/spruce-railroad-trail-lake-crescent",
+      "name": "#2 - Spruce Railroad Trail: Lake Crescent",
+      "difficulty": "Easy",
+      "length_mi": 11.3,
+      "rating": 4.7,
+      "park_code": "olym"
+    },
+    {
+      "trail_id": "beach:us-washington-lyre-river-to-gettysburg-ranch-and-low-point",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lyre-river-to-gettysburg-ranch-and-low-point",
+      "name": "#3 - Lyre River to Gettysburg Ranch and Low Point",
+      "difficulty": "Easy",
+      "length_mi": 2.2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-lands-end-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/lands-end-trail",
+      "name": "#1 - Lands End Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.4,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-san-francisco-crosstown-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/san-francisco-crosstown-trail",
+      "name": "#2 - San Francisco Crosstown Trail",
+      "difficulty": "Hard",
+      "length_mi": 17.1,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "beach:us-california-seal-rocks-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/seal-rocks-beach",
+      "name": "#3 - Seal Rocks Beach",
+      "difficulty": "Easy",
+      "length_mi": 2.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-california-coastal-trail-lands-end-to-golden-gate-bridge",
+      "source_url": "https://www.alltrails.com/trail/us/california/california-coastal-trail-lands-end-to-golden-gate-bridge",
+      "name": "#4 - California Coastal Trail: Lands End to Golden Gate Bridge",
+      "difficulty": "Moderate",
+      "length_mi": 4.5,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-batteries-to-bluffs-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/batteries-to-bluffs-trail",
+      "name": "#5 - Batteries to Bluffs Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-bay-area-ridge-trail-the-golden-gate-bridge-to-marin-headlands",
+      "source_url": "https://www.alltrails.com/trail/us/california/bay-area-ridge-trail-the-golden-gate-bridge-to-marin-headlands",
+      "name": "#6 - Bay Area Ridge Trail: The Golden Gate Bridge to Marin Headlands",
+      "difficulty": "Easy",
+      "length_mi": 1.8,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-fort-point-baker-beach-coast-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/fort-point-baker-beach-coast-trail",
+      "name": "#7 - Fort Point - Baker Beach Coast Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-golden-gate-park-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/golden-gate-park-trail",
+      "name": "#8 - Golden Gate Park Loop",
+      "difficulty": "Easy",
+      "length_mi": 6.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-double-cross-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/double-cross-trail",
+      "name": "#9 - Double Cross Trail",
+      "difficulty": "Hard",
+      "length_mi": 14.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-crissy-field-and-the-palace-of-fine-arts",
+      "source_url": "https://www.alltrails.com/trail/us/california/crissy-field-and-the-palace-of-fine-arts",
+      "name": "#10 - Crissy Field and the Palace of Fine Arts",
+      "difficulty": "Easy",
+      "length_mi": 3.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-north-ridge-sunset-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/north-ridge-sunset-trail-loop",
+      "name": "#11 - North Ridge and Sunset Loop",
+      "difficulty": "Moderate",
+      "length_mi": 5.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-coastal-trail-and-coastal-fire-road-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/coastal-trail-and-coastal-fire-road-loop",
+      "name": "#12 - Coastal Trail and Coastal Fire Road Loop",
+      "difficulty": "Moderate",
+      "length_mi": 4.6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-kirby-cove",
+      "source_url": "https://www.alltrails.com/trail/us/california/kirby-cove",
+      "name": "#14 - Kirby Cove",
+      "difficulty": "Easy",
+      "length_mi": 3,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-angel-island-perimeter-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/angel-island-perimeter-loop",
+      "name": "#15 - Angel Island Perimeter Loop",
+      "difficulty": "Moderate",
+      "length_mi": 6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-coastal-to-julian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/coastal-to-julian-trail",
+      "name": "#16 - Coastal and Julian Loop",
+      "difficulty": "Moderate",
+      "length_mi": 3.3,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-coastal-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/coastal-trail-loop",
+      "name": "#20 - Coastal Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 2.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-coastal-trail-miwok-trail-and-bonita-lighthouse-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/coastal-trail-miwok-trail-and-bonita-lighthouse-loop",
+      "name": "#21 - Coastal Trail, Miwok Trail, and Bonita Lighthouse Loop",
+      "difficulty": "Moderate",
+      "length_mi": 8.2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-slacker-hill-and-hawk-hill-via-coastal-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/slacker-hill-and-hawk-hill-via-coastal-trail",
+      "name": "#22 - Slacker Hill and Hawk Hill via Coastal Trail",
+      "difficulty": "Moderate",
+      "length_mi": 7.1,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-hawk-hill-kirby-cove-and-battery-spencer",
+      "source_url": "https://www.alltrails.com/trail/us/california/hawk-hill-kirby-cove-and-battery-spencer",
+      "name": "#24 - Hawk Hill, Kirby Cove, and Battery Spencer",
+      "difficulty": "Moderate",
+      "length_mi": 5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-coastal-and-fox-trails-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/coastal-and-fox-trails-loop",
+      "name": "#25 - Coastal and Fox Trails Loop",
+      "difficulty": "Moderate",
+      "length_mi": 6.6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-golden-gate-bridge-from-baker-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/golden-gate-bridge-from-baker-beach-trail",
+      "name": "#26 - Golden Gate Bridge from Baker Beach Trail",
+      "difficulty": "Moderate",
+      "length_mi": 6.5,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-tennessee-valley-coastal-coyote-ridge-and-miwok-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/tennessee-valley-coastal-coyote-ridge-and-miwok-loop",
+      "name": "#27 - Tennessee Valley, Coastal, Coyote Ridge and Miwok Loop",
+      "difficulty": "Moderate",
+      "length_mi": 6.2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-black-sands-beach-via-coastal-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/black-sands-beach-via-coastal-trail",
+      "name": "#28 - Black Sands Beach via Coastal Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.8,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-presidio-promenade-coastal-trail-and-park-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/presidio-promenade-coastal-trail-and-park-loop",
+      "name": "#29 - Presidio Promenade, Coastal Trail, and Park Loop",
+      "difficulty": "Moderate",
+      "length_mi": 4.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-pirates-cove-via-tennessee-valley-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/pirates-cove-via-tennessee-valley-trail",
+      "name": "#30 - Pirates Cove via Tennessee Valley Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-mussel-rock-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/mussel-rock-trail",
+      "name": "#31 - Mussel Rock Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-ocean-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/ocean-beach",
+      "name": "#32 - Ocean Beach",
+      "difficulty": "Easy",
+      "length_mi": 6.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-tennessee-beach-via-fox-coastal-and-lower-tennessee-valley-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/tennessee-beach-via-fox-coastal-and-lower-tennessee-valley-trail-loop",
+      "name": "#33 - Fox, Coastal, Pirates Cove, and Lower Tennessee Valley Loop",
+      "difficulty": "Moderate",
+      "length_mi": 6.1,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-bay-area-ridge-trail-san-francisco-presidio--2",
+      "source_url": "https://www.alltrails.com/trail/us/california/bay-area-ridge-trail-san-francisco-presidio--2",
+      "name": "#34 - Bay Area Ridge Trail: San Francisco Presidio",
+      "difficulty": "Easy",
+      "length_mi": 2.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-tennessee-beach-and-pirates-cove-via-coastal-middle-green-gulch-coyote-ridge-fox-and-t",
+      "source_url": "https://www.alltrails.com/trail/us/california/tennessee-beach-and-pirates-cove-via-coastal-middle-green-gulch-coyote-ridge-fox-and-t",
+      "name": "#35 - Tennessee Beach via Coastal, Fox, and Middle Green Gulch Loop",
+      "difficulty": "Moderate",
+      "length_mi": 9.1,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-fort-funston-coastal-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/fort-funston-coastal-trail",
+      "name": "#36 - Fort Funston Coastal Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-presidio-and-baker-beach-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/presidio-and-baker-beach-loop-trail",
+      "name": "#37 - Presidio and Baker Beach Loop",
+      "difficulty": "Moderate",
+      "length_mi": 5.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-across-the-golden-gate-bridge-to-sausalito",
+      "source_url": "https://www.alltrails.com/trail/us/california/across-the-golden-gate-bridge-to-sausalito",
+      "name": "#38 - Across the Golden Gate Bridge to Sausalito",
+      "difficulty": "Moderate",
+      "length_mi": 3.9,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-point-bonita-lighthouse",
+      "source_url": "https://www.alltrails.com/trail/us/california/point-bonita-lighthouse",
+      "name": "#39 - Point Bonita Lighthouse",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-coastal-trail-to-viewpoint-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/coastal-trail-to-viewpoint-loop",
+      "name": "#40 - Coastal Trail to Viewpoint Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-black-sands-beach-via-julian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/black-sands-beach-via-julian-trail",
+      "name": "#41 - Black Sands Beach via Julian Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-the-embarcadero-to-fishermans-wharf",
+      "source_url": "https://www.alltrails.com/trail/us/california/the-embarcadero-to-fishermans-wharf",
+      "name": "#42 - The Embarcadero to Fisherman's Wharf",
+      "difficulty": "Easy",
+      "length_mi": 4.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-ferry-building-to-marina-green-crissy-field-and-the-golden-gate-bridge",
+      "source_url": "https://www.alltrails.com/trail/us/california/ferry-building-to-marina-green-crissy-field-and-the-golden-gate-bridge",
+      "name": "#43 - Ferry Building to Marina Green, Crissy Field, and Golden Gate Bridge",
+      "difficulty": "Easy",
+      "length_mi": 11,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-mount-caroline-livermore-via-north-ridge-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/mount-caroline-livermore-via-north-ridge-trail",
+      "name": "#44 - Mount Caroline Livermore via North Ridge Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-bay-to-breakers-course-route",
+      "source_url": "https://www.alltrails.com/trail/us/california/bay-to-breakers-course-route",
+      "name": "#45 - Bay to Breakers Course Route",
+      "difficulty": "Moderate",
+      "length_mi": 7.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-miwok-coastal-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/miwok-coastal-trail-loop",
+      "name": "#46 - Miwok and Coastal Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 6.6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-golden-gate-park-perimeter-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/golden-gate-park-perimeter-loop",
+      "name": "#47 - Golden Gate Park Perimeter Loop",
+      "difficulty": "Moderate",
+      "length_mi": 7.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-muir-beach-to-rodeo-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/muir-beach-to-rodeo-beach",
+      "name": "#48 - Muir Beach to Rodeo Beach",
+      "difficulty": "Hard",
+      "length_mi": 11.8,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-muir-woods-owl-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/muir-woods-owl-trail",
+      "name": "#49 - Owl Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-berkeley-marina-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/berkeley-marina-loop-trail",
+      "name": "#50 - Berkeley Marina Loop Trail",
+      "difficulty": "Easy",
+      "length_mi": 4.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-roundabout-2",
+      "source_url": "https://www.alltrails.com/trail/us/california/roundabout-2",
+      "name": "Roundabout Trail",
+      "length_mi": 37.2
+    },
+    {
+      "trail_id": "beach:us-california-golden-gate-park-lands-end-and-presidio-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/golden-gate-park-lands-end-and-presidio-loop",
+      "name": "Golden Gate Park, Lands End and Presidio Loop"
+    },
+    {
+      "trail_id": "beach:us-california-land-s-end-trail-accessible",
+      "source_url": "https://www.alltrails.com/trail/us/california/land-s-end-trail-accessible",
+      "name": "Land's End Trail via Sutro Baths and Coastal Trail"
+    },
+    {
+      "trail_id": "beach:us-california-cliff-house-walk-at-lands-end-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/cliff-house-walk-at-lands-end-trail",
+      "name": "Cliff House Walk at Land's End Trail"
+    },
+    {
+      "trail_id": "beach:us-california-driftwood-beach-to-sunset-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/driftwood-beach-to-sunset-trail-loop",
+      "name": "Driftwood Beach to Sunset Trail Loop"
+    },
+    {
+      "trail_id": "beach:us-california-rincon-park-to-crissy-field",
+      "source_url": "https://www.alltrails.com/trail/us/california/rincon-park-to-crissy-field",
+      "name": "Rincon Park to Crissy Field"
+    },
+    {
+      "trail_id": "beach:us-california-marvin-braude-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/marvin-braude-trail",
+      "name": "#1 - Marvin Braude Trail",
+      "difficulty": "Easy",
+      "length_mi": 19.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-george-wolfberg-park-at-potrero-canyon-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/george-wolfberg-park-at-potrero-canyon-loop",
+      "name": "#2 - George Wolfberg Park at Potrero Canyon Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-new-york-gertrudes-nose-trail",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/gertrudes-nose-trail",
+      "name": "#1 - Gertrude's Nose and Millbrook Mountain Loop",
+      "difficulty": "Moderate",
+      "length_mi": 7,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-new-york-lake-minnewaska-carriage-road-loop",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/lake-minnewaska-carriage-road-loop",
+      "name": "#2 - Lake Minnewaska Carriage Road Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-new-york-millbrook-mountain-trail",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/millbrook-mountain-trail",
+      "name": "#3 - Millbrook Mountain Footpath and Carriage Road Loop",
+      "difficulty": "Moderate",
+      "length_mi": 5.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-new-york-gertrude-s-nose-via-lake-minnewaska-and-millbrook-mountain-carriage-rd",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/gertrude-s-nose-via-lake-minnewaska-and-millbrook-mountain-carriage-rd",
+      "name": "#4 - Gertrude's Nose via Lake Minnewaska and Millbrook Mountain Carriage Rd",
+      "difficulty": "Moderate",
+      "length_mi": 6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-new-york-lake-minnewaska-gertrudes-nose-millbrook-mountain",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/lake-minnewaska-gertrudes-nose-millbrook-mountain",
+      "name": "#5 - Lake Minnewaska, Gertrude's Nose, and Millbrook Mountain Loop",
+      "difficulty": "Hard",
+      "length_mi": 10.9,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-new-york-upper-awosting-lake-awosting-and-castle-point-loop",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/upper-awosting-lake-awosting-and-castle-point-loop",
+      "name": "#6 - Upper Awosting, Lake Awosting and Castle Point Loop",
+      "difficulty": "Moderate",
+      "length_mi": 11.1,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-new-york-carriageway-circuit-trail",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/carriageway-circuit-trail",
+      "name": "#7 - Upper Awosting - Hamilton Point Carriage Road via Sunset Carriage Road",
+      "difficulty": "Moderate",
+      "length_mi": 9.4,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-new-york-lake-minnewaska-millbrook-mountain-gertrude-s-nose-and-lake-awosting",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/lake-minnewaska-millbrook-mountain-gertrude-s-nose-and-lake-awosting",
+      "name": "#8 - Lake Minnewaska, Millbrook Mountain, Gertrude's Nose and Lake Awosting",
+      "difficulty": "Hard",
+      "length_mi": 16.1,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "beach:us-new-york-lake-awosting-and-stony-kill-falls",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/lake-awosting-and-stony-kill-falls",
+      "name": "#9 - Lake Awosting and Stony Kill Falls",
+      "difficulty": "Hard",
+      "length_mi": 14.2,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-california-mugu-peak-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/mugu-peak-trail",
+      "name": "#1 - Mugu Peak Trail",
+      "difficulty": "Hard",
+      "length_mi": 2.9,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-point-dume-cove-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/point-dume-cove-trail",
+      "name": "#2 - Point Dume Cove Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.1,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-scenic-and-overlook-trails-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/scenic-and-overlook-trails-loop",
+      "name": "#3 - Point Mugu Scenic and Overlook Trails Loop",
+      "difficulty": "Easy",
+      "length_mi": 2.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-corral-canyon-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/corral-canyon-loop-trail",
+      "name": "#4 - Corral Canyon Loop",
+      "difficulty": "Moderate",
+      "length_mi": 2.5,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-california-paradise-cove-to-point-dume",
+      "source_url": "https://www.alltrails.com/trail/us/california/paradise-cove-to-point-dume",
+      "name": "#5 - Paradise Cove to Point Dume",
+      "difficulty": "Moderate",
+      "length_mi": 4.4,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-california-willow-creek-trail-to-nicholas-flat-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/willow-creek-trail-to-nicholas-flat-loop",
+      "name": "#6 - Willow Creek Trail to Nicholas Flat Loop",
+      "difficulty": "Moderate",
+      "length_mi": 7.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-big-sycamore-canyon-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/big-sycamore-canyon-loop-trail",
+      "name": "#7 - Big Sycamore Canyon Loop Trail",
+      "difficulty": "Moderate",
+      "length_mi": 10.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-zuma-ocean-view-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/zuma-ocean-view-trail",
+      "name": "#8 - Zuma Ocean View Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.2,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-malibu-bluff-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/malibu-bluff-trail",
+      "name": "#9 - Malibu Bluff Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-el-matador-la-piedra-and-el-pescador-state-beaches",
+      "source_url": "https://www.alltrails.com/trail/us/california/el-matador-la-piedra-and-el-pescador-state-beaches",
+      "name": "#10 - El Matador, La Piedra and El Pescador State Beaches",
+      "difficulty": "Easy",
+      "length_mi": 2.5,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-malibu-bluffs-viewpoint-and-amarillo-beach-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/malibu-bluffs-viewpoint-and-amarillo-beach-loop",
+      "name": "#11 - Malibu Bluffs Viewpoint and Amarillo Beach Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.8,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "beach:us-california-backbone-trail-mishe-mokwa-to-ray-miller",
+      "source_url": "https://www.alltrails.com/trail/us/california/backbone-trail-mishe-mokwa-to-ray-miller",
+      "name": "#12 - Backbone Trail: Mishe Mokwa to Ray Miller",
+      "difficulty": "Hard",
+      "length_mi": 16.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-zuma-beach-walk",
+      "source_url": "https://www.alltrails.com/trail/us/california/zuma-beach-walk",
+      "name": "#13 - Zuma Beach Walk",
+      "difficulty": "Easy",
+      "length_mi": 2.8,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-westward-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/westward-beach",
+      "name": "#14 - Westward Beach",
+      "difficulty": "Moderate",
+      "length_mi": 1.4,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-leo-carrillo-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/leo-carrillo-beach-trail",
+      "name": "#15 - Leo Carrillo Beach Trail",
+      "difficulty": "Moderate",
+      "length_mi": 5.1,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-california-leo-carrillo-yellow-hill-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/leo-carrillo-yellow-hill-trail",
+      "name": "#16 - Leo Carrillo Yellow Hill Trail",
+      "difficulty": "Moderate",
+      "length_mi": 6.1,
+      "rating": 4
+    },
+    {
+      "trail_id": "beach:us-california-nicholas-flats-to-leo-carrillo-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/nicholas-flats-to-leo-carrillo-beach",
+      "name": "#17 - Nicholas Flats to Leo Carrillo Beach",
+      "difficulty": "Moderate",
+      "length_mi": 7.3,
+      "rating": 3.8
+    },
+    {
+      "trail_id": "beach:us-california-leo-carrillo-bluff-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/leo-carrillo-bluff-trail",
+      "name": "#18 - Leo Carrillo Bluff Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-old-boney-and-serrano-canyon-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/old-boney-and-serrano-canyon-trail",
+      "name": "#19 - Old Boney and Serrano Canyon Trail",
+      "difficulty": "Hard",
+      "length_mi": 13,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-leo-carrillo-camp-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/leo-carrillo-camp-trail",
+      "name": "#20 - Leo Carrillo Camp Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.2,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-robert-h-meyer-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/robert-h-meyer-beach-trail",
+      "name": "#21 - Robert H. Meyer Beach Trail",
+      "difficulty": "Moderate",
+      "length_mi": 0.4,
+      "rating": 3.7
+    },
+    {
+      "trail_id": "beach:us-california-backbone-trail-3",
+      "source_url": "https://www.alltrails.com/trail/us/california/backbone-trail-3",
+      "name": "Backbone Trail",
+      "length_mi": 68.1
+    },
+    {
+      "trail_id": "beach:us-california-sycamore-canyon-to-sandstone-peak",
+      "source_url": "https://www.alltrails.com/trail/us/california/sycamore-canyon-to-sandstone-peak",
+      "name": "Sycamore Canyon to Sandstone Peak"
+    },
+    {
+      "trail_id": "beach:us-california-malibu-scenic-overlook-via-nicholas-flat-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/malibu-scenic-overlook-via-nicholas-flat-trail",
+      "name": "Malibu Scenic Overlook via Nicholas Flat Trail"
+    },
+    {
+      "trail_id": "beach:us-california-the-malibu-lagoon-state-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/the-malibu-lagoon-state-beach",
+      "name": "The Malibu Lagoon State Beach"
+    },
+    {
+      "trail_id": "beach:us-california-corral-canyon-trail-and-puerco-canyon-motorway",
+      "source_url": "https://www.alltrails.com/trail/us/california/corral-canyon-trail-and-puerco-canyon-motorway",
+      "name": "Corral Canyon Trail and Puerco Canyon Motorway"
+    },
+    {
+      "trail_id": "beach:us-california-serrano-to-sycamore-canyon-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/serrano-to-sycamore-canyon-loop-trail",
+      "name": "Serrano to Sycamore Canyon Loop Trail"
+    },
+    {
+      "trail_id": "beach:us-california-backbone-trail-ray-miller-trailhead-to-danielson-ranch",
+      "source_url": "https://www.alltrails.com/trail/us/california/backbone-trail-ray-miller-trailhead-to-danielson-ranch",
+      "name": "Backbone Trail: Ray Miller Trailhead to Danielson Ranch"
+    },
+    {
+      "trail_id": "beach:us-california-santa-barbara-island-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/santa-barbara-island-loop",
+      "name": "Santa Barbara Island Loop",
+      "park_code": "chis"
+    },
+    {
+      "trail_id": "beach:us-washington-discovery-park-and-lighthouse-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/discovery-park-and-lighthouse-loop-trail",
+      "name": "#1 - Discovery Park and Lighthouse Loop",
+      "difficulty": "Easy",
+      "length_mi": 4.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-discovery-park-extended-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/discovery-park-extended-loop-trail",
+      "name": "#2 - Discovery Park Extended Loop",
+      "difficulty": "Moderate",
+      "length_mi": 4.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-loop-trail-via-west-emerson-street-entrance",
+      "source_url": "https://www.alltrails.com/trail/us/washington/loop-trail-via-west-emerson-street-entrance",
+      "name": "#3 - Loop Trail via West Emerson Street Entrance",
+      "difficulty": "Easy",
+      "length_mi": 2.9,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-washington-the-washington-park-arboretum",
+      "source_url": "https://www.alltrails.com/trail/us/washington/the-washington-park-arboretum",
+      "name": "#4 - The Washington Park Arboretum",
+      "difficulty": "Easy",
+      "length_mi": 3.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-green-lake-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/green-lake-loop-trail",
+      "name": "#5 - Green Lake Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-seward-park-perimeter-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/seward-park-perimeter-loop",
+      "name": "#6 - Seward Park Perimeter Loop",
+      "difficulty": "Easy",
+      "length_mi": 2.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-westpoint-lighthouse-to-discovery-east-lot",
+      "source_url": "https://www.alltrails.com/trail/us/washington/westpoint-lighthouse-to-discovery-east-lot",
+      "name": "#7 - West Point Lighthouse via Discovery East Lot",
+      "difficulty": "Easy",
+      "length_mi": 4.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-birds-nest-and-lookout-beach",
+      "source_url": "https://www.alltrails.com/trail/us/washington/birds-nest-and-lookout-beach",
+      "name": "#8 - Birds Nest and Lookout Beach",
+      "difficulty": "Easy",
+      "length_mi": 2.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-north-beach-and-hidden-valley-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/north-beach-and-hidden-valley-loop",
+      "name": "#9 - North Beach and Hidden Valley Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-lake-union-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lake-union-loop",
+      "name": "#10 - Cheshiahud Lake Union Loop",
+      "difficulty": "Easy",
+      "length_mi": 6.4,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-north-beach-and-seminary-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/north-beach-and-seminary-trail-loop",
+      "name": "#12 - Lake Washington North, Beach and Seminary Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 1.9,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-carkeek-park-via-pipers-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/carkeek-park-via-pipers-creek-trail",
+      "name": "#13 - Carkeek Park Loop via Piper\u2019s Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-north-trail-to-south-canyon-trail-to-orchard-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/north-trail-to-south-canyon-trail-to-orchard-loop",
+      "name": "#14 - Lake Washington North Trail to South Canyon Trail to Orchard Loop",
+      "difficulty": "Moderate",
+      "length_mi": 2.2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-north-beach-south-canyon-orchard-juanita-arrowhead-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/north-beach-south-canyon-orchard-juanita-arrowhead-loop",
+      "name": "#15 - North, Beach, South Canyon, Orchard, Juanita, Arrowhead Loop",
+      "difficulty": "Moderate",
+      "length_mi": 3.4,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-south-bluff-south-ridge-piper-s-creek-north-traverse-and-grand-fire-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/south-bluff-south-ridge-piper-s-creek-north-traverse-and-grand-fire-trail",
+      "name": "#16 - South Bluff, Ridge, Piper's Creek, North Traverse, and Grand Fire Loop",
+      "difficulty": "Easy",
+      "length_mi": 2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-burke-gilman-trail-ballard-bridge-to-bothell",
+      "source_url": "https://www.alltrails.com/trail/us/washington/burke-gilman-trail-ballard-bridge-to-bothell",
+      "name": "#17 - Burke-Gilman Trail: Ballard Bridge to Bothell",
+      "difficulty": "Easy",
+      "length_mi": 17.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-myrtle-edwards-park-to-elliott-bay-park",
+      "source_url": "https://www.alltrails.com/trail/us/washington/myrtle-edwards-park-to-elliott-bay-park",
+      "name": "#18 - Myrtle Edwards Park to Elliott Bay Park",
+      "difficulty": "Easy",
+      "length_mi": 2.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-alki-bike-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/alki-bike-trail",
+      "name": "#19 - Alki Trail to Hamilton Viewpoint and Seacrest Parks",
+      "difficulty": "Easy",
+      "length_mi": 7.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-whale-trail-from-solstice-park",
+      "source_url": "https://www.alltrails.com/trail/us/washington/whale-trail-from-solstice-park",
+      "name": "#20 - Whale Trail from Solstice Park",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-foster-island-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/foster-island-trail",
+      "name": "#21 - Foster Island Trail",
+      "difficulty": "Easy",
+      "length_mi": 3.4,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-washington-south-beach-and-hidden-valley-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/south-beach-and-hidden-valley-loop-trail",
+      "name": "#22 - South Beach and Hidden Valley Loop Trail",
+      "difficulty": "Moderate",
+      "length_mi": 2.4,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-pipers-creek-and-south-ridge-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/pipers-creek-and-south-ridge-trail",
+      "name": "#23 - Piper's Creek and South Ridge Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.5,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-seahurst-park",
+      "source_url": "https://www.alltrails.com/trail/us/washington/seahurst-park",
+      "name": "#24 - Seahurst Park Loop Trail",
+      "difficulty": "Easy",
+      "length_mi": 2,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-seattle-waterfront-pathway",
+      "source_url": "https://www.alltrails.com/trail/us/washington/seattle-waterfront-pathway",
+      "name": "#25 - Seattle Waterfront Pathway",
+      "difficulty": "Easy",
+      "length_mi": 8.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-south-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/south-beach-trail",
+      "name": "#26 - South Beach Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-coulon-beach-east-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/coulon-beach-east-trail",
+      "name": "#27 - Coulon Beach East Trail",
+      "difficulty": "Easy",
+      "length_mi": 10.2,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-pipers-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/pipers-creek-trail",
+      "name": "#28 - Piper's Creek Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.5,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-burke-gilman-trail-west-lake-washington",
+      "source_url": "https://www.alltrails.com/trail/us/washington/burke-gilman-trail-west-lake-washington",
+      "name": "#29 - Burke-Gilman Trail: West Lake Washington",
+      "difficulty": "Moderate",
+      "length_mi": 17.2,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-burke-gilman-trail-matthews-beach-to-blythe",
+      "source_url": "https://www.alltrails.com/trail/us/washington/burke-gilman-trail-matthews-beach-to-blythe",
+      "name": "#30 - Burke Gilman Trail: Matthews Beach to Blythe",
+      "difficulty": "Easy",
+      "length_mi": 15.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-lake-sammamish-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lake-sammamish-loop",
+      "name": "#31 - Lake Sammamish Loop",
+      "difficulty": "Easy",
+      "length_mi": 21.9,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-lost-lake-trail-woodpecker-trail-erratic-trail-windfall-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lost-lake-trail-woodpecker-trail-erratic-trail-windfall-trail-loop",
+      "name": "#32 - Lost Lake Trail, Woodpecker Trail, Erratic Trail, Windfall Trail Loop",
+      "difficulty": "Easy",
+      "length_mi": 2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-colman-park-to-seward-park",
+      "source_url": "https://www.alltrails.com/trail/us/washington/colman-park-to-seward-park",
+      "name": "#33 - Colman Park to Seward Park",
+      "difficulty": "Easy",
+      "length_mi": 3.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-pipers-creek-and-north-traverse-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/washington/pipers-creek-and-north-traverse-trail-loop",
+      "name": "#34 - Piper\u2019s Creek and North Traverse Trail Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-ship-canal-to-westlake-cycle-track",
+      "source_url": "https://www.alltrails.com/trail/us/washington/ship-canal-to-westlake-cycle-track",
+      "name": "#35 - Ship Canal to Westlake Cycle Track",
+      "difficulty": "Easy",
+      "length_mi": 5.1,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-gazzam-lake-nature-preserve",
+      "source_url": "https://www.alltrails.com/trail/us/washington/gazzam-lake-nature-preserve",
+      "name": "#36 - Gazzam Lake and Veterane Open Space Preserves",
+      "difficulty": "Moderate",
+      "length_mi": 6.3,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-magnuson-and-ravenna-parks",
+      "source_url": "https://www.alltrails.com/trail/us/washington/magnuson-and-ravenna-parks",
+      "name": "#37 - Magnuson Park Waterfront Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.7,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-burke-gilman-trail-hiram-m-chittenden-locks-to-golden-gardens-park",
+      "source_url": "https://www.alltrails.com/trail/us/washington/burke-gilman-trail-hiram-m-chittenden-locks-to-golden-gardens-park",
+      "name": "#38 - Burke-Gilman Trail: Hiram M. Chittenden Locks to Golden Gardens Park",
+      "difficulty": "Moderate",
+      "length_mi": 3.7,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-warren-g-magnuson-park-loop--2",
+      "source_url": "https://www.alltrails.com/trail/us/washington/warren-g-magnuson-park-loop--2",
+      "name": "#39 - Warren G. Magnuson Park Loop",
+      "difficulty": "Easy",
+      "length_mi": 2.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-luther-burbank-park-loop--2",
+      "source_url": "https://www.alltrails.com/trail/us/washington/luther-burbank-park-loop--2",
+      "name": "#40 - Luther Burbank Park Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-o-o-denny-park-big-finn-hill-park-and-saint-edward-state-park",
+      "source_url": "https://www.alltrails.com/trail/us/washington/o-o-denny-park-big-finn-hill-park-and-saint-edward-state-park",
+      "name": "#41 - O. O. Denny Park, Big Finn Hill Park and Saint Edward State Park",
+      "difficulty": "Moderate",
+      "length_mi": 7.1,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "beach:us-washington-golden-gardens-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/golden-gardens-trail",
+      "name": "#42 - Golden Gardens Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.2,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-washington-sqebeqsed-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/sqebeqsed-trail",
+      "name": "#43 - Sqebeqsed Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-lake-union-waterfront-walkway-northwest-seaport",
+      "source_url": "https://www.alltrails.com/trail/us/washington/lake-union-waterfront-walkway-northwest-seaport",
+      "name": "#44 - Lake Union Waterfront Walkway: Northwest Seaport",
+      "difficulty": "Easy",
+      "length_mi": 2.9,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-washington-alaskan-way-cycletrack-and-waterfront-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/alaskan-way-cycletrack-and-waterfront-trail",
+      "name": "#45 - Alaskan Way Cycletrack and Waterfront Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-washington-hiram-m-chittenden-locks",
+      "source_url": "https://www.alltrails.com/trail/us/washington/hiram-m-chittenden-locks",
+      "name": "#46 - Hiram M. Chittenden Locks",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-beach-walk-and-frog-pond-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/beach-walk-and-frog-pond-trail",
+      "name": "#47 - Beach Walk and Frog Pond Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-cascadia-marine-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/cascadia-marine-trail",
+      "name": "#48 - Cascadia Marine Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-washington-interurban-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/washington/interurban-trail--2",
+      "name": "#49 - Interurban Trail",
+      "difficulty": "Moderate",
+      "length_mi": 24.6,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-washington-heritage-park-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/heritage-park-trail",
+      "name": "#50 - Heritage Park Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-washington-richmond-beach-saltwater-park-to-marina-beach-park",
+      "source_url": "https://www.alltrails.com/trail/us/washington/richmond-beach-saltwater-park-to-marina-beach-park",
+      "name": "Richmond Beach Saltwater Park to Marina Beach Park Paddle Route",
+      "difficulty": "difficult"
+    },
+    {
+      "trail_id": "beach:us-california-dipsea-steep-ravine-matt-davis-loop-trail-from-pantoll",
+      "source_url": "https://www.alltrails.com/trail/us/california/dipsea-steep-ravine-matt-davis-loop-trail-from-pantoll",
+      "name": "#1 - Steep Ravine, Dipsea and Matt Davis Loop from Pantoll Campground",
+      "difficulty": "Moderate",
+      "length_mi": 6.7,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "beach:us-california-dipsea-and-steep-ravine-loop-from-stinson-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/dipsea-and-steep-ravine-loop-from-stinson-beach",
+      "name": "#2 - Dipsea to Steep Ravine Loop from Stinson Beach",
+      "difficulty": "Moderate",
+      "length_mi": 6.3,
+      "rating": 4.9
+    },
+    {
+      "trail_id": "beach:us-california-stinson-beach-to-cataract-falls-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/stinson-beach-to-cataract-falls-loop",
+      "name": "#3 - Stinson Beach to Cataract Falls Loop",
+      "difficulty": "Hard",
+      "length_mi": 7.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-stinson-beach-and-muir-woods-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/stinson-beach-and-muir-woods-loop",
+      "name": "#4 - Stinson Beach and Muir Woods Loop",
+      "difficulty": "Hard",
+      "length_mi": 13.3,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-stinson-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/stinson-beach-trail",
+      "name": "#5 - Stinson Beach Trail",
+      "difficulty": "Easy",
+      "length_mi": 4.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-marin-headlands-to-the-presidio",
+      "source_url": "https://www.alltrails.com/trail/us/california/marin-headlands-to-the-presidio",
+      "name": "#6 - Marin Headlands to The Presidio",
+      "difficulty": "Hard",
+      "length_mi": 25.9,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-seven-sisters-cycling-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/seven-sisters-cycling-loop",
+      "name": "#7 - Seven Sisters Cycling Loop",
+      "difficulty": "Hard",
+      "length_mi": 17.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-mickeys-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/mickeys-beach-trail",
+      "name": "#8 - Mickey's Beach Trail",
+      "difficulty": "Moderate",
+      "length_mi": 0.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-stinson-beach-to-east-peak-via-steep-ravine-and-mountain-top-trails",
+      "source_url": "https://www.alltrails.com/trail/us/california/stinson-beach-to-east-peak-via-steep-ravine-and-mountain-top-trails",
+      "name": "#9 - Stinson Beach to East Peak via Steep Ravine and Mountain Top Trails",
+      "difficulty": "Hard",
+      "length_mi": 16.6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-low-tide-trail-to-mickey-s-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/low-tide-trail-to-mickey-s-beach",
+      "name": "#10 - Low Tide Trail to Mickey's Beach",
+      "difficulty": "Moderate",
+      "length_mi": 0.4,
+      "rating": 2.8
+    },
+    {
+      "trail_id": "beach:us-california-lake-murray-east-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/lake-murray-east-loop",
+      "name": "#1 - Lake Murray East Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.2,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-new-york-artists-rock-sunset-rock-and-newmans-ledge-via-marys-glen-trail",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/artists-rock-sunset-rock-and-newmans-ledge-via-marys-glen-trail",
+      "name": "#1 - Artist's Rock, Sunset Rock, and Newman's Ledge via Mary's Glen Trail",
+      "difficulty": "Moderate",
+      "length_mi": 5.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-new-york-kaaterskill-falls-south-mountain-and-north-point-loop",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/kaaterskill-falls-south-mountain-and-north-point-loop",
+      "name": "#2 - Kaaterskill Falls, South Mountain, and North Point Loop",
+      "difficulty": "Hard",
+      "length_mi": 10.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-new-york-north-lake-south-lake-trail-2",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/north-lake-south-lake-trail-2",
+      "name": "#3 - North Lake South Lake Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.4,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-new-york-escarpment-trail",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/escarpment-trail",
+      "name": "#4 - Escarpment Trail",
+      "difficulty": "Hard",
+      "length_mi": 22.6,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-new-york-kaaterskill-to-blackhead-trail",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/kaaterskill-to-blackhead-trail",
+      "name": "#5 - Blackhead Range Traverse via Kaaterskill Falls",
+      "difficulty": "Hard",
+      "length_mi": 18.2,
+      "rating": 5
+    },
+    {
+      "trail_id": "beach:us-georgia-buck-shoals-wma-trail",
+      "source_url": "https://www.alltrails.com/trail/us/georgia/buck-shoals-wma-trail",
+      "name": "#1 - Buck Shoals WMA Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-nevada-i-215-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/i-215-trail",
+      "name": "#1 - I-215 East Beltway Trail",
+      "difficulty": "Easy",
+      "length_mi": 9.4,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "beach:us-new-york-little-stony-point",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/little-stony-point",
+      "name": "#1 - Little Stony Point Short Loop",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-new-york-canopus-lake-via-appalachian-trail",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/canopus-lake-via-appalachian-trail",
+      "name": "#2 - Canopus Lake via Appalachian Trail",
+      "difficulty": "Moderate",
+      "length_mi": 7.2,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-alamere-falls-via-coast-trail-from-palomarin-trailhead",
+      "source_url": "https://www.alltrails.com/trail/us/california/alamere-falls-via-coast-trail-from-palomarin-trailhead",
+      "name": "#1 - Alamere Falls via Coast Trail from Palomarin Trailhead",
+      "difficulty": "Hard",
+      "length_mi": 13.8,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-coast-trail-to-bass-lake",
+      "source_url": "https://www.alltrails.com/trail/us/california/coast-trail-to-bass-lake",
+      "name": "#2 - Coast Trail to Bass Lake",
+      "difficulty": "Moderate",
+      "length_mi": 6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-coast-trail-to-wildcat-camp",
+      "source_url": "https://www.alltrails.com/trail/us/california/coast-trail-to-wildcat-camp",
+      "name": "#3 - Coast Trail to Wildcat Camp",
+      "difficulty": "Hard",
+      "length_mi": 11.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-bolinas-point-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/bolinas-point-loop",
+      "name": "#4 - Bolinas Point Loop",
+      "difficulty": "Easy",
+      "length_mi": 2.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-alamere-falls-to-glen-camp-via-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/alamere-falls-to-glen-camp-via-beach",
+      "name": "#5 - Wildcat and Glen Camps via Palomarin Trailhead",
+      "difficulty": "Hard",
+      "length_mi": 8.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-palomarin-trail-to-limantour-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/palomarin-trail-to-limantour-beach",
+      "name": "#6 - Coast Trail: Palomarin Beach to Limantour Beach",
+      "difficulty": "Hard",
+      "length_mi": 14.9,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-coast-trail-and-lake-ranch-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/coast-trail-and-lake-ranch-trail-loop",
+      "name": "#7 - Coast Trail and Lake Ranch Trail Loop",
+      "difficulty": "Hard",
+      "length_mi": 17.4,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-california-lake-ranch-trail--3",
+      "source_url": "https://www.alltrails.com/trail/us/california/lake-ranch-trail--3",
+      "name": "#8 - Lake Ranch Trail",
+      "difficulty": "Hard",
+      "length_mi": 10.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-palomarin-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/palomarin-beach-trail",
+      "name": "#9 - Palomarin Beach Trail [CLOSED]",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 3.7
+    },
+    {
+      "trail_id": "beach:us-california-rodeo-beach-coastal-trail-and-miwok-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/rodeo-beach-coastal-trail-and-miwok-trail",
+      "name": "#1 - Rodeo Beach, Coastal and Miwok Trail",
+      "difficulty": "Moderate",
+      "length_mi": 5.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-tennessee-valley-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/tennessee-valley-trail",
+      "name": "#2 - Tennessee Valley Trail",
+      "difficulty": "Easy",
+      "length_mi": 3.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-muir-beach-to-tennessee-beach-via-pirates-cove-and-mooncow-bay",
+      "source_url": "https://www.alltrails.com/trail/us/california/muir-beach-to-tennessee-beach-via-pirates-cove-and-mooncow-bay",
+      "name": "#8 - Muir Beach to Tennessee Beach via Pirates Cove and Mooncow Bay",
+      "difficulty": "Moderate",
+      "length_mi": 7.3,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-tennessee-valley-to-muir-beach-via-coastal-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/tennessee-valley-to-muir-beach-via-coastal-trail",
+      "name": "#9 - Tennessee Valley to Muir Beach via Coastal Trail",
+      "difficulty": "Moderate",
+      "length_mi": 8.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-muir-beach-coyote-and-dias-ridge-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/muir-beach-coyote-and-dias-ridge-loop",
+      "name": "#10 - Muir Beach, Coyote Ridge, and Dias Ridge Loop",
+      "difficulty": "Moderate",
+      "length_mi": 7.2,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-dipsea-trail-from-mill-valley-trail-head",
+      "source_url": "https://www.alltrails.com/trail/us/california/dipsea-trail-from-mill-valley-trail-head",
+      "name": "#11 - Dipsea Trail from Mill Valley Trailhead",
+      "difficulty": "Hard",
+      "length_mi": 14.4,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-rodeo-beach-to-hill-88",
+      "source_url": "https://www.alltrails.com/trail/us/california/rodeo-beach-to-hill-88",
+      "name": "#13 - Rodeo Beach to Hill 88",
+      "difficulty": "Moderate",
+      "length_mi": 4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-dipsea-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/california/dipsea-trail--2",
+      "name": "#14 - Dipsea Trail",
+      "difficulty": "Hard",
+      "length_mi": 10.1,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-muir-beach-to-point-bonita-lighthouse",
+      "source_url": "https://www.alltrails.com/trail/us/california/muir-beach-to-point-bonita-lighthouse",
+      "name": "Muir Beach to Point Bonita Lighthouse",
+      "length_mi": 14.9
+    },
+    {
+      "trail_id": "beach:us-california-green-gulch-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/green-gulch-trail",
+      "name": "Green Gulch Trail"
+    },
+    {
+      "trail_id": "beach:us-california-gull-rock-viewpoint",
+      "source_url": "https://www.alltrails.com/trail/us/california/gull-rock-viewpoint",
+      "name": "Gull Rock Viewpoint"
+    },
+    {
+      "trail_id": "beach:us-california-slide-ranch-north-beach",
+      "source_url": "https://www.alltrails.com/trail/us/california/slide-ranch-north-beach",
+      "name": "Slide Ranch North Beach"
+    },
+    {
+      "trail_id": "beach:us-california-western-pacific-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/western-pacific-trail",
+      "name": "#1 - Western Pacific Trail",
+      "difficulty": "Easy",
+      "length_mi": 3.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-quail-red-hill-bayview-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/quail-red-hill-bayview-loop",
+      "name": "#2 - Quail Red Hill Bayview Loop",
+      "difficulty": "Easy",
+      "length_mi": 2.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-old-creek-to-western-pacific-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/old-creek-to-western-pacific-trail",
+      "name": "#3 - Old Creek to Western Pacific Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-old-creek-trail-and-wood-duck-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/old-creek-trail-and-wood-duck-trail",
+      "name": "#4 - Old Creek Trail and Wood Duck Trail",
+      "difficulty": "Easy",
+      "length_mi": 3.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-tuibun-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/tuibun-trail",
+      "name": "#5 - Tuibun Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.2,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-nike-bayview-pelican-no-name-soaproot-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/nike-bayview-pelican-no-name-soaproot-loop",
+      "name": "#6 - Nike, Bayview, Pelican, No Name, Soaproot Loop",
+      "difficulty": "Easy",
+      "length_mi": 7.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-california-alameda-creek-and-western-pacific-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/california-alameda-creek-and-western-pacific-trail-loop",
+      "name": "#7 - California, Alameda Creek, and Western Pacific Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 8.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-chochenyo-red-hill-and-meadowlark-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/chochenyo-red-hill-and-meadowlark-loop",
+      "name": "#8 - Chochenyo, Red Hill and Meadowlark Loop",
+      "difficulty": "Moderate",
+      "length_mi": 8.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-lower-meadowlark-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/lower-meadowlark-trail",
+      "name": "#9 - Lower Meadowlark Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-san-franscisco-bay-trail-quarry-lakes-to-the-bay",
+      "source_url": "https://www.alltrails.com/trail/us/california/san-franscisco-bay-trail-quarry-lakes-to-the-bay",
+      "name": "#10 - San Franscisco Bay Trail: Quarry Lakes to the Bay",
+      "difficulty": "Moderate",
+      "length_mi": 8.4,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-charleston-slough-trails",
+      "source_url": "https://www.alltrails.com/trail/us/california/charleston-slough-trails",
+      "name": "#14 - Charleston Slough Trails",
+      "difficulty": "Easy",
+      "length_mi": 11.6,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-california-cogswell-marsh-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/cogswell-marsh-trail",
+      "name": "#17 - Cogswell Marsh Trail",
+      "difficulty": "Easy",
+      "length_mi": 3.6,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-tuibun-bayview-and-no-name-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/tuibun-bayview-and-no-name-trail",
+      "name": "#18 - Tuibun, Bayview, and No Name Trail",
+      "difficulty": "Easy",
+      "length_mi": 6.9,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-old-alameda-creek-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/old-alameda-creek-loop",
+      "name": "Old Alameda Creek Loop"
+    },
+    {
+      "trail_id": "beach:us-california-mori-point-loop-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/mori-point-loop-trail",
+      "name": "#1 - Mori Point Loop Trail",
+      "difficulty": "Moderate",
+      "length_mi": 2.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-rockaway-beach-to-mori-ridge-and-baquiano-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/rockaway-beach-to-mori-ridge-and-baquiano-loop",
+      "name": "#2 - Baquiano, Sweeney Ridge, and Mori Ridge Trail",
+      "difficulty": "Hard",
+      "length_mi": 7.3,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-ace-trail-to-pedro-point-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/ace-trail-to-pedro-point-loop",
+      "name": "#3 - Ace Trail to Pedro Point Loop",
+      "difficulty": "Moderate",
+      "length_mi": 3.3,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-mori-point-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/california/mori-point-trail--2",
+      "name": "#4 - Mori Point Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-old-mori-road-to-timigtac-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/old-mori-road-to-timigtac-trail-loop",
+      "name": "#5 - Old Mori Road to Timigtac Loop",
+      "difficulty": "Moderate",
+      "length_mi": 2.2,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-devil-s-slide",
+      "source_url": "https://www.alltrails.com/trail/us/california/devil-s-slide",
+      "name": "#6 - Devil's Slide Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.8,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-mori-point-loop-trail--3",
+      "source_url": "https://www.alltrails.com/trail/us/california/mori-point-loop-trail--3",
+      "name": "#7 - Mori Point Loop Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.7,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-gray-whale-cove-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/gray-whale-cove-trail",
+      "name": "#8 - Gray Whale Cove Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.3,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-alta-vista-montara-mountain-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/alta-vista-montara-mountain-loop",
+      "name": "#9 - Alta Vista and Montara Mountain Loop",
+      "difficulty": "Hard",
+      "length_mi": 5.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-san-pedro-beach-to-devil-s-slide",
+      "source_url": "https://www.alltrails.com/trail/us/california/san-pedro-beach-to-devil-s-slide",
+      "name": "#10 - San Pedro Beach to Devil's Slide",
+      "difficulty": "Moderate",
+      "length_mi": 6.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-montara-mountain-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/montara-mountain-loop",
+      "name": "#11 - Montara Mountain Loop",
+      "difficulty": "Moderate",
+      "length_mi": 2.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-pedro-point-via-devils-slide-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/pedro-point-via-devils-slide-trail",
+      "name": "#14 - Pedro Point via Devil's Slide Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-mavericks-cliffs-trail-and-pier",
+      "source_url": "https://www.alltrails.com/trail/us/california/mavericks-cliffs-trail-and-pier",
+      "name": "#15 - Mavericks Cliffs Trail and Pier",
+      "difficulty": "Easy",
+      "length_mi": 3.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-mcnee-ranch-to-planet-of-the-apes",
+      "source_url": "https://www.alltrails.com/trail/us/california/mcnee-ranch-to-planet-of-the-apes",
+      "name": "#17 - McNee Ranch to Planet of the Apes",
+      "difficulty": "Moderate",
+      "length_mi": 5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-old-mori-road-to-promenade",
+      "source_url": "https://www.alltrails.com/trail/us/california/old-mori-road-to-promenade",
+      "name": "#22 - Promenade to Old Mori Road",
+      "difficulty": "Easy",
+      "length_mi": 2.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-fitzgerald-marine-bluff-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/fitzgerald-marine-bluff-trail",
+      "name": "#23 - Fitzgerald Marine Bluff, Dardanelle Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-gray-whale-cove-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/gray-whale-cove-trail-loop",
+      "name": "#24 - Gray Whale Cove Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 1.9,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-rockaway-point-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/rockaway-point-trail",
+      "name": "#25 - Rockaway Point Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-old-mori-road-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/old-mori-road-trail",
+      "name": "#26 - Old Mori Road Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-sweeney-ridge-milagra-ridge-and-mori-point-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/sweeney-ridge-milagra-ridge-and-mori-point-loop",
+      "name": "#27 - Sweeney Ridge, Milagra Ridge, and Mori Point Loop",
+      "difficulty": "Hard",
+      "length_mi": 13.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-pillar-point-bluff-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/pillar-point-bluff-trail",
+      "name": "#28 - Pillar Point Bluff Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-old-san-pedro-mountain-road-north-peak-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/old-san-pedro-mountain-road-north-peak-trail",
+      "name": "#29 - Old San Pedro Mountain Road / North Peak Trail",
+      "difficulty": "Hard",
+      "length_mi": 10.4,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-california-mavericks-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/mavericks-beach-trail",
+      "name": "#30 - Maverick's Beach Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-california-sf-peninsula-traverse",
+      "source_url": "https://www.alltrails.com/trail/us/california/sf-peninsula-traverse",
+      "name": "SF Peninsula Traverse",
+      "length_mi": 81.9
+    },
+    {
+      "trail_id": "beach:us-california-upper-mori-lishumsha-coastal-bluff-and-timigtac-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/upper-mori-lishumsha-coastal-bluff-and-timigtac-trail-loop",
+      "name": "Upper Mori, Lishumsha, Coastal, Bluff, and Timigtac Trail Loop"
+    },
+    {
+      "trail_id": "beach:us-california-coastal-lookout-via-mike-s-garden",
+      "source_url": "https://www.alltrails.com/trail/us/california/coastal-lookout-via-mike-s-garden",
+      "name": "Coastal Lookout via Mike's Garden"
+    },
+    {
+      "trail_id": "beach:us-california-coastal-trail-and-bluff-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/coastal-trail-and-bluff-trail",
+      "name": "Coastal Trail and Bluff Trail"
+    },
+    {
+      "trail_id": "beach:us-california-mori-point-via-coastal-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/mori-point-via-coastal-trail",
+      "name": "Mori Point via Coastal Trail"
+    },
+    {
+      "trail_id": "beach:us-california-bay-area-ridge-trail-skyline-to-mussel-rock",
+      "source_url": "https://www.alltrails.com/trail/us/california/bay-area-ridge-trail-skyline-to-mussel-rock",
+      "name": "Bay Area Ridge Trail: Skyline College to Mussel Rock"
+    },
+    {
+      "trail_id": "beach:us-california-tanga-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/tanga-loop",
+      "name": "Tanga Loop"
+    },
+    {
+      "trail_id": "beach:us-california-san-pedro-beach-stovall-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/san-pedro-beach-stovall-loop",
+      "name": "San Pedro Beach Stovall Loop"
+    },
+    {
+      "trail_id": "beach:us-california-cabrillo-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/cabrillo-loop",
+      "name": "Cabrillo Loop"
+    },
+    {
+      "trail_id": "beach:us-new-jersey-alpine-scout-camp-fort-lee-via-the-shore-trail",
+      "source_url": "https://www.alltrails.com/trail/us/new-jersey/alpine-scout-camp-fort-lee-via-the-shore-trail",
+      "name": "#1 - State Line Lookout to Fort Lee via the Shore Trail",
+      "difficulty": "Moderate",
+      "length_mi": 11.4,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-eagle-falls",
+      "source_url": "https://www.alltrails.com/trail/us/california/eagle-falls",
+      "name": "#1 - Vikingsholm Trail to Lower Eagle Falls",
+      "difficulty": "Moderate",
+      "length_mi": 2.5,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-emerald-point-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/emerald-point-trail",
+      "name": "#2 - Emerald Point Trail",
+      "difficulty": "Moderate",
+      "length_mi": 5.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-vikingsholm-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/vikingsholm-trail",
+      "name": "#3 - Vikingsholm Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.7,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-fallen-leaf-lake-trail--4",
+      "source_url": "https://www.alltrails.com/trail/us/california/fallen-leaf-lake-trail--4",
+      "name": "#4 - Fallen Leaf Lake Trail",
+      "difficulty": "Moderate",
+      "length_mi": 3.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-vikingsholm-trail-lower-eagle-falls-and-rubicon-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/vikingsholm-trail-lower-eagle-falls-and-rubicon-trail",
+      "name": "#5 - Vikingsholm Trail, Lower Eagle Falls, and Rubicon Trail",
+      "difficulty": "Moderate",
+      "length_mi": 7.4,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-lake-of-the-sky-trail-and-tallac-historic-site",
+      "source_url": "https://www.alltrails.com/trail/us/california/lake-of-the-sky-trail-and-tallac-historic-site",
+      "name": "#6 - Lake of the Sky Trail and Tallac Historic Site",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-california-angora-lakes-trail-via-fallen-leaf-fire-station",
+      "source_url": "https://www.alltrails.com/trail/us/california/angora-lakes-trail-via-fallen-leaf-fire-station",
+      "name": "#7 - Angora Lakes Trail via Fallen Leaf Fire Station",
+      "difficulty": "Hard",
+      "length_mi": 3.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-south-lake-tahoe-highway-50-trail-recreation-area-to-stateline",
+      "source_url": "https://www.alltrails.com/trail/us/california/south-lake-tahoe-highway-50-trail-recreation-area-to-stateline",
+      "name": "#8 - South Lake Tahoe Highway 50 Trail: Recreation Area to Stateline",
+      "difficulty": "Moderate",
+      "length_mi": 6.8,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-california-tahoe-keyes-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/tahoe-keyes-loop",
+      "name": "#9 - Cove East Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.2,
+      "rating": 4.2
+    },
+    {
+      "trail_id": "beach:us-california-angora-lake-angora-ridge-trail-and-clark-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/angora-lake-angora-ridge-trail-and-clark-trail-loop",
+      "name": "#10 - Angora Lake, Angora Ridge Trail and Clark Trail Loop",
+      "difficulty": "Moderate",
+      "length_mi": 4.8,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-nevada-kingsbury-pines-nevada-beach-loop",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/kingsbury-pines-nevada-beach-loop",
+      "name": "#11 - Kingsbury Pines / Nevada Beach Loop",
+      "difficulty": "Moderate",
+      "length_mi": 4.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-rubicon-point-light-lighthouse-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/rubicon-point-light-lighthouse-trail",
+      "name": "#12 - Rubicon Point Lighthouse Trail",
+      "difficulty": "Moderate",
+      "length_mi": 2.5,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-nevada-nevada-beach-and-round-mound-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/nevada-beach-and-round-mound-trail",
+      "name": "#15 - Nevada Beach and Round Mound Trail",
+      "difficulty": "Moderate",
+      "length_mi": 1.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-lakefront-interpretive-trail-2",
+      "source_url": "https://www.alltrails.com/trail/us/california/lakefront-interpretive-trail-2",
+      "name": "#16 - Lakefront Interpretive Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-nevada-zephyr-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/zephyr-beach-trail",
+      "name": "#18 - Zephyr Beach Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-truckee-marsh-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/truckee-marsh-trail",
+      "name": "#19 - Truckee Marsh Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.9,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-rubicon-point-via-lighthouse-and-rubicon-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/rubicon-point-via-lighthouse-and-rubicon-trail",
+      "name": "Emerald Bay via Lighthouse and Rubicon Trail"
+    },
+    {
+      "trail_id": "beach:us-california-mount-tallac-cracked-crag-and-fallen-leaf-lake-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/mount-tallac-cracked-crag-and-fallen-leaf-lake-loop",
+      "name": "Mount Tallac, Cracked Crag and Fallen Leaf Lake Loop",
+      "length_mi": 20.8
+    },
+    {
+      "trail_id": "beach:us-california-fallen-leaf-lake-lake-aloha-mt-tallac-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/fallen-leaf-lake-lake-aloha-mt-tallac-loop",
+      "name": "Fallen Leaf Lake, Lake Aloha, and Mount Tallac Loop"
+    },
+    {
+      "trail_id": "beach:us-california-lily-lake-to-echo-peak",
+      "source_url": "https://www.alltrails.com/trail/us/california/lily-lake-to-echo-peak",
+      "name": "Lily Lake to Echo Peak"
+    },
+    {
+      "trail_id": "beach:us-california-fannette-island",
+      "source_url": "https://www.alltrails.com/trail/us/california/fannette-island",
+      "name": "Fannette Island"
+    },
+    {
+      "trail_id": "beach:us-nevada-monkey-rock",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/monkey-rock",
+      "name": "#1 - Monkey Rock Trail",
+      "difficulty": "Moderate",
+      "length_mi": 2.6,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-nevada-tahoe-east-shore-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/tahoe-east-shore-trail",
+      "name": "#2 - Tahoe East Shore Trail",
+      "difficulty": "Easy",
+      "length_mi": 5.2,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-nevada-tunnel-creek-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/tunnel-creek-trail",
+      "name": "#3 - Tunnel Creek Trail",
+      "difficulty": "Moderate",
+      "length_mi": 7.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-nevada-tunnel-creek-road-tahoe-meadows-to-twin-lakes",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/tunnel-creek-road-tahoe-meadows-to-twin-lakes",
+      "name": "#4 - Tunnel Creek Road: Tahoe Meadows to Twin Lakes",
+      "difficulty": "Hard",
+      "length_mi": 7.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-nevada-sand-harbor-nature-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/sand-harbor-nature-trail",
+      "name": "#5 - Sand Harbor Nature Trail",
+      "difficulty": "Easy",
+      "length_mi": 0.5,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-nevada-marlette-lake-via-tunnel-creek",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/marlette-lake-via-tunnel-creek",
+      "name": "#6 - Marlette Lake via Tunnel Creek",
+      "difficulty": "Hard",
+      "length_mi": 15.3,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-nevada-marlette-peak-from-tunnel-creek",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/marlette-peak-from-tunnel-creek",
+      "name": "#7 - Marlette Peak from Tunnel Creek",
+      "difficulty": "Hard",
+      "length_mi": 14.3,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-nevada-lodge-beach-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/lodge-beach-trail",
+      "name": "#8 - Lodge Beach Trail",
+      "difficulty": "Moderate",
+      "length_mi": 0.8,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-nevada-rim-trail-mount-rose-meadows-marlette-lake-and-flume-trail",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/rim-trail-mount-rose-meadows-marlette-lake-and-flume-trail",
+      "name": "#9 - Rim Trail, Mount Rose Meadows, Marlette Lake, and Flume Trail",
+      "difficulty": "Hard",
+      "length_mi": 23.9,
+      "rating": 4.8
+    },
+    {
+      "trail_id": "beach:us-nevada-marlette-lake-loop-from-tunnel-creek",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/marlette-lake-loop-from-tunnel-creek",
+      "name": "#10 - Marlette Lake Loop via Tunnel Creek",
+      "difficulty": "Hard",
+      "length_mi": 18.9,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-nevada-lakeshore-blvd-bike-path",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/lakeshore-blvd-bike-path",
+      "name": "#13 - Lakeshore Blvd Bike Path",
+      "difficulty": "Easy",
+      "length_mi": 6.4,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-snow-creek-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/snow-creek-loop",
+      "name": "#17 - Snow Creek Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.5,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-california-kings-beach-state-recreation-area-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/kings-beach-state-recreation-area-loop",
+      "name": "#19 - Kings Beach State Recreation Area Loop",
+      "difficulty": "Easy",
+      "length_mi": 0.5,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-nevada-hobart-creek-reservoir-via-incline-village",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/hobart-creek-reservoir-via-incline-village",
+      "name": "#20 - Hobart Creek Reservoir via Incline Village",
+      "difficulty": "Hard",
+      "length_mi": 14.8,
+      "rating": 4.1
+    },
+    {
+      "trail_id": "beach:us-nevada-tahoe-rim-trail-trt-tahoe-meadows-to-brockway-summit--2",
+      "source_url": "https://www.alltrails.com/trail/us/nevada/tahoe-rim-trail-trt-tahoe-meadows-to-brockway-summit--2",
+      "name": "Tahoe Rim Trail (TRT): Tahoe Meadows to Brockway Summit",
+      "length_mi": 24
+    },
+    {
+      "trail_id": "beach:us-california-bay-bridge-trail--2",
+      "source_url": "https://www.alltrails.com/trail/us/california/bay-bridge-trail--2",
+      "name": "#1 - Bay Bridge Trail",
+      "difficulty": "Moderate",
+      "length_mi": 5.6,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-dam-east-shore-oak-bay-west-shore-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/dam-east-shore-oak-bay-west-shore-trail-loop",
+      "name": "#2 - Dam, East Shore, Oak Bay, West Shore Trail Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-lake-temescal-dam-east-shore-and-oak-bay-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/lake-temescal-dam-east-shore-and-oak-bay-loop",
+      "name": "#3 - Lake Temescal Dam, East Shore and Oak Bay Loop",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-landvale-station-trail-and-oak-bay-trail-loop",
+      "source_url": "https://www.alltrails.com/trail/us/california/landvale-station-trail-and-oak-bay-trail-loop",
+      "name": "#4 - Landvale Station Trail and Oak Bay Trail Loop",
+      "difficulty": "Easy",
+      "length_mi": 1.1,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-california-bay-trail-san-francisco-oakland-bay-bridge",
+      "source_url": "https://www.alltrails.com/trail/us/california/bay-trail-san-francisco-oakland-bay-bridge",
+      "name": "#5 - Bay Trail: San Francisco - Oakland Bay Bridge",
+      "difficulty": "Moderate",
+      "length_mi": 14.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-california-lake-temescal-east-shore-trail",
+      "source_url": "https://www.alltrails.com/trail/us/california/lake-temescal-east-shore-trail",
+      "name": "#6 - Lake Temescal East Shore Trail",
+      "difficulty": "Easy",
+      "length_mi": 1,
+      "rating": 4
+    },
+    {
+      "trail_id": "beach:us-california-bay-trail-oakland-to-albany",
+      "source_url": "https://www.alltrails.com/trail/us/california/bay-trail-oakland-to-albany",
+      "name": "#7 - Bay Trail: Oakland to Albany",
+      "difficulty": "Moderate",
+      "length_mi": 15.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-california-judge-john-sutter-regional-shoreline-observation-pier",
+      "source_url": "https://www.alltrails.com/trail/us/california/judge-john-sutter-regional-shoreline-observation-pier",
+      "name": "#8 - Judge John Sutter Regional Shoreline Observation Pier",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-california-township-commons",
+      "source_url": "https://www.alltrails.com/trail/us/california/township-commons",
+      "name": "#9 - Township Commons",
+      "difficulty": "Easy",
+      "length_mi": 1.2,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-california-sf-bay-trail-west-oakland-bart-to-coliseum-bart",
+      "source_url": "https://www.alltrails.com/trail/us/california/sf-bay-trail-west-oakland-bart-to-coliseum-bart",
+      "name": "#10 - SF Bay Trail: West Oakland BART to Coliseum BART",
+      "difficulty": "Easy",
+      "length_mi": 8.8,
+      "rating": 3.8
+    },
+    {
+      "trail_id": "beach:us-georgia-east-palisades-trail",
+      "source_url": "https://www.alltrails.com/trail/us/georgia/east-palisades-trail",
+      "name": "#1 - East Palisades Trail and Bamboo Forest",
+      "difficulty": "Moderate",
+      "length_mi": 4.3,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-georgia-east-palisades-north-loop-and-bamboo-forest",
+      "source_url": "https://www.alltrails.com/trail/us/georgia/east-palisades-north-loop-and-bamboo-forest",
+      "name": "#2 - East Palisades, North Loop and Bamboo Forest",
+      "difficulty": "Moderate",
+      "length_mi": 5.8,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-georgia-west-palisades-trail",
+      "source_url": "https://www.alltrails.com/trail/us/georgia/west-palisades-trail",
+      "name": "#3 - West Palisades Trail",
+      "difficulty": "Moderate",
+      "length_mi": 4.1,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-georgia-west-palisades-chattahoochee-river",
+      "source_url": "https://www.alltrails.com/trail/us/georgia/west-palisades-chattahoochee-river",
+      "name": "#4 - West Palisades Chattahoochee River",
+      "difficulty": "Moderate",
+      "length_mi": 1.8,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-new-jersey-henry-hudson-bike-trail-via-oakshades-park",
+      "source_url": "https://www.alltrails.com/trail/us/new-jersey/henry-hudson-bike-trail-via-oakshades-park",
+      "name": "#1 - Henry Hudson Bike Trail via Oakshades Park",
+      "difficulty": "Easy",
+      "length_mi": 12.5,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-south-dakota-richmond-lake-area-trails",
+      "source_url": "https://www.alltrails.com/trail/us/south-dakota/richmond-lake-area-trails",
+      "name": "#1 - Richmond Lake Area Trails",
+      "difficulty": "Easy",
+      "length_mi": 2.4,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-south-dakota-wylie-park-trails",
+      "source_url": "https://www.alltrails.com/trail/us/south-dakota/wylie-park-trails",
+      "name": "#2 - Wylie Park Trails",
+      "difficulty": "Easy",
+      "length_mi": 3,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-washington-bottle-beach-interpretive-trail",
+      "source_url": "https://www.alltrails.com/trail/us/washington/bottle-beach-interpretive-trail",
+      "name": "#1 - Bottle Beach Interpretive Trail",
+      "difficulty": "Easy",
+      "length_mi": 1.3,
+      "rating": 4.5
+    },
+    {
+      "trail_id": "beach:us-maryland-leight-park-trail-to-water",
+      "source_url": "https://www.alltrails.com/trail/us/maryland/leight-park-trail-to-water",
+      "name": "#1 - Leight Park Trail to Water",
+      "difficulty": "Moderate",
+      "length_mi": 0.2,
+      "rating": 4
+    },
+    {
+      "trail_id": "beach:us-maryland-accokeek-creek-marsh-boardwalk",
+      "source_url": "https://www.alltrails.com/trail/us/maryland/accokeek-creek-marsh-boardwalk",
+      "name": "#1 - Accokeek Creek Marsh Boardwalk",
+      "difficulty": "Easy",
+      "length_mi": 1.6,
+      "rating": 4.4
+    },
+    {
+      "trail_id": "beach:us-new-york-blueberry-run-footpath-via-upper-awosting-carriage-road",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/blueberry-run-footpath-via-upper-awosting-carriage-road",
+      "name": "#1 - Blueberry Run Footpath via Upper Awosting Carriage Road",
+      "difficulty": "Moderate",
+      "length_mi": 7,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-new-york-jenny-lane-to-rainbow-falls-to-castle-point-carriage-road-loop",
+      "source_url": "https://www.alltrails.com/trail/us/new-york/jenny-lane-to-rainbow-falls-to-castle-point-carriage-road-loop",
+      "name": "#2 - Jenny Lane to Rainbow Falls to Castle Point Carriage Road Loop",
+      "difficulty": "Hard",
+      "length_mi": 14.1,
+      "rating": 4.3
+    },
+    {
+      "trail_id": "beach:us-georgia-lake-acworth-paddle-route",
+      "source_url": "https://www.alltrails.com/trail/us/georgia/lake-acworth-paddle-route",
+      "name": "#1 - Lake Acworth Paddle Route",
+      "difficulty": "Easy",
+      "length_mi": 4.3,
+      "rating": 4.6
+    },
+    {
+      "trail_id": "beach:us-maine-ingersoll-point-preserve-loop",
+      "source_url": "https://www.alltrails.com/trail/us/maine/ingersoll-point-preserve-loop",
+      "name": "#1 - Ingersoll Point Preserve Loop",
+      "difficulty": "Easy",
+      "length_mi": 3.1,
+      "rating": 4.7
+    },
+    {
+      "trail_id": "beach:us-maine-alder-woods-trail",
+      "source_url": "https://www.alltrails.com/trail/us/maine/alder-woods-trail",
+      "name": "#2 - Alder Woods Trail",
+      "difficulty": "Easy",
+      "length_mi": 2.8,
+      "rating": 4.7
+    }
+  ]
+}

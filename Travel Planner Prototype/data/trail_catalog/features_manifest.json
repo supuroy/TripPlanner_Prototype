@@ -1,0 +1,46 @@
+{
+  "catalog_kind": "trail_features",
+  "features": [
+    {
+      "feature_slug": "backpacking",
+      "feature_name": "Backpacking",
+      "trail_count": 665,
+      "file": "data/trail_catalog/features/backpacking.json",
+      "source_url": "https://www.alltrails.com/directory/trail-features/backpacking/A/1",
+      "updated_at_utc": "2026-06-01T09:12:11Z"
+    },
+    {
+      "feature_slug": "beach",
+      "feature_name": "Beach",
+      "trail_count": 435,
+      "file": "data/trail_catalog/features/beach.json",
+      "source_url": "https://www.alltrails.com/directory/trail-features/beach/A/1",
+      "updated_at_utc": "2026-06-01T09:45:16Z"
+    },
+    {
+      "feature_slug": "camping",
+      "feature_name": "Camping",
+      "trail_count": 901,
+      "file": "data/trail_catalog/features/camping.json",
+      "source_url": "https://www.alltrails.com/directory/trail-features/camping/A/1",
+      "updated_at_utc": "2026-06-01T07:22:42Z"
+    },
+    {
+      "feature_slug": "hot-springs",
+      "feature_name": "Hot Springs",
+      "trail_count": 316,
+      "file": "data/trail_catalog/features/hot-springs.json",
+      "source_url": "https://www.alltrails.com/directory/trail-features/hot-springs/A/1",
+      "updated_at_utc": "2026-06-01T07:55:45Z"
+    },
+    {
+      "feature_slug": "waterfall",
+      "feature_name": "Waterfall",
+      "trail_count": 749,
+      "file": "data/trail_catalog/features/waterfall.json",
+      "source_url": "https://www.alltrails.com/directory/trail-features/waterfall/A/1",
+      "updated_at_utc": "2026-06-01T06:08:07Z"
+    }
+  ],
+  "updated_at_utc": "2026-06-01T09:45:16Z"
+}

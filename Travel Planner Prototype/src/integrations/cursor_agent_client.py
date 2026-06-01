@@ -417,9 +417,22 @@ def consume_sse_assistant_streaming(
             except json.JSONDecodeError:
                 pass
         elif event_type == "tool_call" and emit:
-            snippet = (data_raw or "").replace("\n", " ").strip()
-            if snippet:
-                emit({"type": "tool_call", "detail": snippet[:500]})
+            try:
+                payload = json.loads(data_raw)
+                emit(
+                    {
+                        "type": "tool_call",
+                        "callId": payload.get("callId"),
+                        "name": str(payload.get("name") or ""),
+                        "status": str(payload.get("status") or ""),
+                        "truncated": payload.get("truncated"),
+                        "detail": (data_raw or "")[:800],
+                    }
+                )
+            except json.JSONDecodeError:
+                snippet = (data_raw or "").replace("\n", " ").strip()
+                if snippet:
+                    emit({"type": "tool_call", "detail": snippet[:500]})
         elif event_type == "result" and emit:
             try:
                 payload = json.loads(data_raw)
@@ -467,6 +480,7 @@ def create_agent_run(
     prompt_text: str,
     *,
     model_id_override: str | None = None,
+    mcp_servers: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str]:
     repo_url = normalize_github_repo_url((os.environ.get("CURSOR_REPO_URL") or "").strip())
     if not repo_url:
@@ -485,6 +499,9 @@ def create_agent_run(
         "prompt": {"text": prompt_text},
         "repos": [repo_entry],
     }
+    if mcp_servers:
+        body["mcpServers"] = mcp_servers
+        _trace_cursor(f"create_agent_run mcp_servers={len(mcp_servers)}", path=None)
 
     override = (model_id_override or "").strip()
     if override:

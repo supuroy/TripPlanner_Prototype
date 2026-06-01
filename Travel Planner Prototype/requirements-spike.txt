@@ -1,0 +1,3 @@
+# Optional deps for trail-catalog MCP + Cursor dynamic-context spike
+-r requirements.txt
+mcp>=1.6.0
