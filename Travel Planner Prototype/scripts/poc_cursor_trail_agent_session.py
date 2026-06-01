@@ -80,6 +80,30 @@ from src.wanderly.trail_catalog.store import load_feature_catalog, load_park_cat
 POC_SYSTEM_PREFIX = BOOTSTRAP_PROMPT.split("\n\n---\n\n")[0]
 
 
+def _print_tool_call_summary(tool_calls: list[dict[str, Any]]) -> None:
+    if not tool_calls:
+        print("  (no tool_call SSE events captured)", flush=True)
+        return
+    counts: dict[str, int] = {}
+    for row in tool_calls:
+        key = f"{row.get('name')}:{row.get('status')}"
+        counts[key] = counts.get(key, 0) + 1
+    parts = [f"{k}={v}" for k, v in sorted(counts.items())]
+    print(f"  tool_call events: {', '.join(parts[:12])}", flush=True)
+
+
+def _print_mcp_zero_call_hints() -> None:
+    launcher = ROOT / "scripts" / "run_trail_catalog_mcp_stdio.sh"
+    print(
+        "\n  HINT: 0 trail-catalog MCP calls. Check:\n"
+        "  - scripts/run_trail_catalog_mcp_stdio.sh is committed and pushed (required in cloud VM)\n"
+        "  - CURSOR_REPO_REF points at branch with data/trail_catalog + mcp/trail_catalog_server.py\n"
+        f"  - Launcher exists locally: {launcher.is_file()}\n"
+        "  - Open agent_url in Cursor UI and confirm trail-catalog server is ready (not only Atlassian/Figma)\n",
+        flush=True,
+    )
+
+
 def _session_path(path: str | None) -> Path:
     return Path(path) if path else DEFAULT_SESSION_PATH
 
@@ -157,10 +181,16 @@ def _run_turn(
     try:
         raw = consume_sse_assistant_streaming(client, aid, run_id, emit=emit)
     except Exception as exc:
-        raw = poll_run_for_assistant_text(client, aid, run_id, max_wait_s=180.0)
+        raw = ""
         err = f"{type(exc).__name__}: {exc}"
     else:
         err = None
+
+    # SSE often ends before the run finishes; poll when text/tools are missing.
+    if not (raw or "").strip() or not tool_calls:
+        polled = poll_run_for_assistant_text(client, aid, run_id, max_wait_s=180.0)
+        if len(polled) > len(raw or ""):
+            raw = polled
 
     mcp_calls = extract_mcp_catalog_calls(tool_calls)
     parsed, trail_ids, tools_claimed = parse_selections(raw or "")
@@ -218,7 +248,10 @@ def cmd_start(args: argparse.Namespace) -> int:
     print(f"\nSession saved -> {path}", flush=True)
     print(f"Agent: {turn['agent_url']}", flush=True)
     print(f"Bootstrap MCP calls: {turn['mcp_call_count']}", flush=True)
+    _print_tool_call_summary(turn.get("tool_calls") or [])
     print_mcp_catalog_calls(turn["mcp_catalog_calls"])
+    if turn["mcp_call_count"] == 0:
+        _print_mcp_zero_call_hints()
     if turn.get("raw"):
         print(f"\nAssistant (bootstrap):\n{turn['raw'][:800]}", flush=True)
     return 0
@@ -298,7 +331,10 @@ def cmd_ask(args: argparse.Namespace) -> int:
         (log_dir / "assistant.txt").write_text(turn["raw"], encoding="utf-8")
 
     print(f"\n--- MCP queries ({turn['mcp_call_count']}) ---", flush=True)
+    _print_tool_call_summary(turn.get("tool_calls") or [])
     print_mcp_catalog_calls(turn["mcp_catalog_calls"])
+    if turn["mcp_call_count"] == 0:
+        _print_mcp_zero_call_hints()
     print(f"\n--- Selections ---", flush=True)
     print(json.dumps(turn.get("selections") or [], indent=2, ensure_ascii=True), flush=True)
     print(
