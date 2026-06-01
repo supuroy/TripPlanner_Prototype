@@ -153,19 +153,71 @@ def search_manifest_features(
     return out
 
 
-def search_feature_trails(
-    feature_slug: str,
+def load_manifest_regions() -> list[dict[str, Any]]:
+    path = catalog_root() / "regions_manifest.json"
+    if not path.is_file():
+        return []
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    regions = doc.get("regions")
+    return [r for r in regions if isinstance(r, dict)] if isinstance(regions, list) else []
+
+
+def search_manifest_regions(
+    query: str = "",
+    *,
+    limit: int = 15,
+) -> list[dict[str, Any]]:
+    """Find US regions/states by name or slug (requires ``regions_manifest.json``)."""
+    q = (query or "").strip().lower()
+    rows = load_manifest_regions()
+    if not q:
+        return rows[:limit]
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        name = str(row.get("region_name") or "").lower()
+        slug = str(row.get("state_slug") or row.get("region_slug") or "").lower()
+        if q in name or q in slug or q.replace(" ", "-") in slug:
+            out.append(
+                {
+                    "region_slug": row.get("region_slug"),
+                    "state_slug": row.get("state_slug"),
+                    "region_name": row.get("region_name"),
+                    "listing_url": row.get("listing_url"),
+                    "park_codes": row.get("park_codes"),
+                    "park_count": row.get("park_count"),
+                }
+            )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def load_region_catalog(state_slug: str) -> dict[str, Any]:
+    slug = (state_slug or "").strip().lower().replace("us-", "")
+    path = catalog_root() / "regions" / f"us-{slug}.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"No region catalog at {path}")
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    trails = doc.get("trails")
+    if not isinstance(trails, list):
+        raise ValueError(f"Invalid region catalog (missing trails[]): {path}")
+    return doc
+
+
+def search_region_trails(
+    state_slug: str,
     *,
     query: str = "",
     limit: int = 25,
     min_distance_mi: float = 0.0,
+    max_distance_mi: float = 0.0,
     park_code: str = "",
 ) -> list[dict[str, Any]]:
-    """Return compact trail rows from a feature catalog (``features/{slug}.json``)."""
-    slug = (feature_slug or "").strip().lower()
-    if not slug:
-        return []
-    doc = load_feature_catalog(slug)
+    """Search trails from ``regions/us-{state}.json`` (Top-50-style region hub crawl)."""
+    doc = load_region_catalog(state_slug)
     compact = [to_compact_row(t) for t in doc.get("trails") or [] if isinstance(t, dict)]
     pc = (park_code or "").strip().lower()
     if pc:
@@ -191,6 +243,95 @@ def search_feature_trails(
             if isinstance(r.get("distance_mi"), (int, float))
             and float(r["distance_mi"]) >= min_distance_mi
         ]
+    if max_distance_mi > 0:
+        compact = [
+            r
+            for r in compact
+            if isinstance(r.get("distance_mi"), (int, float))
+            and float(r["distance_mi"]) <= max_distance_mi
+        ]
+    ranked = sorted(compact, key=lambda r: float(r.get("distance_mi") or 0), reverse=True)
+    return ranked[: max(1, min(int(limit), 50))]
+
+
+def parks_for_state(state_slug: str) -> list[str]:
+    """Park codes in a US state from ``regions_manifest.json`` or park files."""
+    slug = (state_slug or "").strip().lower().replace("us-", "")
+    for row in load_manifest_regions():
+        if str(row.get("state_slug") or "").lower() == slug:
+            codes = row.get("park_codes")
+            if isinstance(codes, list):
+                return [str(c).lower() for c in codes if c]
+    from src.wanderly.trail_catalog.enrich import build_park_codes_by_state
+
+    return list(build_park_codes_by_state(catalog_root()).get(slug) or [])
+
+
+def search_feature_trails(
+    feature_slug: str,
+    *,
+    query: str = "",
+    limit: int = 25,
+    min_distance_mi: float = 0.0,
+    max_distance_mi: float = 0.0,
+    park_code: str = "",
+    state_slug: str = "",
+    region_path: str = "",
+) -> list[dict[str, Any]]:
+    """Return compact trail rows from a feature catalog (``features/{slug}.json``)."""
+    slug = (feature_slug or "").strip().lower()
+    if not slug:
+        return []
+    doc = load_feature_catalog(slug)
+    compact = [to_compact_row(t) for t in doc.get("trails") or [] if isinstance(t, dict)]
+    pc = (park_code or "").strip().lower()
+    if pc:
+        compact = [r for r in compact if str(r.get("park_code") or "").lower() == pc]
+    st = (state_slug or "").strip().lower().replace("us-", "")
+    if st:
+        compact = [
+            r
+            for r in compact
+            if str(r.get("state_slug") or "").lower() == st
+            or str(r.get("region_path") or "").lower() == f"us/{st}"
+            or f":us-{st}-" in str(r.get("trail_id") or "").lower()
+        ]
+    rp = (region_path or "").strip().lower()
+    if rp:
+        compact = [
+            r
+            for r in compact
+            if str(r.get("region_path") or "").lower() == rp
+            or str(r.get("trail_id") or "").lower().startswith(f"{slug}:{rp.replace('/', '-')}")
+        ]
+    q = (query or "").strip().lower()
+    if q:
+        tokens = [t for t in re.split(r"\W+", q) if len(t) >= 3]
+
+        def matches(row: dict[str, Any]) -> bool:
+            blob = " ".join(
+                str(row.get(k) or "")
+                for k in ("name", "trail_id", "difficulty", "location_label")
+            ).lower()
+            if q in blob:
+                return True
+            return any(t in blob for t in tokens)
+
+        compact = [r for r in compact if matches(r)]
+    if min_distance_mi > 0:
+        compact = [
+            r
+            for r in compact
+            if isinstance(r.get("distance_mi"), (int, float))
+            and float(r["distance_mi"]) >= min_distance_mi
+        ]
+    if max_distance_mi > 0:
+        compact = [
+            r
+            for r in compact
+            if isinstance(r.get("distance_mi"), (int, float))
+            and float(r["distance_mi"]) <= max_distance_mi
+        ]
     ranked = sorted(
         compact,
         key=lambda r: float(r.get("distance_mi") or 0),
@@ -214,12 +355,27 @@ def get_feature_trail_compact(feature_slug: str, trail_id: str) -> dict[str, Any
 def catalog_stats() -> dict[str, Any]:
     parks = load_manifest_parks()
     features = load_manifest_features()
+    regions = load_manifest_regions()
     total_park_trails = sum(int(p.get("trail_count") or 0) for p in parks)
     total_feature_trails = sum(int(f.get("trail_count") or 0) for f in features)
+    root = catalog_root()
+    region_files = len(list((root / "regions").glob("*.json"))) if (root / "regions").is_dir() else 0
+    unique_canonical = 0
+    index_path = root / "trail_index.json"
+    if index_path.is_file():
+        try:
+            doc = json.loads(index_path.read_text(encoding="utf-8"))
+            unique_canonical = int(doc.get("unique_trail_count") or 0)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            unique_canonical = 0
     return {
         "park_count": len(parks),
         "feature_count": len(features),
+        "region_count": len(regions),
+        "region_catalog_files": region_files,
         "manifest_park_trail_rows": total_park_trails,
         "manifest_feature_trail_rows": total_feature_trails,
-        "catalog_root": str(catalog_root()),
+        "unique_canonical_trails": unique_canonical,
+        "trail_index_path": str(index_path) if index_path.is_file() else None,
+        "catalog_root": str(root),
     }

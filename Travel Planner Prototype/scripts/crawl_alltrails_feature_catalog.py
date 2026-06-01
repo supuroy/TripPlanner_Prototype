@@ -196,6 +196,15 @@ def main() -> int:
         f"Wrote {len(entries)} trails ({resolved} with park_code) -> {path}",
         flush=True,
     )
+    if not args.no_resolve_park:
+        from src.wanderly.trail_catalog.enrich import enrich_feature_catalog_file
+
+        stats = enrich_feature_catalog_file(path, catalog_root=catalog_root)
+        print(
+            f"Enriched: park_code {stats.get('park_code_before')} -> {stats.get('park_code_after')}, "
+            f"state_slug on {stats.get('state_slug_after')}/{stats.get('total')} rows",
+            flush=True,
+        )
     return 0
 
 

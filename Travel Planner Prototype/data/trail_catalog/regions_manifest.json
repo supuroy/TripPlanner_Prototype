@@ -1,0 +1,699 @@
+{
+  "catalog_kind": "trail_regions",
+  "catalog_version": 1,
+  "written_at_utc": "2026-06-01T15:39:10Z",
+  "source": {
+    "listing_url": "https://www.alltrails.com/directory/regions/A/1",
+    "method": "playwright_regions_directory"
+  },
+  "region_count": 47,
+  "regions": [
+    {
+      "region_slug": "us-alabama",
+      "state_slug": "alabama",
+      "country_code": "us",
+      "region_name": "Alabama, United States",
+      "listing_url": "https://www.alltrails.com/us/alabama",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-alabama.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T19:33:34Z"
+    },
+    {
+      "region_slug": "us-alaska",
+      "state_slug": "alaska",
+      "country_code": "us",
+      "region_name": "Alaska, United States",
+      "listing_url": "https://www.alltrails.com/us/alaska",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-alaska.json",
+      "park_codes": [
+        "dena",
+        "kefj"
+      ],
+      "park_count": 2,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T17:39:28Z"
+    },
+    {
+      "region_slug": "us-arizona",
+      "state_slug": "arizona",
+      "country_code": "us",
+      "region_name": "Arizona, United States",
+      "listing_url": "https://www.alltrails.com/us/arizona",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-arizona.json",
+      "park_codes": [
+        "grca",
+        "pefo",
+        "sagu"
+      ],
+      "park_count": 3,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T17:52:53Z"
+    },
+    {
+      "region_slug": "us-arkansas",
+      "state_slug": "arkansas",
+      "country_code": "us",
+      "region_name": "Arkansas, United States",
+      "listing_url": "https://www.alltrails.com/us/arkansas",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-arkansas.json",
+      "park_codes": [
+        "hosp"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T17:46:03Z"
+    },
+    {
+      "region_slug": "us-california",
+      "state_slug": "california",
+      "country_code": "us",
+      "region_name": "California, United States",
+      "listing_url": "https://www.alltrails.com/us/california",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-california.json",
+      "park_codes": [
+        "chis",
+        "deva",
+        "jotr",
+        "lavo",
+        "pinn",
+        "redw",
+        "seki",
+        "yose"
+      ],
+      "park_count": 8,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T18:00:01Z"
+    },
+    {
+      "region_slug": "us-colorado",
+      "state_slug": "colorado",
+      "country_code": "us",
+      "region_name": "Colorado, United States",
+      "listing_url": "https://www.alltrails.com/us/colorado",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-colorado.json",
+      "park_codes": [
+        "blca",
+        "grsa",
+        "meve",
+        "romo"
+      ],
+      "park_count": 4,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T18:06:43Z"
+    },
+    {
+      "region_slug": "us-connecticut",
+      "state_slug": "connecticut",
+      "country_code": "us",
+      "region_name": "Connecticut, United States",
+      "listing_url": "https://www.alltrails.com/us/connecticut",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-connecticut.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T19:56:32Z"
+    },
+    {
+      "region_slug": "us-delaware",
+      "state_slug": "delaware",
+      "country_code": "us",
+      "region_name": "Delaware, United States",
+      "listing_url": "https://www.alltrails.com/us/delaware",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-delaware.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T20:02:06Z"
+    },
+    {
+      "region_slug": "us-florida",
+      "state_slug": "florida",
+      "country_code": "us",
+      "region_name": "Florida, United States",
+      "listing_url": "https://www.alltrails.com/us/florida",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-florida.json",
+      "park_codes": [
+        "ever"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T17:32:06Z"
+    },
+    {
+      "region_slug": "us-georgia",
+      "state_slug": "georgia",
+      "country_code": "us",
+      "region_name": "Georgia, United States",
+      "listing_url": "https://www.alltrails.com/us/georgia",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-georgia.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T20:05:14Z"
+    },
+    {
+      "region_slug": "us-illinois",
+      "state_slug": "illinois",
+      "country_code": "us",
+      "region_name": "Illinois, United States",
+      "listing_url": "https://www.alltrails.com/us/illinois",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-illinois.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T20:13:25Z"
+    },
+    {
+      "region_slug": "us-indiana",
+      "state_slug": "indiana",
+      "country_code": "us",
+      "region_name": "Indiana, United States",
+      "listing_url": "https://www.alltrails.com/us/indiana",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-indiana.json",
+      "park_codes": [
+        "indu"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T18:14:17Z"
+    },
+    {
+      "region_slug": "us-iowa",
+      "state_slug": "iowa",
+      "country_code": "us",
+      "region_name": "Iowa, United States",
+      "listing_url": "https://www.alltrails.com/us/iowa",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-iowa.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T21:10:13Z"
+    },
+    {
+      "region_slug": "us-kentucky",
+      "state_slug": "kentucky",
+      "country_code": "us",
+      "region_name": "Kentucky, United States",
+      "listing_url": "https://www.alltrails.com/us/kentucky",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-kentucky.json",
+      "park_codes": [
+        "ajjoco",
+        "maca"
+      ],
+      "park_count": 2,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T17:24:43Z"
+    },
+    {
+      "region_slug": "us-louisiana",
+      "state_slug": "louisiana",
+      "country_code": "us",
+      "region_name": "Louisiana, United States",
+      "listing_url": "https://www.alltrails.com/us/louisiana",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-louisiana.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T21:00:20Z"
+    },
+    {
+      "region_slug": "us-maine",
+      "state_slug": "maine",
+      "country_code": "us",
+      "region_name": "Maine, United States",
+      "listing_url": "https://www.alltrails.com/us/maine",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-maine.json",
+      "park_codes": [
+        "acad"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T17:09:36Z"
+    },
+    {
+      "region_slug": "us-maryland",
+      "state_slug": "maryland",
+      "country_code": "us",
+      "region_name": "Maryland, United States",
+      "listing_url": "https://www.alltrails.com/us/maryland",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-maryland.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T20:29:00Z"
+    },
+    {
+      "region_slug": "us-massachusetts",
+      "state_slug": "massachusetts",
+      "country_code": "us",
+      "region_name": "Massachusetts, United States",
+      "listing_url": "https://www.alltrails.com/us/massachusetts",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-massachusetts.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T20:21:18Z"
+    },
+    {
+      "region_slug": "us-michigan",
+      "state_slug": "michigan",
+      "country_code": "us",
+      "region_name": "Michigan, United States",
+      "listing_url": "https://www.alltrails.com/us/michigan",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-michigan.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T19:09:24Z"
+    },
+    {
+      "region_slug": "us-minnesota",
+      "state_slug": "minnesota",
+      "country_code": "us",
+      "region_name": "Minnesota, United States",
+      "listing_url": "https://www.alltrails.com/us/minnesota",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-minnesota.json",
+      "park_codes": [
+        "aako"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T18:52:59Z"
+    },
+    {
+      "region_slug": "us-mississippi",
+      "state_slug": "mississippi",
+      "country_code": "us",
+      "region_name": "Mississippi, United States",
+      "listing_url": "https://www.alltrails.com/us/mississippi",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-mississippi.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T21:29:14Z"
+    },
+    {
+      "region_slug": "us-missouri",
+      "state_slug": "missouri",
+      "country_code": "us",
+      "region_name": "Missouri, United States",
+      "listing_url": "https://www.alltrails.com/us/missouri",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-missouri.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T19:01:35Z"
+    },
+    {
+      "region_slug": "us-montana",
+      "state_slug": "montana",
+      "country_code": "us",
+      "region_name": "Montana, United States",
+      "listing_url": "https://www.alltrails.com/us/montana",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-montana.json",
+      "park_codes": [
+        "glac"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T16:54:16Z"
+    },
+    {
+      "region_slug": "us-nebraska",
+      "state_slug": "nebraska",
+      "country_code": "us",
+      "region_name": "Nebraska, United States",
+      "listing_url": "https://www.alltrails.com/us/nebraska",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-nebraska.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T21:37:46Z"
+    },
+    {
+      "region_slug": "us-nevada",
+      "state_slug": "nevada",
+      "country_code": "us",
+      "region_name": "Nevada, United States",
+      "listing_url": "https://www.alltrails.com/us/nevada",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-nevada.json",
+      "park_codes": [
+        "grba"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T16:19:25Z"
+    },
+    {
+      "region_slug": "us-new-hampshire",
+      "state_slug": "new-hampshire",
+      "country_code": "us",
+      "region_name": "New Hampshire, United States",
+      "listing_url": "https://www.alltrails.com/us/new-hampshire",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-new-hampshire.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T20:36:41Z"
+    },
+    {
+      "region_slug": "us-new-jersey",
+      "state_slug": "new-jersey",
+      "country_code": "us",
+      "region_name": "New Jersey, United States",
+      "listing_url": "https://www.alltrails.com/us/new-jersey",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-new-jersey.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T20:45:04Z"
+    },
+    {
+      "region_slug": "us-new-mexico",
+      "state_slug": "new-mexico",
+      "country_code": "us",
+      "region_name": "New Mexico, United States",
+      "listing_url": "https://www.alltrails.com/us/new-mexico",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-new-mexico.json",
+      "park_codes": [
+        "whsa"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T16:27:13Z"
+    },
+    {
+      "region_slug": "us-new-york",
+      "state_slug": "new-york",
+      "country_code": "us",
+      "region_name": "New York, United States",
+      "listing_url": "https://www.alltrails.com/us/new-york",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-new-york.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T19:48:50Z"
+    },
+    {
+      "region_slug": "us-north-carolina",
+      "state_slug": "north-carolina",
+      "country_code": "us",
+      "region_name": "North Carolina, United States",
+      "listing_url": "https://www.alltrails.com/us/north-carolina",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-north-carolina.json",
+      "park_codes": [
+        "blripa4"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T16:45:18Z"
+    },
+    {
+      "region_slug": "us-north-dakota",
+      "state_slug": "north-dakota",
+      "country_code": "us",
+      "region_name": "North Dakota, United States",
+      "listing_url": "https://www.alltrails.com/us/north-dakota",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-north-dakota.json",
+      "park_codes": [
+        "thro"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T18:45:18Z"
+    },
+    {
+      "region_slug": "us-ohio",
+      "state_slug": "ohio",
+      "country_code": "us",
+      "region_name": "Ohio, United States",
+      "listing_url": "https://www.alltrails.com/us/ohio",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-ohio.json",
+      "park_codes": [
+        "cuva"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T16:03:19Z"
+    },
+    {
+      "region_slug": "us-oklahoma",
+      "state_slug": "oklahoma",
+      "country_code": "us",
+      "region_name": "Oklahoma, United States",
+      "listing_url": "https://www.alltrails.com/us/oklahoma",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-oklahoma.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T20:52:25Z"
+    },
+    {
+      "region_slug": "us-oregon",
+      "state_slug": "oregon",
+      "country_code": "us",
+      "region_name": "Oregon, United States",
+      "listing_url": "https://www.alltrails.com/us/oregon",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-oregon.json",
+      "park_codes": [
+        "crla"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T16:10:46Z"
+    },
+    {
+      "region_slug": "us-pennsylvania",
+      "state_slug": "pennsylvania",
+      "country_code": "us",
+      "region_name": "Pennsylvania, United States",
+      "listing_url": "https://www.alltrails.com/us/pennsylvania",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-pennsylvania.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T19:18:09Z"
+    },
+    {
+      "region_slug": "us-rhode-island",
+      "state_slug": "rhode-island",
+      "country_code": "us",
+      "region_name": "Rhode Island, United States",
+      "listing_url": "https://www.alltrails.com/us/rhode-island",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-rhode-island.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T21:19:35Z"
+    },
+    {
+      "region_slug": "us-south-carolina",
+      "state_slug": "south-carolina",
+      "country_code": "us",
+      "region_name": "South Carolina, United States",
+      "listing_url": "https://www.alltrails.com/us/south-carolina",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-south-carolina.json",
+      "park_codes": [
+        "cong"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T16:30:28Z"
+    },
+    {
+      "region_slug": "us-south-dakota",
+      "state_slug": "south-dakota",
+      "country_code": "us",
+      "region_name": "South Dakota, United States",
+      "listing_url": "https://www.alltrails.com/us/south-dakota",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-south-dakota.json",
+      "park_codes": [
+        "badl",
+        "wica"
+      ],
+      "park_count": 2,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T16:38:10Z"
+    },
+    {
+      "region_slug": "us-tennessee",
+      "state_slug": "tennessee",
+      "country_code": "us",
+      "region_name": "Tennessee, United States",
+      "listing_url": "https://www.alltrails.com/us/tennessee",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-tennessee.json",
+      "park_codes": [
+        "grsm"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T17:02:03Z"
+    },
+    {
+      "region_slug": "us-texas",
+      "state_slug": "texas",
+      "country_code": "us",
+      "region_name": "Texas, United States",
+      "listing_url": "https://www.alltrails.com/us/texas",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-texas.json",
+      "park_codes": [
+        "bibe",
+        "gumo"
+      ],
+      "park_count": 2,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T17:16:57Z"
+    },
+    {
+      "region_slug": "us-utah",
+      "state_slug": "utah",
+      "country_code": "us",
+      "region_name": "Utah, United States",
+      "listing_url": "https://www.alltrails.com/us/utah",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-utah.json",
+      "park_codes": [
+        "arch",
+        "brca",
+        "cany",
+        "care",
+        "zion"
+      ],
+      "park_count": 5,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T15:48:34Z"
+    },
+    {
+      "region_slug": "us-vermont",
+      "state_slug": "vermont",
+      "country_code": "us",
+      "region_name": "Vermont, United States",
+      "listing_url": "https://www.alltrails.com/us/vermont",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-vermont.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T19:41:00Z"
+    },
+    {
+      "region_slug": "us-virginia",
+      "state_slug": "virginia",
+      "country_code": "us",
+      "region_name": "Virginia, United States",
+      "listing_url": "https://www.alltrails.com/us/virginia",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-virginia.json",
+      "park_codes": [
+        "shen"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T15:55:48Z"
+    },
+    {
+      "region_slug": "us-washington",
+      "state_slug": "washington",
+      "country_code": "us",
+      "region_name": "Washington, United States",
+      "listing_url": "https://www.alltrails.com/us/washington",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-washington.json",
+      "park_codes": [
+        "mora",
+        "noca",
+        "olym"
+      ],
+      "park_count": 3,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T18:39:33Z"
+    },
+    {
+      "region_slug": "us-west-virginia",
+      "state_slug": "west-virginia",
+      "country_code": "us",
+      "region_name": "West Virginia, United States",
+      "listing_url": "https://www.alltrails.com/us/west-virginia",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-west-virginia.json",
+      "park_codes": [
+        "neri"
+      ],
+      "park_count": 1,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T18:30:02Z"
+    },
+    {
+      "region_slug": "us-wisconsin",
+      "state_slug": "wisconsin",
+      "country_code": "us",
+      "region_name": "Wisconsin, United States",
+      "listing_url": "https://www.alltrails.com/us/wisconsin",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-wisconsin.json",
+      "park_codes": [],
+      "park_count": 0,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T19:25:31Z"
+    },
+    {
+      "region_slug": "us-wyoming",
+      "state_slug": "wyoming",
+      "country_code": "us",
+      "region_name": "Wyoming, United States",
+      "listing_url": "https://www.alltrails.com/us/wyoming",
+      "trail_count": 50,
+      "file": "data/trail_catalog/regions/us-wyoming.json",
+      "park_codes": [
+        "grte",
+        "yell"
+      ],
+      "park_count": 2,
+      "source": "alltrails_region_hub",
+      "updated_at_utc": "2026-06-01T18:22:09Z"
+    }
+  ],
+  "updated_at_utc": "2026-06-01T21:37:46Z"
+}

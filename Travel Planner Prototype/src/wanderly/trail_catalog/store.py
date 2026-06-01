@@ -87,6 +87,9 @@ def to_compact_row(entry: dict[str, Any]) -> dict[str, Any]:
     }
     if entry.get("location_label"):
         row["location_label"] = entry.get("location_label")
+    for geo_key in ("country_code", "state_slug", "region_path", "state_name"):
+        if entry.get(geo_key):
+            row[geo_key] = entry.get(geo_key)
     return row
 
 

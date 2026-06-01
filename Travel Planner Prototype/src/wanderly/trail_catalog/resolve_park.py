@@ -112,15 +112,16 @@ def enrich_feature_trail_rows(
     catalog_root: Path,
     url_index: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Normalize listing rows into feature-catalog trail entries."""
+    """Normalize listing rows into feature-catalog trail entries (geo + park_code)."""
+    from src.wanderly.trail_catalog.enrich import enrich_feature_trail_entry
+
     index = url_index if url_index is not None else build_trail_url_to_park_index(catalog_root)
     out: list[dict[str, Any]] = []
     for row in rows:
-        url = _normalize_trail_url(str(row.get("url") or ""))
+        url = _normalize_trail_url(str(row.get("url") or row.get("source_url") or ""))
         if not url:
             continue
-        park_code = resolve_park_code(row, url_index=index)
-        entry: dict[str, Any] = {
+        base: dict[str, Any] = {
             "trail_id": trail_id_from_url(url, feature_slug=feature_slug),
             "source_url": url,
             "name": str(row.get("name") or "").strip(),
@@ -129,7 +130,11 @@ def enrich_feature_trail_rows(
             "rating": row.get("rating"),
             "location_label": str(row.get("location_label") or "").strip() or None,
             "park_url": str(row.get("park_url") or "").strip() or None,
-            "park_code": park_code,
         }
+        entry = enrich_feature_trail_entry(
+            {k: v for k, v in base.items() if v is not None},
+            feature_slug=feature_slug,
+            url_index=index,
+        )
         out.append({k: v for k, v in entry.items() if v is not None})
     return out
