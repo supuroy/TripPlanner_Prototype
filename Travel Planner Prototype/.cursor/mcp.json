@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "trail-catalog": {
+      "type": "stdio",
       "command": "python",
       "args": ["mcp/trail_catalog_server.py"],
       "cwd": "${workspaceFolder}",
