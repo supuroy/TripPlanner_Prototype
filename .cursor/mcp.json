@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "trail-catalog": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["Travel Planner Prototype/scripts/run_trail_catalog_mcp_stdio.sh"],
+      "env": {
+        "PYTHONPATH": "Travel Planner Prototype"
+      }
+    }
+  }
+}

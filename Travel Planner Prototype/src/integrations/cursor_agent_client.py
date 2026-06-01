@@ -154,6 +154,22 @@ def _assistant_text_from_run_resource(client: httpx.Client, agent_id: str, run_i
     return assistant_text_from_run_json(blob)
 
 
+def fetch_run_blob(client: httpx.Client, agent_id: str, run_id: str) -> dict[str, Any] | None:
+    """``GET /v1/agents/{id}/runs/{run_id}`` run object, or None on error."""
+    try:
+        r = client.get(f"/v1/agents/{agent_id}/runs/{run_id}")
+        r.raise_for_status()
+        body = r.json()
+    except Exception:
+        return None
+    if isinstance(body, dict):
+        run_o = body.get("run")
+        if isinstance(run_o, dict):
+            return run_o
+        return body
+    return None
+
+
 def poll_run_for_assistant_text(
     client: httpx.Client,
     agent_id: str,
@@ -161,6 +177,7 @@ def poll_run_for_assistant_text(
     *,
     max_wait_s: float = 90.0,
     interval_s: float = 0.45,
+    on_poll: Callable[[str, float], None] | None = None,
 ) -> str:
     """
     Poll ``GET …/runs/{id}`` until assistant text appears or the run fails / timeout.
@@ -168,25 +185,23 @@ def poll_run_for_assistant_text(
     """
     deadline = time.monotonic() + max_wait_s
     terminal_fail = frozenset({"FAILED", "CANCELLED", "ERROR"})
+    terminal_ok = frozenset({"COMPLETED", "COMPLETE", "SUCCEEDED", "DONE", "FINISHED"})
+    t0 = time.monotonic()
+    last_status = ""
     while time.monotonic() < deadline:
-        try:
-            r = client.get(f"/v1/agents/{agent_id}/runs/{run_id}")
-            r.raise_for_status()
-            body = r.json()
-        except Exception:
-            time.sleep(interval_s)
-            continue
-        blob: Any = body
-        if isinstance(body, dict):
-            run_o = body.get("run")
-            if isinstance(run_o, dict):
-                blob = run_o
+        blob = fetch_run_blob(client, agent_id, run_id)
         if isinstance(blob, dict):
             txt = assistant_text_from_run_json(blob)
             if txt.strip():
                 return txt.strip()
             st = str(blob.get("status") or blob.get("state") or "").upper()
+            if st != last_status:
+                last_status = st
+                if on_poll:
+                    on_poll(st, time.monotonic() - t0)
             if st in terminal_fail:
+                break
+            if st in terminal_ok:
                 break
         time.sleep(interval_s)
     return ""
@@ -616,9 +631,19 @@ def effective_followup_prompt_for_reuse(
     return f"{hint}\n\n{tail}"
 
 
-def create_followup_run(client: httpx.Client, agent_id: str, prompt_text: str) -> str:
+def create_followup_run(
+    client: httpx.Client,
+    agent_id: str,
+    prompt_text: str,
+    *,
+    mcp_servers: list[dict[str, Any]] | None = None,
+) -> str:
     """Start a new run on an existing Cloud Agent (same repo/workspace context as prior runs)."""
-    r = client.post(f"/v1/agents/{agent_id}/runs", json={"prompt": {"text": prompt_text}})
+    body: dict[str, Any] = {"prompt": {"text": prompt_text}}
+    if mcp_servers:
+        body["mcpServers"] = mcp_servers
+        _trace_cursor(f"create_followup_run mcp_servers={len(mcp_servers)}", path=None)
+    r = client.post(f"/v1/agents/{agent_id}/runs", json=body)
     r.raise_for_status()
     data = r.json()
     run = data.get("run") if isinstance(data, dict) else None
@@ -635,6 +660,7 @@ def _begin_cloud_agent_run(
     model_id_override: str | None = None,
     existing_agent_id: str | None = None,
     persistent_instruction_prefix: str | None = None,
+    mcp_servers: list[dict[str, Any]] | None = None,
     on_new_agent: Callable[[str], None] | None = None,
     on_agent_cleared: Callable[[], None] | None = None,
     cursor_trace_path: str | None = None,
@@ -657,7 +683,9 @@ def _begin_cloud_agent_run(
         max_busy_tries = 6
         for busy_try in range(max_busy_tries):
             try:
-                run_id = create_followup_run(client, aid_in, followup_prompt)
+                run_id = create_followup_run(
+                    client, aid_in, followup_prompt, mcp_servers=mcp_servers
+                )
                 _trace_cursor(f"reuse_ok agent_tail={aid_in[-8:]!r} run_tail={str(run_id)[-8:]!r}", path=tp)
                 return aid_in, run_id
             except httpx.HTTPStatusError as e:
