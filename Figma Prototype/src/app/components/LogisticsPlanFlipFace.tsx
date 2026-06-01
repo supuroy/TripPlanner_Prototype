@@ -20,6 +20,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Tent,
 } from "lucide-react";
 import type { DestCard, ItinDay, ProfilePill, HotelOption, FlightOption } from "./TripStore";
 import { useTrip } from "./TripStore";
@@ -44,7 +45,21 @@ import {
 import { applyBookingStreamEvent, type BookingProgressStep } from "../lib/bookingSearchProgress";
 import type { BookingStreamDrafts } from "../lib/bookingStreamCaption";
 import { BookingSearchProgressCard } from "./BookingSearchProgressStrip";
-import type { DayLogisticsFlightSegment, DayLogisticsSurfaceLeg } from "../../types/workspace";
+import type {
+  DayLogisticsCampNight,
+  DayLogisticsFlightSegment,
+  DayLogisticsSurfaceLeg,
+  DayLogisticsTrailSegment,
+} from "../../types/workspace";
+import {
+  campKindLabel,
+  formatCampNightSubtitle,
+  formatTrailStatsLine,
+  parseDayLabelEndpoints,
+  resolveTrailStats,
+} from "../lib/formatHikingLogistics";
+import { ItineraryQaBanner } from "./ItineraryQaBanner";
+import { NpsOutdoorPanel } from "./NpsOutdoorPanel";
 
 function formatTransportMode(mode: string | undefined): string {
   const m = (mode || "").trim().toLowerCase().replace(/-/g, "_");
@@ -678,7 +693,13 @@ function TripWideBookingPrepBlock({ dest, profile }: { dest: DestCard; profile: 
   );
 }
 
-function DayLogisticsEvents({ day }: { day: ItinDay }) {
+function DayLogisticsEvents({
+  day,
+  dest,
+}: {
+  day: ItinDay;
+  dest: DestCard;
+}) {
   const dl = day.day_logistics;
   if (!dl || typeof dl !== "object") return null;
 
@@ -713,30 +734,101 @@ function DayLogisticsEvents({ day }: { day: ItinDay }) {
   }
 
   const legs = dl.surface_legs;
+  const dayTrail = dl.trail_segment as DayLogisticsTrailSegment | undefined;
+  const walkLegIndices =
+    Array.isArray(legs) ? legs.map((leg, i) => ((leg.kind || "").toLowerCase() === "walk" ? i : -1)).filter((i) => i >= 0) : [];
+  const primaryWalkIdx = walkLegIndices.length ? walkLegIndices[walkLegIndices.length - 1] : -1;
+
   if (Array.isArray(legs) && legs.length) {
     legs.forEach((leg: DayLogisticsSurfaceLeg, i: number) => {
+      if (!leg || typeof leg !== "object") return;
       const k = (leg.kind || "drive").toLowerCase();
       const fr = (leg.from_label || "").trim();
       const to = (leg.to_label || "").trim();
       const op = (leg.operator_hint || "").trim();
+      const isWalk = k === "walk";
+      const trailStats = isWalk && i === primaryWalkIdx ? resolveTrailStats(leg, dayTrail) : null;
+      const trailLine = trailStats ? formatTrailStatsLine(trailStats) : null;
+      const trailName = (trailStats?.name || "").trim();
       blocks.push(
         <li
           key={`s-${day.day}-${i}`}
-          className="flex gap-2.5 rounded-lg border border-white/[0.05] bg-white/[0.02] px-2 py-2"
+          className={`flex gap-2.5 rounded-lg border px-2 py-2 ${
+            isWalk ? "border-emerald-500/15 bg-emerald-500/[0.05]" : "border-white/[0.05] bg-white/[0.02]"
+          }`}
         >
           <SurfaceIcon kind={k} />
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-white/35">{k}</p>
-            <p className="mt-0.5 text-[11px] leading-snug text-white/70">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-white/35">{isWalk ? "Hike" : k}</p>
+            {trailName ? (
+              <p className="mt-0.5 text-[11px] font-medium leading-snug text-emerald-200/90">{trailName}</p>
+            ) : null}
+            <p className={`${trailName ? "mt-0.5" : "mt-0.5"} text-[11px] leading-snug text-white/70`}>
               {fr || "—"}
               <span className="mx-1 text-white/20">→</span>
               {to || "—"}
             </p>
+            {trailLine ? <p className="mt-1 text-[10px] font-medium text-emerald-300/75">{trailLine}</p> : null}
+            {trailStats?.notes ? <p className="mt-0.5 text-[10px] text-white/40">{trailStats.notes}</p> : null}
             {op ? <p className="mt-0.5 text-[10px] text-white/40">{op}</p> : null}
           </div>
         </li>,
       );
     });
+  }
+
+  if (walkLegIndices.length === 0 && dayTrail) {
+    const endpoints = parseDayLabelEndpoints(day.label || "");
+    const campForEnds = dl.camp_night as DayLogisticsCampNight | undefined;
+    const fr = endpoints?.from || (day.base || "").trim();
+    const to = endpoints?.to || (campForEnds?.label || "").trim();
+    if (fr && to && fr.toLowerCase() !== to.toLowerCase()) {
+      const trailStats = resolveTrailStats(undefined, dayTrail);
+      const trailLine = trailStats ? formatTrailStatsLine(trailStats) : null;
+      const trailName = (trailStats?.name || "").trim();
+      blocks.push(
+        <li
+          key={`s-inferred-${day.day}`}
+          className="flex gap-2.5 rounded-lg border border-emerald-500/15 bg-emerald-500/[0.05] px-2 py-2"
+        >
+          <SurfaceIcon kind="walk" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-white/35">Hike</p>
+            {trailName ? (
+              <p className="mt-0.5 text-[11px] font-medium leading-snug text-emerald-200/90">{trailName}</p>
+            ) : null}
+            <p className="mt-0.5 text-[11px] leading-snug text-white/70">
+              {fr}
+              <span className="mx-1 text-white/20">→</span>
+              {to}
+            </p>
+            {trailLine ? <p className="mt-1 text-[10px] font-medium text-emerald-300/75">{trailLine}</p> : null}
+            <p className="mt-1 text-[10px] text-white/40">Inferred from day label — rebuild itinerary to persist walk legs.</p>
+          </div>
+        </li>,
+      );
+    }
+  }
+
+  const camp = dl.camp_night as DayLogisticsCampNight | undefined;
+  if (camp && typeof camp === "object" && (camp.label || camp.kind)) {
+    const label = (camp.label || "").trim() || "Camp";
+    const subtitle = formatCampNightSubtitle(camp);
+    blocks.push(
+      <li
+        key={`c-${day.day}`}
+        className="flex gap-2.5 rounded-lg border border-lime-500/20 bg-lime-500/[0.06] px-2 py-2"
+      >
+        <Tent className="mt-0.5 h-3.5 w-3.5 shrink-0 text-lime-300/90" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-lime-300/70">
+            {campKindLabel(camp.kind)}
+          </p>
+          <p className="mt-0.5 text-[11px] font-medium leading-snug text-white/85">{label}</p>
+          {subtitle ? <p className="mt-1 text-[10px] leading-snug text-white/45">{subtitle}</p> : null}
+        </div>
+      </li>,
+    );
   }
 
   const lod = dl.lodging;
@@ -828,6 +920,10 @@ export function LogisticsPlanFlipFace({ dest, profile }: { dest: DestCard; profi
       <div className="px-3 py-3 sm:px-4">
         <TripWideBookingPrepBlock dest={dest} profile={profile} />
 
+        <ItineraryQaBanner qa={dest.itinerary_qa} />
+
+        <NpsOutdoorPanel dest={dest} profile={profile} />
+
         <p className="mb-2 mt-4 text-[10px] font-medium uppercase tracking-wider text-white/35">Day by day</p>
         <div className="space-y-3">
           {itinerary.map((day) => (
@@ -857,7 +953,7 @@ export function LogisticsPlanFlipFace({ dest, profile }: { dest: DestCard; profi
                   ) : null}
                 </div>
               </div>
-              <DayLogisticsEvents day={day} />
+              <DayLogisticsEvents day={day} dest={dest} />
             </article>
           ))}
         </div>

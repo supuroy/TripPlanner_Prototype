@@ -8,6 +8,7 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -63,6 +64,10 @@ def _first_n_words(s: str, n: int) -> str:
     return " ".join(parts[:n]) if parts else ""
 
 
+def _blob(*parts: str | None) -> str:
+    return " ".join(p for p in parts if p).lower()
+
+
 def _dedupe_query_list(queries: list[str]) -> list[str]:
     out: list[str] = []
     seen_set: set[str] = set()
@@ -78,31 +83,126 @@ def _dedupe_query_list(queries: list[str]) -> list[str]:
     return out
 
 
-def build_stock_search_query(name: str, country: str, search_hint: str | None) -> str:
+def _strip_trail_noise(name: str) -> str:
+    """Drop hike-card words that confuse stock search (loop, wilderness, parentheticals)."""
+    n = _name_for_stock_search(name) or (name or "").strip()
+    n = re.sub(r"\s*[(\[/|].*$", "", n).strip()
+    n = re.sub(
+        r"\b(loop|loops|trail|hiking|backpacking|wilderness|corner|half)\b",
+        "",
+        n,
+        flags=re.I,
+    )
+    return " ".join(n.split()).strip()
+
+
+def infer_hero_park_phrase(
+    *,
+    destination_id: str | None = None,
+    name: str | None = None,
+    hook: str | None = None,
+) -> str | None:
+    """
+    Parent park for in-park hike cards (``yellowstone-shoshone-lake`` → Yellowstone NP).
+    """
+    blob = _blob(destination_id, name, hook)
+    did = (destination_id or "").strip().lower()
+    if "yellowstone" in blob or did.startswith("yellowstone"):
+        return "Yellowstone National Park"
+    if "yosemite" in blob or did.startswith("yosemite"):
+        return "Yosemite National Park"
+    if "zion" in blob or did.startswith("zion"):
+        return "Zion National Park"
+    if "grand canyon" in blob:
+        return "Grand Canyon National Park"
+    if "glacier" in blob and "national" in blob:
+        return "Glacier National Park"
+    if "rocky mountain" in blob or did.startswith("rocky-mountain"):
+        return "Rocky Mountain National Park"
+    if "olympic" in blob and "national" in blob:
+        return "Olympic National Park"
+    if "west coast trail" in blob or "wct" in blob:
+        return "West Coast Trail"
+    return None
+
+
+def build_stock_search_query(
+    name: str,
+    country: str,
+    search_hint: str | None,
+    *,
+    park_phrase: str | None = None,
+) -> str:
     """Primary stock search string (short; fallbacks added in fetch_*)."""
     if (search_hint or "").strip():
         base = _first_n_words(search_hint.strip(), 6)
     else:
-        base = f"{_name_for_stock_search(name) or name.strip()} {country.strip()}".strip()
+        nm = _strip_trail_noise(name) or (name or "").strip()
+        park = (park_phrase or "").strip()
+        if park and nm:
+            base = f"{park} {nm}"
+        elif park:
+            base = park
+        else:
+            base = f"{nm} {country.strip()}".strip() if nm else country.strip()
     return _clip_query(base, 80)
 
 
-def _unsplash_query_candidates(primary: str, name: str, country: str) -> list[str]:
+def build_stock_search_query_from_dest(
+    dest: dict[str, Any],
+    search_hint: str | None,
+) -> str:
+    """Build primary query using card id/hook park context (hike legs inside a national park)."""
+    name = str(dest.get("name") or "")
+    country = str(dest.get("country") or "")
+    park = infer_hero_park_phrase(
+        destination_id=str(dest.get("id") or ""),
+        name=name,
+        hook=str(dest.get("hook") or ""),
+    )
+    return build_stock_search_query(name, country, search_hint, park_phrase=park)
+
+
+def _unsplash_query_candidates(
+    primary: str,
+    name: str,
+    country: str,
+    *,
+    park_phrase: str | None = None,
+) -> list[str]:
     """
     Unsplash Search often returns total=0 for long multi-keyword queries; try simpler strings.
     """
-    nm = _name_for_stock_search(name) or (name or "").strip()
+    nm = _strip_trail_noise(name) or (name or "").strip()
     cc = (country or "").strip()
-    parts: list[str] = [
-        primary,
-        _first_n_words(primary, 5),
-        _first_n_words(primary, 3),
-        f"{nm} {cc}".strip() if nm and cc else "",
-        f"{nm} travel".strip() if nm else "",
-        nm,
-        f"{nm} island".strip() if nm else "",
-        f"{nm} beach".strip() if nm else "",
-    ]
+    park = (park_phrase or "").strip()
+    parts: list[str] = []
+    if park:
+        if nm:
+            parts.extend(
+                [
+                    f"{park} {nm}",
+                    f"{nm} {park}",
+                    f"{park} hiking",
+                    f"{park} lake",
+                    f"{park} landscape",
+                ]
+            )
+        parts.append(park)
+    parts.extend(
+        [
+            primary,
+            _first_n_words(primary, 5),
+            _first_n_words(primary, 3),
+            f"{nm} {cc}".strip() if nm and cc else "",
+            f"{nm} travel".strip() if nm else "",
+            nm,
+            f"{nm} national park".strip() if nm else "",
+            f"{nm} hiking".strip() if nm else "",
+            f"{nm} island".strip() if nm else "",
+            f"{nm} beach".strip() if nm else "",
+        ]
+    )
     return _dedupe_query_list([p for p in parts if p])
 
 
@@ -180,6 +280,7 @@ def fetch_unsplash_photo_urls(
     access_key: str,
     name: str = "",
     country: str = "",
+    park_phrase: str | None = None,
 ) -> list[str]:
     """
     Unsplash Search — tries ``query`` then simpler fallbacks (name/country only).
@@ -188,7 +289,9 @@ def fetch_unsplash_photo_urls(
     key = (access_key or "").strip()
     if not key:
         return []
-    for i, cq in enumerate(_unsplash_query_candidates(query, name, country)):
+    for i, cq in enumerate(
+        _unsplash_query_candidates(query, name, country, park_phrase=park_phrase),
+    ):
         urls, total = _unsplash_fetch_once(cq, max_images=max_images, access_key=key)
         log_hero_image(f"Unsplash try[{i}] query={cq!r} total={total} urls={len(urls)}")
         if urls:
@@ -245,12 +348,15 @@ def fetch_pexels_photo_urls(
     api_key: str,
     name: str = "",
     country: str = "",
+    park_phrase: str | None = None,
 ) -> list[str]:
     """Pexels search with the same query fallback ladder as Unsplash."""
     key = (api_key or "").strip()
     if not key:
         return []
-    for i, cq in enumerate(_unsplash_query_candidates(query, name, country)):
+    for i, cq in enumerate(
+        _unsplash_query_candidates(query, name, country, park_phrase=park_phrase),
+    ):
         urls, total = _pexels_fetch_once(cq, max_images=max_images, api_key=key)
         log_hero_image(f"Pexels try[{i}] query={cq!r} total={total} urls={len(urls)}")
         if urls:

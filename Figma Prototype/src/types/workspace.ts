@@ -91,6 +91,27 @@ export interface DayLogisticsSurfaceLeg {
   from_label?: string;
   to_label?: string;
   operator_hint?: string;
+  /** Optional trail stats on walk legs (mirrors day-level trail_segment). */
+  trail_name?: string;
+  distance_mi?: number;
+  elevation_gain_ft?: number;
+  elevation_loss_ft?: number;
+}
+
+export interface DayLogisticsCampNight {
+  kind?: "backcountry" | "campground" | "hut" | "hostel" | "other";
+  label?: string;
+  permit_required?: boolean;
+  booking_hint?: string;
+  notes?: string;
+}
+
+export interface DayLogisticsTrailSegment {
+  name?: string;
+  distance_mi?: number;
+  elevation_gain_ft?: number;
+  elevation_loss_ft?: number;
+  notes?: string;
 }
 
 /**
@@ -101,12 +122,31 @@ export interface DayLogistics {
   flight: DayLogisticsFlight | null;
   lodging: DayLogisticsLodging | null;
   surface_legs?: DayLogisticsSurfaceLeg[];
+  camp_night?: DayLogisticsCampNight;
+  trail_segment?: DayLogisticsTrailSegment;
+}
+
+export interface OutdoorPermitRequirement {
+  name?: string;
+  agency?: string;
+  quota_window?: string;
+  booking_url_hint?: string;
+  notes?: string;
+  required?: boolean;
+}
+
+export interface OutdoorAdventureMeta {
+  trip_style?: string;
+  permit_requirements?: OutdoorPermitRequirement[];
+  camp_nights?: DayLogisticsCampNight[];
+  notes?: string;
 }
 
 export interface WanderlyBookingHooks {
   version?: number;
   transport?: WanderlyTransportPlan;
   search_preferences?: Record<string, unknown>;
+  outdoor_adventure?: OutdoorAdventureMeta;
 }
 
 export interface WanderlyTripMeta {

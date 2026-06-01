@@ -1,0 +1,81 @@
+{
+  "catalog_version": 1,
+  "written_at_utc": "2026-05-31T02:40:12Z",
+  "source": {
+    "park_url": "https://www.alltrails.com/parks/us/alaska/kenai-fjords-national-park",
+    "method": "playwright_directory_batch"
+  },
+  "park_code": "kefj",
+  "park_name": "Kenai Fjords National Park",
+  "region": "Alaska",
+  "country": "United States",
+  "trail_count": 4,
+  "trails": [
+    {
+      "trail_id": "kefj:harding-ice-field-trail",
+      "name": "#1 - Harding Icefield Trail",
+      "park_code": "kefj",
+      "park_name": "Kenai Fjords National Park",
+      "region": "Alaska",
+      "country": "United States",
+      "distance_mi": 8.8,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/alaska/harding-ice-field-trail",
+      "alltrails_id": null,
+      "rating": 4.9,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "kefj:exit-glacier-overlook-trail",
+      "name": "#2 - Exit Glacier View and Overlook Loop",
+      "park_code": "kefj",
+      "park_name": "Kenai Fjords National Park",
+      "region": "Alaska",
+      "country": "United States",
+      "distance_mi": 2.2,
+      "elevation_gain_ft": null,
+      "difficulty": "Easy",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/alaska/exit-glacier-overlook-trail",
+      "alltrails_id": null,
+      "rating": 4.8,
+      "tags": []
+    },
+    {
+      "trail_id": "kefj:exit-glacier-view-loop",
+      "name": "#3 - Exit Glacier View Loop",
+      "park_code": "kefj",
+      "park_name": "Kenai Fjords National Park",
+      "region": "Alaska",
+      "country": "United States",
+      "distance_mi": 1.1,
+      "elevation_gain_ft": null,
+      "difficulty": "Easy",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/alaska/exit-glacier-view-loop",
+      "alltrails_id": null,
+      "rating": 4.7,
+      "tags": []
+    },
+    {
+      "trail_id": "kefj:pedersen-lagoon-ridge",
+      "name": "#4 - Pedersen Lagoon Ridge",
+      "park_code": "kefj",
+      "park_name": "Kenai Fjords National Park",
+      "region": "Alaska",
+      "country": "United States",
+      "distance_mi": 2.5,
+      "elevation_gain_ft": null,
+      "difficulty": "Moderate",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/alaska/pedersen-lagoon-ridge",
+      "alltrails_id": null,
+      "rating": 4.6,
+      "tags": []
+    }
+  ]
+}

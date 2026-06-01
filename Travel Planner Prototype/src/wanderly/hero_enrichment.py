@@ -18,15 +18,18 @@ from src.integrations.cursor_agent_client import (
 )
 from src.wanderly.session_store import cursor_run_persist_kwargs
 from src.wanderly.stock_photo_heroes import (
-    build_stock_search_query,
+    _normalize_photo_url,
+    build_stock_search_query_from_dest,
     fetch_pexels_photo_urls,
     fetch_unsplash_photo_urls,
+    infer_hero_park_phrase,
     log_hero_image,
 )
 from src.wanderly.wikimedia_heroes import resolve_hero_image_urls, wikimedia_client
 
 _HINT_PROMPT = """
 You help pick VERY SHORT English stock-photo search phrases (Unsplash works best with 2–5 plain words).
+For hikes inside a national park, include the park name (e.g. "Yellowstone lake" not just "Shoshone Lake loop").
 Return ONLY a JSON array (no markdown). Each element must be:
 {"id":"<exact id from input>","image_search":"2-5 words, landmark or place type, no commas or long lists"}
 
@@ -54,7 +57,15 @@ def _extract_json_array(text: str) -> list[dict[str, Any]] | None:
 def _llm_search_hints(destinations: list[dict[str, Any]], session_id: str | None = None) -> dict[str, str]:
     load_env_from_roots()
     key = get_api_key()
-    slim = [{"id": d.get("id"), "name": d.get("name"), "country": d.get("country")} for d in destinations]
+    slim = [
+        {
+            "id": d.get("id"),
+            "name": d.get("name"),
+            "country": d.get("country"),
+            "hook": d.get("hook"),
+        }
+        for d in destinations
+    ]
     log_hero_image(f"TIMELINE llm_hints_begin cards={len(destinations)} ids={[str(x.get('id')) for x in slim]}")
     t0 = time.perf_counter()
     prompt = _HINT_PROMPT + "\n" + json.dumps(slim, ensure_ascii=True)
@@ -110,6 +121,11 @@ def _hero_image_provider() -> str:
     return "wikimedia"
 
 
+def _hero_fallback_urls(d: dict[str, Any]) -> list[str]:
+    """No Apify / per-leg AllTrails hero fallback (removed)."""
+    return []
+
+
 def _stock_worker_idx(
     idx: int,
     d: dict[str, Any],
@@ -121,8 +137,16 @@ def _stock_worker_idx(
     did = str(d.get("id") or "").strip()
     name = str(d.get("name") or "")
     country = str(d.get("country") or "")
-    q = build_stock_search_query(name, country, hint)
-    log_hero_image(f"stock start idx={idx} id={did!r} name={name!r} country={country!r} query={q!r}")
+    park = infer_hero_park_phrase(
+        destination_id=did,
+        name=name,
+        hook=str(d.get("hook") or ""),
+    )
+    q = build_stock_search_query_from_dest(d, hint)
+    log_hero_image(
+        f"stock start idx={idx} id={did!r} name={name!r} country={country!r} "
+        f"park={park!r} query={q!r}",
+    )
     try:
         if provider == "unsplash":
             urls = fetch_unsplash_photo_urls(
@@ -131,6 +155,7 @@ def _stock_worker_idx(
                 access_key=_unsplash_access_key(),
                 name=name,
                 country=country,
+                park_phrase=park,
             )
         else:
             urls = fetch_pexels_photo_urls(
@@ -139,6 +164,7 @@ def _stock_worker_idx(
                 api_key=_pexels_api_key(),
                 name=name,
                 country=country,
+                park_phrase=park,
             )
     except Exception:
         log_hero_image(f"stock exception idx={idx} id={did!r}\n{traceback.format_exc()}")
@@ -186,7 +212,15 @@ def _enrich_with_stock_parallel(
             did = str(row.get("id") or "").strip()
             urls = list(results_by_idx.get(i, []))
             if not urls:
-                log_hero_image(f"merge idx={i} id={did!r} name={row.get('name')!r} — no stock URLs (placeholder unchanged)")
+                urls = _hero_fallback_urls(row)
+                if urls:
+                    log_hero_image(
+                        f"merge idx={i} id={did!r} name={row.get('name')!r} — hero from trail/AllTrails fallback",
+                    )
+            if not urls:
+                log_hero_image(
+                    f"merge idx={i} id={did!r} name={row.get('name')!r} — no hero URLs (placeholder unchanged)",
+                )
             if urls:
                 row["image"] = urls[0]
                 row["images"] = urls
@@ -201,6 +235,10 @@ def _enrich_with_stock_parallel(
             name = str(row.get("name") or "")
             country = str(row.get("country") or "")
             urls = list(results_by_idx.get(i, []))
+            if not urls:
+                urls = _hero_fallback_urls(row)
+                if urls:
+                    log_hero_image(f"merge idx={i} id={did!r} — hero from trail/AllTrails before Wikimedia")
             if not urls:
                 hint = hints.get(did) if did else None
                 urls = resolve_hero_image_urls(

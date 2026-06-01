@@ -1,6 +1,8 @@
 import type { DestCard, ItinDay } from "../components/TripStore";
+import type { ItineraryQaResult } from "../../api/wanderly";
 import type { ItineraryBudgetGuidance, WanderlyBookingHooks, WanderlyTransportPlan } from "../../types/workspace";
 import { syncCardLogisticsFromItinerary } from "./syncCardLogisticsFromItinerary";
+import { logItin } from "./itineraryDebug";
 
 /** Merge lazy itinerary rows + optional LLM budget bands (+ optional booking URL hints) onto a destination card. */
 export function mergeItineraryBuildIntoDest(
@@ -11,6 +13,8 @@ export function mergeItineraryBuildIntoDest(
   needsCommercialFlight?: boolean | null,
   transportPlan?: WanderlyTransportPlan | null,
   bookingHooks?: WanderlyBookingHooks | null,
+  itineraryQa?: ItineraryQaResult | null,
+  alltrailsSearchContext?: DestCard["alltrails_search_context"] | null,
 ): DestCard {
   if (rows.length === 0) return { ...card, itinerary_dirty: false, itinerary_refinement_hint: undefined };
   const ballpark = budget?.trip_ballpark_usd_pp?.trim();
@@ -36,7 +40,19 @@ export function mergeItineraryBuildIntoDest(
     ...(typeof needsCommercialFlight === "boolean" ? { needs_commercial_flight: needsCommercialFlight } : {}),
     ...(transportPlan && String(transportPlan.primary_mode || "").trim() ? { transport_plan: transportPlan } : {}),
     ...(bookingHooks && bookingHooks.transport ? { booking_hooks: bookingHooks } : {}),
+    ...(itineraryQa && !itineraryQa.skipped ? { itinerary_qa: itineraryQa } : {}),
+    ...(alltrailsSearchContext?.trail_name?.trim()
+      ? { alltrails_search_context: alltrailsSearchContext }
+      : {}),
   };
+  if (alltrailsSearchContext?.trail_name?.trim()) {
+    logItin("merge_itinerary_trail_context", {
+      destId: card.id,
+      hasParentUrl: Boolean(
+        (alltrailsSearchContext as { parent_alltrails_url?: string }).parent_alltrails_url?.trim(),
+      ),
+    });
+  }
   if (costLine) next = { ...next, cost: costLine };
   else next = { ...next, cost: "" };
   const baseDisc = "Broad planning estimate from itinerary pass — not a quote or live fare.";

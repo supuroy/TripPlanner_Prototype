@@ -153,3 +153,40 @@ def test_compare_places_skips_rebuild():
 def test_resolve_itinerary_delivery():
     assert resolve_itinerary_delivery({"itinerary_delivery": "lazy_build"}) == "lazy_build"
     assert resolve_itinerary_delivery(None) == "auto"
+
+
+def test_trip_wide_refine_skips_lazy_when_embedded_itineraries_complete():
+    """Refine can return 5-day plans with day_logistics; must not mark all cards dirty for lazy rebuild."""
+    from src.wanderly.schemas import WanderlyWorkspaceDTO
+    from src.wanderly.smoke_service import _apply_inline_itinerary_delivery
+
+    day = {
+        "day": 1,
+        "items": ["Hike to camp"],
+        "day_logistics": {"lodging": {"destination_search_label": "Camp"}},
+    }
+    dto = WanderlyWorkspaceDTO(
+        assistant_markdown="ok",
+        profile_pills=[],
+        destinations=[
+            {"id": "heart-lake-trail", "name": "Heart Lake", "itinerary": [day] * 5},
+            {"id": "bechler-river-trail", "name": "Bechler", "itinerary": [day] * 5},
+        ],
+    )
+    orch = {
+        "workspace_action": "refine_workspace",
+        "itinerary_refresh": "all",
+        "itinerary_delivery": "lazy_build",
+    }
+    out, applied, lazy = _apply_inline_itinerary_delivery(
+        dto,
+        user_message="redo all itineraries in the trip",
+        prior_pills=[],
+        orchestration=orch,
+        focus_destination_id=None,
+    )
+    assert set(applied) == {"heart-lake-trail", "bechler-river-trail"}
+    assert lazy == []
+    rows = {str(d["id"]): d for d in out.destinations if isinstance(d, dict)}
+    assert rows["heart-lake-trail"]["itinerary_dirty"] is False
+    assert rows["bechler-river-trail"]["itinerary_dirty"] is False

@@ -1,0 +1,397 @@
+{
+  "parks": [
+    {
+      "park_code": "aako",
+      "park_name": "A A Kordiak Park",
+      "trail_count": 1,
+      "file": "data/trail_catalog/parks/aako.json",
+      "source_url": "https://www.alltrails.com/parks/us/minnesota/a-a-kordiak-park",
+      "updated_at_utc": "2026-05-31T02:47:47Z"
+    },
+    {
+      "park_code": "acad",
+      "park_name": "Acadia National Park",
+      "trail_count": 249,
+      "file": "data/trail_catalog/parks/acad.json",
+      "source_url": "https://www.alltrails.com/parks/us/maine/acadia-national-park",
+      "updated_at_utc": "2026-05-31T02:18:05Z"
+    },
+    {
+      "park_code": "ajjoco",
+      "park_name": "A J Jolly County Park",
+      "trail_count": 7,
+      "file": "data/trail_catalog/parks/ajjoco.json",
+      "source_url": "https://www.alltrails.com/parks/us/kentucky/a-j-jolly-county-park",
+      "updated_at_utc": "2026-05-31T02:48:05Z"
+    },
+    {
+      "park_code": "arch",
+      "park_name": "Arches National Park",
+      "trail_count": 46,
+      "file": "data/trail_catalog/parks/arch.json",
+      "source_url": "https://www.alltrails.com/parks/us/utah/arches-national-park",
+      "updated_at_utc": "2026-05-31T02:13:39Z"
+    },
+    {
+      "park_code": "badl",
+      "park_name": "Badlands National Park",
+      "trail_count": 26,
+      "file": "data/trail_catalog/parks/badl.json",
+      "source_url": "https://www.alltrails.com/parks/us/south-dakota/badlands-national-park",
+      "updated_at_utc": "2026-05-31T02:31:11Z"
+    },
+    {
+      "park_code": "bibe",
+      "park_name": "Big Bend National Park",
+      "trail_count": 80,
+      "file": "data/trail_catalog/parks/bibe.json",
+      "source_url": "https://www.alltrails.com/parks/us/texas/big-bend-national-park",
+      "updated_at_utc": "2026-05-31T02:30:41Z"
+    },
+    {
+      "park_code": "blca",
+      "park_name": "Black Canyon Of The Gunnison National Park",
+      "trail_count": 32,
+      "file": "data/trail_catalog/parks/blca.json",
+      "source_url": "https://www.alltrails.com/parks/us/colorado/black-canyon-of-the-gunnison-national-park",
+      "updated_at_utc": "2026-05-31T02:46:05Z"
+    },
+    {
+      "park_code": "blripa4",
+      "park_name": "Blue Ridge Parkway 4",
+      "trail_count": 300,
+      "file": "data/trail_catalog/parks/blripa4.json",
+      "source_url": "https://www.alltrails.com/parks/us/north-carolina/blue-ridge-parkway--4",
+      "updated_at_utc": "2026-05-31T02:36:44Z"
+    },
+    {
+      "park_code": "brca",
+      "park_name": "Bryce Canyon National Park",
+      "trail_count": 41,
+      "file": "data/trail_catalog/parks/brca.json",
+      "source_url": "https://www.alltrails.com/parks/us/utah/bryce-canyon-national-park",
+      "updated_at_utc": "2026-05-31T01:13:06Z"
+    },
+    {
+      "park_code": "cany",
+      "park_name": "Canyonlands National Park",
+      "trail_count": 78,
+      "file": "data/trail_catalog/parks/cany.json",
+      "source_url": "https://www.alltrails.com/parks/us/utah/canyonlands-national-park",
+      "updated_at_utc": "2026-05-31T02:29:46Z"
+    },
+    {
+      "park_code": "care",
+      "park_name": "Capitol Reef National Park",
+      "trail_count": 55,
+      "file": "data/trail_catalog/parks/care.json",
+      "source_url": "https://www.alltrails.com/parks/us/utah/capitol-reef-national-park",
+      "updated_at_utc": "2026-05-31T02:28:57Z"
+    },
+    {
+      "park_code": "chis",
+      "park_name": "Channel Islands National Park",
+      "trail_count": 31,
+      "file": "data/trail_catalog/parks/chis.json",
+      "source_url": "https://www.alltrails.com/parks/us/california/channel-islands-national-park",
+      "updated_at_utc": "2026-05-31T02:43:37Z"
+    },
+    {
+      "park_code": "cong",
+      "park_name": "Congaree National Park",
+      "trail_count": 12,
+      "file": "data/trail_catalog/parks/cong.json",
+      "source_url": "https://www.alltrails.com/parks/us/south-carolina/congaree-national-park",
+      "updated_at_utc": "2026-05-31T02:39:04Z"
+    },
+    {
+      "park_code": "crla",
+      "park_name": "Crater Lake National Park",
+      "trail_count": 30,
+      "file": "data/trail_catalog/parks/crla.json",
+      "source_url": "https://www.alltrails.com/parks/us/oregon/crater-lake-national-park",
+      "updated_at_utc": "2026-05-31T02:38:42Z"
+    },
+    {
+      "park_code": "cuva",
+      "park_name": "Cuyahoga Valley National Park",
+      "trail_count": 135,
+      "file": "data/trail_catalog/parks/cuva.json",
+      "source_url": "https://www.alltrails.com/parks/us/ohio/cuyahoga-valley-national-park",
+      "updated_at_utc": "2026-05-31T02:24:40Z"
+    },
+    {
+      "park_code": "dena",
+      "park_name": "Denali National Park",
+      "trail_count": 40,
+      "file": "data/trail_catalog/parks/dena.json",
+      "source_url": "https://www.alltrails.com/parks/us/alaska/denali-national-park",
+      "updated_at_utc": "2026-05-31T02:33:36Z"
+    },
+    {
+      "park_code": "deva",
+      "park_name": "Death Valley National Park",
+      "trail_count": 121,
+      "file": "data/trail_catalog/parks/deva.json",
+      "source_url": "https://www.alltrails.com/parks/us/california/death-valley-national-park",
+      "updated_at_utc": "2026-05-31T02:41:17Z"
+    },
+    {
+      "park_code": "ever",
+      "park_name": "Everglades National Park",
+      "trail_count": 36,
+      "file": "data/trail_catalog/parks/ever.json",
+      "source_url": "https://www.alltrails.com/parks/us/florida/everglades-national-park",
+      "updated_at_utc": "2026-05-31T02:45:05Z"
+    },
+    {
+      "park_code": "glac",
+      "park_name": "Glacier National Park",
+      "trail_count": 180,
+      "file": "data/trail_catalog/parks/glac.json",
+      "source_url": "https://www.alltrails.com/parks/us/montana/glacier-national-park",
+      "updated_at_utc": "2026-05-31T02:13:02Z"
+    },
+    {
+      "park_code": "grba",
+      "park_name": "Great Basin National Park",
+      "trail_count": 32,
+      "file": "data/trail_catalog/parks/grba.json",
+      "source_url": "https://www.alltrails.com/parks/us/nevada/great-basin-national-park",
+      "updated_at_utc": "2026-05-31T02:46:37Z"
+    },
+    {
+      "park_code": "grca",
+      "park_name": "Grand Canyon National Park",
+      "trail_count": 141,
+      "file": "data/trail_catalog/parks/grca.json",
+      "source_url": "https://www.alltrails.com/parks/us/arizona/grand-canyon-national-park",
+      "updated_at_utc": "2026-05-31T02:23:31Z"
+    },
+    {
+      "park_code": "grsa",
+      "park_name": "Great Sand Dunes National Park And Preserve",
+      "trail_count": 24,
+      "file": "data/trail_catalog/parks/grsa.json",
+      "source_url": "https://www.alltrails.com/parks/us/colorado/great-sand-dunes-national-park-and-preserve",
+      "updated_at_utc": "2026-05-31T02:44:31Z"
+    },
+    {
+      "park_code": "grsm",
+      "park_name": "Great Smoky Mountains National Park",
+      "trail_count": 172,
+      "file": "data/trail_catalog/parks/grsm.json",
+      "source_url": "https://www.alltrails.com/parks/us/tennessee/great-smoky-mountains-national-park",
+      "updated_at_utc": "2026-05-31T02:19:42Z"
+    },
+    {
+      "park_code": "grte",
+      "park_name": "Grand Teton National Park",
+      "trail_count": 136,
+      "file": "data/trail_catalog/parks/grte.json",
+      "source_url": "https://www.alltrails.com/parks/us/wyoming/grand-teton-national-park",
+      "updated_at_utc": "2026-05-31T02:22:12Z"
+    },
+    {
+      "park_code": "gumo",
+      "park_name": "Guadalupe Mountains National Park",
+      "trail_count": 33,
+      "file": "data/trail_catalog/parks/gumo.json",
+      "source_url": "https://www.alltrails.com/parks/us/texas/guadalupe-mountains-national-park",
+      "updated_at_utc": "2026-05-31T02:25:45Z"
+    },
+    {
+      "park_code": "hosp",
+      "park_name": "Hot Springs National Park",
+      "trail_count": 25,
+      "file": "data/trail_catalog/parks/hosp.json",
+      "source_url": "https://www.alltrails.com/parks/us/arkansas/hot-springs-national-park",
+      "updated_at_utc": "2026-05-31T02:45:32Z"
+    },
+    {
+      "park_code": "indu",
+      "park_name": "Indiana Dunes National Park",
+      "trail_count": 30,
+      "file": "data/trail_catalog/parks/indu.json",
+      "source_url": "https://www.alltrails.com/parks/us/indiana/indiana-dunes-national-park",
+      "updated_at_utc": "2026-05-31T02:41:49Z"
+    },
+    {
+      "park_code": "jotr",
+      "park_name": "Joshua Tree National Park",
+      "trail_count": 164,
+      "file": "data/trail_catalog/parks/jotr.json",
+      "source_url": "https://www.alltrails.com/parks/us/california/joshua-tree-national-park",
+      "updated_at_utc": "2026-05-31T02:27:29Z"
+    },
+    {
+      "park_code": "kefj",
+      "park_name": "Kenai Fjords National Park",
+      "trail_count": 4,
+      "file": "data/trail_catalog/parks/kefj.json",
+      "source_url": "https://www.alltrails.com/parks/us/alaska/kenai-fjords-national-park",
+      "updated_at_utc": "2026-05-31T02:40:12Z"
+    },
+    {
+      "park_code": "lavo",
+      "park_name": "Lassen Volcanic National Park",
+      "trail_count": 82,
+      "file": "data/trail_catalog/parks/lavo.json",
+      "source_url": "https://www.alltrails.com/parks/us/california/lassen-volcanic-national-park",
+      "updated_at_utc": "2026-05-31T02:39:55Z"
+    },
+    {
+      "park_code": "maca",
+      "park_name": "Mammoth Cave National Park",
+      "trail_count": 40,
+      "file": "data/trail_catalog/parks/maca.json",
+      "source_url": "https://www.alltrails.com/parks/us/kentucky/mammoth-cave-national-park",
+      "updated_at_utc": "2026-05-31T02:43:03Z"
+    },
+    {
+      "park_code": "meve",
+      "park_name": "Mesa Verde National Park",
+      "trail_count": 21,
+      "file": "data/trail_catalog/parks/meve.json",
+      "source_url": "https://www.alltrails.com/parks/us/colorado/mesa-verde-national-park",
+      "updated_at_utc": "2026-05-31T02:44:03Z"
+    },
+    {
+      "park_code": "mora",
+      "park_name": "Mount Rainier National Park",
+      "trail_count": 190,
+      "file": "data/trail_catalog/parks/mora.json",
+      "source_url": "https://www.alltrails.com/parks/us/washington/mount-rainier-national-park",
+      "updated_at_utc": "2026-05-31T01:19:16Z"
+    },
+    {
+      "park_code": "neri",
+      "park_name": "New River Gorge National Park And Preserve",
+      "trail_count": 75,
+      "file": "data/trail_catalog/parks/neri.json",
+      "source_url": "https://www.alltrails.com/parks/us/west-virginia/new-river-gorge-national-park-and-preserve",
+      "updated_at_utc": "2026-05-31T02:28:19Z"
+    },
+    {
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "trail_count": 46,
+      "file": "data/trail_catalog/parks/noca.json",
+      "source_url": "https://www.alltrails.com/parks/us/washington/north-cascades-national-park",
+      "updated_at_utc": "2026-05-31T02:33:04Z"
+    },
+    {
+      "park_code": "olym",
+      "park_name": "Olympic National Park",
+      "trail_count": 190,
+      "file": "data/trail_catalog/parks/olym.json",
+      "source_url": "https://www.alltrails.com/parks/us/washington/olympic-national-park",
+      "updated_at_utc": "2026-05-31T02:15:44Z"
+    },
+    {
+      "park_code": "pefo",
+      "park_name": "Petrified Forest National Park",
+      "trail_count": 19,
+      "file": "data/trail_catalog/parks/pefo.json",
+      "source_url": "https://www.alltrails.com/parks/us/arizona/petrified-forest-national-park",
+      "updated_at_utc": "2026-05-31T02:42:30Z"
+    },
+    {
+      "park_code": "pinn",
+      "park_name": "Pinnacles National Park",
+      "trail_count": 32,
+      "file": "data/trail_catalog/parks/pinn.json",
+      "source_url": "https://www.alltrails.com/parks/us/california/pinnacles-national-park",
+      "updated_at_utc": "2026-05-31T02:25:13Z"
+    },
+    {
+      "park_code": "redw",
+      "park_name": "Redwood National Park",
+      "trail_count": 37,
+      "file": "data/trail_catalog/parks/redw.json",
+      "source_url": "https://www.alltrails.com/parks/us/california/redwood-national-park",
+      "updated_at_utc": "2026-05-31T02:37:21Z"
+    },
+    {
+      "park_code": "romo",
+      "park_name": "Rocky Mountain National Park",
+      "trail_count": 232,
+      "file": "data/trail_catalog/parks/romo.json",
+      "source_url": "https://www.alltrails.com/parks/us/colorado/rocky-mountain-national-park",
+      "updated_at_utc": "2026-05-31T02:06:24Z"
+    },
+    {
+      "park_code": "sagu",
+      "park_name": "Saguaro National Park",
+      "trail_count": 79,
+      "file": "data/trail_catalog/parks/sagu.json",
+      "source_url": "https://www.alltrails.com/parks/us/arizona/saguaro-national-park",
+      "updated_at_utc": "2026-05-31T02:38:14Z"
+    },
+    {
+      "park_code": "seki",
+      "park_name": "Sequoia National Park",
+      "trail_count": 144,
+      "file": "data/trail_catalog/parks/seki.json",
+      "source_url": "https://www.alltrails.com/parks/us/california/sequoia-national-park",
+      "updated_at_utc": "2026-05-31T02:32:26Z"
+    },
+    {
+      "park_code": "shen",
+      "park_name": "Shenandoah National Park",
+      "trail_count": 142,
+      "file": "data/trail_catalog/parks/shen.json",
+      "source_url": "https://www.alltrails.com/parks/us/virginia/shenandoah-national-park",
+      "updated_at_utc": "2026-05-31T02:21:04Z"
+    },
+    {
+      "park_code": "thro",
+      "park_name": "Theodore Roosevelt National Park",
+      "trail_count": 34,
+      "file": "data/trail_catalog/parks/thro.json",
+      "source_url": "https://www.alltrails.com/parks/us/north-dakota/theodore-roosevelt-national-park",
+      "updated_at_utc": "2026-05-31T02:47:08Z"
+    },
+    {
+      "park_code": "whsa",
+      "park_name": "White Sands National Park",
+      "trail_count": 6,
+      "file": "data/trail_catalog/parks/whsa.json",
+      "source_url": "https://www.alltrails.com/parks/us/new-mexico/white-sands-national-park",
+      "updated_at_utc": "2026-05-31T02:42:07Z"
+    },
+    {
+      "park_code": "wica",
+      "park_name": "Wind Cave National Park",
+      "trail_count": 12,
+      "file": "data/trail_catalog/parks/wica.json",
+      "source_url": "https://www.alltrails.com/parks/us/south-dakota/wind-cave-national-park",
+      "updated_at_utc": "2026-05-31T02:47:30Z"
+    },
+    {
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "trail_count": 283,
+      "file": "data/trail_catalog/parks/yell.json",
+      "source_url": "https://www.alltrails.com/parks/us/wyoming/yellowstone-national-park",
+      "updated_at_utc": "2026-05-29T18:58:13Z"
+    },
+    {
+      "park_code": "yose",
+      "park_name": "Yosemite National Park",
+      "trail_count": 321,
+      "file": "data/trail_catalog/parks/yose.json",
+      "source_url": "https://www.alltrails.com/parks/us/california/yosemite-national-park",
+      "updated_at_utc": "2026-05-31T02:09:48Z"
+    },
+    {
+      "park_code": "zion",
+      "park_name": "Zion National Park",
+      "trail_count": 111,
+      "file": "data/trail_catalog/parks/zion.json",
+      "source_url": "https://www.alltrails.com/parks/us/utah/zion-national-park",
+      "updated_at_utc": "2026-05-31T01:16:33Z"
+    }
+  ],
+  "updated_at_utc": "2026-05-31T02:48:05Z"
+}

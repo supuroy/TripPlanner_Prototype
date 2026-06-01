@@ -100,6 +100,7 @@ Schema:
     {"key": "who", "label": "Who", "value": "short text", "icon": "👥", "editable": true},
     {"key": "from", "label": "Flying from", "value": "City or airport", "icon": "✈️", "editable": true},
     {"key": "vibe", "label": "Vibe", "value": "short text", "icon": "✨", "editable": true},
+    {"key": "trip_style", "label": "Trip style", "value": "General leisure", "icon": "🥾", "editable": true},
     {"key": "budget", "label": "Budget", "value": "short text", "icon": "💰", "editable": true},
     {"key": "duration", "label": "Duration", "value": "short text", "icon": "⏱", "editable": true}
   ],
@@ -107,7 +108,7 @@ Schema:
 }
 
 Rules:
-- Always include exactly these six keys in profile_pills in this order. Never add ``tags`` or any other pill — interpretive or \"inner voice\" content belongs **only** in ``advisor_note``.
+- Always include exactly these seven keys in profile_pills in this order. Never add ``tags`` or any other pill — interpretive or \"inner voice\" content belongs **only** in ``advisor_note``.
 - ``advisor_note``: brief sidebar whisper (e.g. what you noticed about tension, pace, or unstated needs). Do **not** duplicate the six pill values as prose; do not list destinations. Max ~220 chars. Empty if redundant with prior context.
 - **Stability (critical):** When ``prior_profile_pills`` already has substantive text for a slot and the latest user message does **not** state a **new** traveler fact for that slot, **copy that pill's value verbatim** from ``prior_profile_pills``. Do **not** paraphrase **vibe**, re-punctuate, or swap synonyms for polish.
 - If the user only asks to refresh/rebuild/regenerate **itineraries** or **day plans** (no new profile facts), return ``profile_pills`` that match ``prior_profile_pills`` **character-for-character** on every value.
@@ -116,7 +117,7 @@ Rules:
 - If unknown, use concise placeholders (e.g. "Flexible dates", "Not specified") for the six required pills only.
 - If the user names a home city or airport (e.g. "from Seattle", "SEA"), set "from" accordingly.
 - **from** (and any city/airport you infer for it): use plain **OTA-style** place text only — e.g. ``Seattle, WA``, ``San Juan, PR``, ``SEA``, ``SFO``. Never narrative qualifiers like ``Seattle-based``, ``…-based hub``, or a trailing `` based``; those strings are not valid flight-search endpoints and confuse downstream tools.
-- **when**: travel dates **and** trip length if clear (e.g. "Apr 1–8 · 8 days"). **duration**: trip length ("1 week", "10 days") when not already fully covered in **when**; otherwise a short length placeholder — **not** intraday packing density. **vibe**: style + how busy days should feel (romantic, packed days, slow mornings, …). **who**: travelers and pets only (no budget, no dates).
+- **when**: travel dates **and** trip length if clear (e.g. "Apr 1–8 · 8 days"). **duration**: trip length ("1 week", "10 days") when not already fully covered in **when**; otherwise a short length placeholder — **not** intraday packing density. **vibe**: style + how busy days should feel (romantic, packed days, slow mornings, …). **trip_style**: trip format — ``General leisure``, ``Backpacking / multi-day hike``, ``Car camping``, ``Road trip``, or ``City break`` (set backpacking when user mentions thru-hikes or wilderness trails). **who**: travelers and pets only (no budget, no dates).
 """.strip()
 
 
@@ -139,9 +140,11 @@ Schema:
 Rules:
 - Use only the JSON context; do not invent bookings or live prices.
 - If plans fit the profile well, say so briefly and keep issues minimal.
-- Treat the six profile slots as the only persisted traveler facts (no separate tags field).
+- Treat the seven profile slots as the only persisted traveler facts (no separate tags field).
 - suggested_prompts: 0–3 strings, each actionable (start with a verb).
 - severity "warning" for real trip friction (pace, budget, weather fit, mobility, party size vs activities); "info" for mild notes.
+- **Backpacking / multi-day hikes:** When ``day_logistics`` or ``itinerary_qa`` is present, prioritize **route continuity** (day N camp → day N+1 walk start), single-segment day labels (no chained days in one title), no backcountry camp on exit/fly-home days, no return to the start trailhead on point-to-point routes, and endpoints staying in the same park as the card. Treat ``itinerary_qa`` errors as safety-critical.
+- **Geo sanity:** If resolved coordinates fall outside the destination national park envelope, flag as warning — likely a wrong AllTrails namesake (same trail name, different state). One destination card = one trail in one park (no "sampler" combining unrelated routes).
 """.strip()
 
 
@@ -256,6 +259,25 @@ def run_plan_review_cursor(
             for row in it[:14]:
                 if not isinstance(row, dict):
                     continue
+                dl = row.get("day_logistics") if isinstance(row.get("day_logistics"), dict) else {}
+                walks: list[dict[str, str]] = []
+                surf = dl.get("surface_legs")
+                if isinstance(surf, list):
+                    for leg in surf[:4]:
+                        if not isinstance(leg, dict):
+                            continue
+                        if str(leg.get("kind") or "").lower() != "walk":
+                            continue
+                        walks.append(
+                            {
+                                "from": str(leg.get("from_label") or "")[:80],
+                                "to": str(leg.get("to_label") or "")[:80],
+                            }
+                        )
+                camp = dl.get("camp_night")
+                camp_l = ""
+                if isinstance(camp, dict):
+                    camp_l = str(camp.get("label") or "")[:80]
                 it_out.append(
                     {
                         "day": row.get("day"),
@@ -265,8 +287,11 @@ def run_plan_review_cursor(
                             for x in (row.get("items") or [])[:8]
                             if isinstance(x, str) and x.strip()
                         ],
+                        "walk_legs": walks,
+                        "camp_night": camp_l or None,
                     }
                 )
+        iqa = d.get("itinerary_qa")
         slim_dests.append(
             {
                 "id": str(d.get("id") or ""),
@@ -278,6 +303,7 @@ def run_plan_review_cursor(
                 "vibe": d.get("vibe") if isinstance(d.get("vibe"), list) else [],
                 "warnings": d.get("warnings") if isinstance(d.get("warnings"), list) else [],
                 "itinerary": it_out,
+                "itinerary_qa": iqa if isinstance(iqa, dict) else None,
             }
         )
     ctx = json.dumps(
@@ -365,7 +391,7 @@ Schema:
 
 Rules:
 - Destinations may include "itinerary" (day, label, items) — cite it when answering about the plan.
-- profile_pills are the six main slots only (when, who, from, vibe, budget, duration).
+- profile_pills are the seven main slots only (when, who, from, vibe, trip_style, budget, duration).
 - refine_prompt: only when applying that change would clearly improve the trip per the user's ask; keep it self-contained (the app will prepend focus destination). null for pure information, validation, or "I don't have live data" replies.
 - Do not claim live prices, availability, or bookings.
 - When the user's question needs **facts not present** in the JSON (weather, ocean temps, reef quality, live hours, whether a specific activity exists near X, etc.), say so clearly in assistant_markdown and set **offer_web_search** to **true**. Provide **suggested_search_query**: one short web-search phrase (destination + topic, no quotes), or null if offer_web_search is false.
@@ -966,7 +992,7 @@ def merge_profile_pills_advisor_precedence(
             by_key[k] = p
         elif k not in by_key:
             by_key[k] = p
-    preferred = ["when", "who", "from", "vibe", "budget", "duration"]
+    preferred = ["when", "who", "from", "vibe", "trip_style", "budget", "duration"]
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for k in preferred:

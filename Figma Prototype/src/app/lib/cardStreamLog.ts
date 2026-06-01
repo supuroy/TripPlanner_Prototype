@@ -2,9 +2,17 @@
  * Merge planner SSE / wait-spinner captions into a rolling log for the card streaming overlay.
  */
 
-import { isRotatingWaitCaption, OVERLAY_STRUCTURED_PLANNER_STATUS } from "./streamCaption";
+import {
+  isRotatingWaitCaption,
+  looksLikePartialStructuredPlannerPayload,
+  OVERLAY_STRUCTURED_PLANNER_STATUS,
+} from "./streamCaption";
 
 const OVERLAY_PLANNER_STATUS_LINES = new Set<string>(Object.values(OVERLAY_STRUCTURED_PLANNER_STATUS));
+
+/** Server / Cursor pre-stream progress lines — keep one slot, do not accumulate a checklist. */
+const PROGRESS_PHASE_RE =
+  /^(Connected —|Understanding what you want|Exploring destinations|Generating structured|Listening to the model|Getting your travel agent ready|Working through your trip request|Almost there —)/;
 
 function normalizeStreamLine(s: string): string {
   return s.replace(/\s+/g, " ").trim();
@@ -57,6 +65,10 @@ function isIncrementalStreamUpdate(last: string, next: string): boolean {
 export function mergeStreamCaptionLog(log: string, nextCaption: string): string {
   const next = nextCaption.trim();
   if (!next) return log;
+  /** Partial planner JSON must never accumulate as a log line (SSE chunk leak). */
+  if (looksLikePartialStructuredPlannerPayload(next) && !OVERLAY_PLANNER_STATUS_LINES.has(next)) {
+    return log || OVERLAY_STRUCTURED_PLANNER_STATUS.workspace;
+  }
   if (!log) return next;
   if (log === next) return log;
   if (next.startsWith(log)) return next;
@@ -93,6 +105,15 @@ export function mergeStreamCaptionLog(log: string, nextCaption: string): string 
   if (last && isIncrementalStreamUpdate(last, next)) {
     parts[parts.length - 1] = next;
     return parts.join("\n\n");
+  }
+
+  if (PROGRESS_PHASE_RE.test(next)) {
+    if (last && PROGRESS_PHASE_RE.test(last)) {
+      parts[parts.length - 1] = next;
+      return parts.join("\n\n");
+    }
+    if (!log || PROGRESS_PHASE_RE.test(log)) return next;
+    return `${log}\n\n${next}`;
   }
 
   /** Orchestrate/advisor/web spinners cycle the same 2–3 lines — swap in place only. */

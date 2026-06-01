@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from src.wanderly.outdoor_adventure import normalize_outdoor_adventure
+
 
 def _clean_label(s: Any, *, limit: int = 120) -> str:
     return " ".join(str(s or "").split())[:limit]
@@ -178,6 +180,9 @@ def normalize_booking_hooks(raw: Any) -> dict[str, Any] | None:
     prefs = raw.get("search_preferences")
     if isinstance(prefs, dict) and prefs:
         out["search_preferences"] = prefs
+    outdoor = normalize_outdoor_adventure(raw.get("outdoor_adventure"))
+    if outdoor:
+        out["outdoor_adventure"] = outdoor
     return out
 
 

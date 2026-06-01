@@ -92,6 +92,15 @@ export function mergeDestinationUiState(
       if (!row.commerce && p.commerce) {
         row = { ...row, commerce: p.commerce };
       }
+      if (p.grounding && typeof p.grounding === "object" && !row.grounding) {
+        row = { ...row, grounding: p.grounding };
+      }
+      if (p.nps_outdoor && typeof p.nps_outdoor === "object" && !row.nps_outdoor) {
+        row = { ...row, nps_outdoor: p.nps_outdoor };
+      }
+      if (p.itinerary_qa && typeof p.itinerary_qa === "object" && !row.itinerary_qa) {
+        row = { ...row, itinerary_qa: p.itinerary_qa };
+      }
     }
     const pinned =
       p && typeof p.pinned === "boolean"
@@ -452,7 +461,7 @@ function normalizePillValueForSig(raw: string): string {
 }
 
 /** Keys that should force lazy itinerary rebuilds when their values change (dates, party, origin, length, envelope). */
-const ITINERARY_CRITICAL_PROFILE_KEYS = new Set(["when", "who", "from", "budget", "duration"]);
+const ITINERARY_CRITICAL_PROFILE_KEYS = new Set(["when", "who", "from", "budget", "duration", "trip_style"]);
 
 function profileCriticalPillsSignature(rows: ProfilePill[]): string {
   return [...rows]

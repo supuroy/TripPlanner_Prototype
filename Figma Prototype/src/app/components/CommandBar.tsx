@@ -27,14 +27,17 @@ import {
 import { logItin } from "../lib/itineraryDebug";
 import { enqueueBackgroundItineraryBuild } from "../lib/lazyItineraryPrefetch";
 import { cardStreamClose, cardStreamOpen } from "../lib/cardStreamOverlayBridge";
-import { workspaceStreamClose, workspaceStreamOpen } from "../lib/workspaceStreamOverlayBridge";
+import {
+  workspaceStreamClose,
+  workspaceStreamOpen,
+  workspaceStreamPush,
+} from "../lib/workspaceStreamOverlayBridge";
 import {
   confirmTripWideItineraryRebuild,
   isLazyOnlyCardItineraryEdit,
   needsTripWideItineraryConfirm,
   orchestrationForCardChat,
 } from "../lib/itineraryRouting";
-import { parallelPostRefineEnabled } from "../lib/parallelPostRefine";
 import { runPostRefineWorkspaceEffects } from "../lib/postRefineWorkspaceEffects";
 import type { WanderlyWorkspaceDTO } from "../../types/workspace";
 import type { WanderlyOrchestrateResponse } from "../../api/wanderly";
@@ -42,6 +45,8 @@ import { newWanderlyTraceId, setWanderlyTurnTrace } from "../../api/traceContext
 import {
   streamEventToCaption,
   startRotatingWaitCaption,
+  startStructuredPlannerHeartbeat,
+  isOverlayStructuredStatusCaption,
   WAIT_ORCHESTRATE_CAPTIONS,
   WAIT_ADVISOR_CAPTIONS,
 } from "../lib/streamCaption";
@@ -158,6 +163,23 @@ export function CommandBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const streamDraftRef = useRef({ text: "" });
   const thinkingDraftRef = useRef({ text: "" });
+  const structuredHeartbeatStopRef = useRef<(() => void) | null>(null);
+
+  const stopStructuredHeartbeat = useCallback(() => {
+    structuredHeartbeatStopRef.current?.();
+    structuredHeartbeatStopRef.current = null;
+  }, []);
+
+  const ensureStructuredHeartbeat = useCallback(
+    (mode: "workspace" | "itinerary" = "workspace") => {
+      if (structuredHeartbeatStopRef.current) return;
+      structuredHeartbeatStopRef.current = startStructuredPlannerHeartbeat(
+        setAgentStreamCaption,
+        mode,
+      );
+    },
+    [setAgentStreamCaption],
+  );
   useEffect(() => {
     if (!hasStarted) {
       const t = setTimeout(() => setShowSuggestions(true), 600);
@@ -275,9 +297,13 @@ export function CommandBar() {
 
         setWanderlyTurnTrace(newWanderlyTraceId());
         const prior = priorDestinations;
-        const parallelPost = parallelPostRefineEnabled();
         let workspaceEffectsApplied = false;
         const profilePillMergeMode = workspaceProfilePillMergeModeForTurn(priorProfile, text);
+        const dismissWorkspaceOverlay = (note?: string) => {
+          if (expandedId) return;
+          if (note?.trim()) workspaceStreamPush(note.trim());
+          workspaceStreamClose(500);
+        };
         const applyWorkspaceEffects = (ready: Awaited<ReturnType<typeof refineTurnStream>>) => {
           if (workspaceEffectsApplied) return;
           workspaceEffectsApplied = true;
@@ -301,11 +327,13 @@ export function CommandBar() {
             maybeStageAgentProfile: maybeStageAgentProfileAfterWorkspace,
           });
         };
+        const clientDestinations = prior.map((d) => ({ ...d })) as unknown as Record<string, unknown>[];
         const out = useGeminiFirst
           ? await refineTurn(sessionId, text, {
               confirmWorkspaceDrop: confirmWorkspaceDrop,
               orchestration: orch ?? undefined,
               focusDestinationId: expandedDest ?? undefined,
+              clientDestinations,
             })
           : await refineTurnStream(
               sessionId,
@@ -332,17 +360,40 @@ export function CommandBar() {
                   const note = (ev as { advisor_note?: unknown }).advisor_note;
                   if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
                 }
+                if (ev.type === "thinking_delta") {
+                  stopStructuredHeartbeat();
+                }
                 const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current, {
                   overlay: true,
                 });
-                if (cap) setAgentStreamCaption(cap);
+                if (cap) {
+                  setAgentStreamCaption(cap);
+                  if (
+                    ev.type === "assistant_delta" &&
+                    thinkingDraftRef.current.text.trim().length > 0
+                  ) {
+                    stopStructuredHeartbeat();
+                  } else if (
+                    isOverlayStructuredStatusCaption(cap) &&
+                    !thinkingDraftRef.current.text.trim()
+                  ) {
+                    ensureStructuredHeartbeat("workspace");
+                  }
+                }
               },
               {
                 confirmWorkspaceDrop: confirmWorkspaceDrop,
                 signal: ac.signal,
                 orchestration: orch ?? undefined,
                 focusDestinationId: expandedDest ?? undefined,
-                onWorkspaceReady: parallelPost ? applyWorkspaceEffects : undefined,
+                clientDestinations,
+                onWorkspaceReady: (ready) => {
+                  applyWorkspaceEffects(ready);
+                  stopStructuredHeartbeat();
+                  dismissWorkspaceOverlay(
+                    "Trip cards updated. Day-by-day plans may still build in the background.",
+                  );
+                },
               },
             );
         if (!workspaceEffectsApplied) {
@@ -378,6 +429,7 @@ export function CommandBar() {
           text: `Refine request failed: ${msg}`,
         });
       } finally {
+        stopStructuredHeartbeat();
         setPlannerAbortController(null);
         setRefineUnlockCardNavigation(false);
         setWanderlyTurnTrace(null);
@@ -394,6 +446,8 @@ export function CommandBar() {
       setPhase,
       setAgentStatus,
       setAgentStreamCaption,
+      stopStructuredHeartbeat,
+      ensureStructuredHeartbeat,
       setProfile,
       setDestinations,
       addResponse,
@@ -664,9 +718,13 @@ export function CommandBar() {
         });
         queuePlanReviewAfterItineraries(out.session_id || sessionId);
       } else {
-        const parallelPost = parallelPostRefineEnabled();
         let workspaceEffectsApplied = false;
         const smokeMerge = workspaceProfilePillMergeModeForTurn(priorProfileForPlanner, text);
+        const dismissSmokeWorkspaceOverlay = (note?: string) => {
+          if (expandedDest) return;
+          if (note?.trim()) workspaceStreamPush(note.trim());
+          workspaceStreamClose(500);
+        };
         const applySmokeWorkspaceEffects = (ready: Awaited<ReturnType<typeof smokeTurnStream>>) => {
           if (workspaceEffectsApplied) return;
           workspaceEffectsApplied = true;
@@ -715,14 +773,36 @@ export function CommandBar() {
               const note = (ev as { advisor_note?: unknown }).advisor_note;
               if (typeof note === "string" && note.trim()) addInsight("info", note.trim());
             }
+            if (ev.type === "thinking_delta") {
+              stopStructuredHeartbeat();
+            }
             const cap = streamEventToCaption(ev, streamDraftRef.current, thinkingDraftRef.current, {
               overlay: true,
             });
-            if (cap) setAgentStreamCaption(cap);
+            if (cap) {
+              setAgentStreamCaption(cap);
+              if (
+                ev.type === "assistant_delta" &&
+                thinkingDraftRef.current.text.trim().length > 0
+              ) {
+                stopStructuredHeartbeat();
+              } else if (
+                isOverlayStructuredStatusCaption(cap) &&
+                !thinkingDraftRef.current.text.trim()
+              ) {
+                ensureStructuredHeartbeat("workspace");
+              }
+            }
           },
           {
             signal: plannerAbort.signal,
-            onWorkspaceReady: parallelPost ? applySmokeWorkspaceEffects : undefined,
+            onWorkspaceReady: (ready) => {
+              applySmokeWorkspaceEffects(ready);
+              stopStructuredHeartbeat();
+              dismissSmokeWorkspaceOverlay(
+                "Trip cards updated. Day-by-day plans may still build in the background.",
+              );
+            },
           },
         );
         if (!workspaceEffectsApplied) {
@@ -741,6 +821,7 @@ export function CommandBar() {
         text: `Planner request failed: ${msg}`,
       });
     } finally {
+      stopStructuredHeartbeat();
       setWanderlyTurnTrace(null);
       setPhase("complete");
       setAgentStatus("");

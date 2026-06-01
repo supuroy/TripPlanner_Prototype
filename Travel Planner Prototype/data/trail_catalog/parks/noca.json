@@ -1,0 +1,863 @@
+{
+  "catalog_version": 1,
+  "written_at_utc": "2026-05-31T02:33:04Z",
+  "source": {
+    "park_url": "https://www.alltrails.com/parks/us/washington/north-cascades-national-park",
+    "method": "playwright_directory_batch"
+  },
+  "park_code": "noca",
+  "park_name": "North Cascades National Park",
+  "region": "Washington",
+  "country": "United States",
+  "trail_count": 46,
+  "trails": [
+    {
+      "trail_id": "noca:cascade-pass-and-sahale-arm-trail--2",
+      "name": "#1 - Cascade Pass and Sahale Arm Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 11.6,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/cascade-pass-and-sahale-arm-trail--2",
+      "alltrails_id": null,
+      "rating": 4.9,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:cascade-pass-trail-to-cottonwood-camp",
+      "name": "#10 - Cascade Pass Trail to Cottonwood Camp",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 18,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/cascade-pass-trail-to-cottonwood-camp",
+      "alltrails_id": null,
+      "rating": 4.8,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:monogram-lake-trail",
+      "name": "#12 - Monogram Lake Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 9.3,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/monogram-lake-trail",
+      "alltrails_id": null,
+      "rating": 4.5,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:mountt-shuksan-sulphide-glacier",
+      "name": "#13 - Mount Shuksan Sulphide Glacier",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 14.2,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/mountt-shuksan-sulphide-glacier",
+      "alltrails_id": null,
+      "rating": 4.7,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:mcalester-pass-rainbow-lake-loop",
+      "name": "#14 - McAlester Pass and Rainbow Lake Loop",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 31,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/mcalester-pass-rainbow-lake-loop",
+      "alltrails_id": null,
+      "rating": 4.5,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:mount-shuksan-via-the-fischer-chimneys-approach",
+      "name": "#15 - Mount Shuksan via the Fischer Chimneys Approach",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 15.6,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/mount-shuksan-via-the-fischer-chimneys-approach",
+      "alltrails_id": null,
+      "rating": 4.8,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:hannegan-pass-trail",
+      "name": "#16 - Hannegan Pass Trail to Copper Creek Camp",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 15.1,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/hannegan-pass-trail",
+      "alltrails_id": null,
+      "rating": 4.6,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:stehekin-valley-to-rainy-pass-via-six-mile",
+      "name": "#17 - Stehekin Valley to Rainy Pass via North Fork",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 18.9,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/stehekin-valley-to-rainy-pass-via-six-mile",
+      "alltrails_id": null,
+      "rating": 4.2,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:junction-stock-camp-via-thunder-creek-trail",
+      "name": "#18 - Junction Stock Camp via Thunder Creek Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 19.4,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/junction-stock-camp-via-thunder-creek-trail",
+      "alltrails_id": null,
+      "rating": 4.7,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:sourdough-mountain-camp-via-sourdough-lookout-trail",
+      "name": "#19 - Sourdough Mountain Camp via Sourdough Lookout Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 7.9,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/sourdough-mountain-camp-via-sourdough-lookout-trail",
+      "alltrails_id": null,
+      "rating": 4.3,
+      "tags": []
+    },
+    {
+      "trail_id": "noca:cascade-pass-trail--3",
+      "name": "#2 - Cascade Pass Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 6.9,
+      "elevation_gain_ft": null,
+      "difficulty": "Moderate",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/cascade-pass-trail--3",
+      "alltrails_id": null,
+      "rating": 4.8,
+      "tags": []
+    },
+    {
+      "trail_id": "noca:rainbow-lake-via-bridge-creek-and-pacific-crest-trail",
+      "name": "#20 - Rainbow Lake via Bridge Creek and Pacific Crest Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 24.2,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/rainbow-lake-via-bridge-creek-and-pacific-crest-trail",
+      "alltrails_id": null,
+      "rating": 4.8,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:forbidden-peak-trail",
+      "name": "#21 - Forbidden Peak Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 8,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/forbidden-peak-trail",
+      "alltrails_id": null,
+      "rating": 4.6,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:mcalester-lake-trail",
+      "name": "#22 - McAlester Lake Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 15.3,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/mcalester-lake-trail",
+      "alltrails_id": null,
+      "rating": 4.4,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:stehekin-valley-rd-via-pacific-crest-trail",
+      "name": "#23 - Stehekin Valley Rd via Pacific Crest Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 9.6,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/stehekin-valley-rd-via-pacific-crest-trail",
+      "alltrails_id": null,
+      "rating": 4.6,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:twisp-pass-trail",
+      "name": "#24 - Twisp Pass Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 16.8,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/twisp-pass-trail",
+      "alltrails_id": null,
+      "rating": 4.3,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:snowfield-peak",
+      "name": "#25 - Pyramid Lake to Snowfield Peak",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 15.5,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/snowfield-peak",
+      "alltrails_id": null,
+      "rating": 4.4,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:ptarmigan-traverse--2",
+      "name": "#26 - Ptarmigan Traverse",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 30.3,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/ptarmigan-traverse--2",
+      "alltrails_id": null,
+      "rating": 4.7,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:bridge-creek-trail",
+      "name": "#27 - Bridge Creek via Pacific Crest and Stiletto Spur Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 25.3,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/bridge-creek-trail",
+      "alltrails_id": null,
+      "rating": 4.5,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:upper-stehekin-valley-trail-and-cascade-pass-to-doubtful-lake",
+      "name": "#28 - Upper Stehekin Valley Trail and Cascade Pass to Doubtful Lake",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 32.9,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/upper-stehekin-valley-trail-and-cascade-pass-to-doubtful-lake",
+      "alltrails_id": null,
+      "rating": 4.6,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:cascade-pass-trail-to-park-creek-camp",
+      "name": "#29 - Cascade Pass Trail to Park Creek Camp",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 12.8,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/cascade-pass-trail-to-park-creek-camp",
+      "alltrails_id": null,
+      "rating": 4.9,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:cascade-pass-trail-to-doubtful-lake",
+      "name": "#3 - Cascade Pass Trail to Doubtful Lake",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 9.8,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/cascade-pass-trail-to-doubtful-lake",
+      "alltrails_id": null,
+      "rating": 4.9,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:stiletto-lake-via-twisp-pass-trail",
+      "name": "#30 - Stiletto Lake via Twisp Pass Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 18.4,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/stiletto-lake-via-twisp-pass-trail",
+      "alltrails_id": null,
+      "rating": 3.8,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:west-mcmillan-spire-via-goodell-creek-trail",
+      "name": "#31 - West McMillan Spire via Goodell Creek Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 18.7,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/west-mcmillan-spire-via-goodell-creek-trail",
+      "alltrails_id": null,
+      "rating": 4,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:big-beaver-trail-to-beaver-pass",
+      "name": "#32 - Big Beaver Trail to Beaver Pass",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 42.1,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/big-beaver-trail-to-beaver-pass",
+      "alltrails_id": null,
+      "rating": 4.2,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:fisher-creek-to-thunder-creek-via-easy-pass-trail",
+      "name": "#33 - Fisher Creek to Thunder Creek via Easy Pass Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 23.4,
+      "elevation_gain_ft": null,
+      "difficulty": "Easy",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/fisher-creek-to-thunder-creek-via-easy-pass-trail",
+      "alltrails_id": null,
+      "rating": 4.5,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:pierce-mountain-way-trail",
+      "name": "#34 - Pierce Mountain Way Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 16.1,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/pierce-mountain-way-trail",
+      "alltrails_id": null,
+      "rating": 4.4,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:bridge-creek-trail-to-north-fork-grizzly-creek",
+      "name": "#35 - Bridge Creek Trail to North Fork and Grizzly Creek",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 28.7,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/bridge-creek-trail-to-north-fork-grizzly-creek",
+      "alltrails_id": null,
+      "rating": 4.5,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:stiletto-peak-lookout-site",
+      "name": "#36 - Stiletto Peak Lookout Site",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 10.3,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/stiletto-peak-lookout-site",
+      "alltrails_id": null,
+      "rating": 4.9,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:little-beaver-trail-via-hannegan-pass",
+      "name": "#37 - Little Beaver Trail via Hannegan Pass",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 32.6,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/little-beaver-trail-via-hannegan-pass",
+      "alltrails_id": null,
+      "rating": 4.3,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:northern-north-cascades-loop-trail",
+      "name": "#38 - Northern North Cascades Loop Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 45.3,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/northern-north-cascades-loop-trail",
+      "alltrails_id": null,
+      "rating": 4.4,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:stiletto-lake-and-dagger-lake-loop",
+      "name": "#39 - Stiletto Lake and Dagger Lake Loop",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 15.5,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/stiletto-lake-and-dagger-lake-loop",
+      "alltrails_id": null,
+      "rating": 4.6,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:trappers-peak--2",
+      "name": "#4 - Trappers Peak via Thornton Lakes Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 10.2,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/trappers-peak--2",
+      "alltrails_id": null,
+      "rating": 4.8,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:stehekin-valley-road-to-park-creek-trail",
+      "name": "#40 - Stehekin Valley Road to Park Creek Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 19.4,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/stehekin-valley-road-to-park-creek-trail",
+      "alltrails_id": null,
+      "rating": 5,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:goode-ridge-trail-via-pacific-crest-trail",
+      "name": "#41 - Goode Ridge Trail via Pacific Crest Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 16.3,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/goode-ridge-trail-via-pacific-crest-trail",
+      "alltrails_id": null,
+      "rating": 4.8,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:the-great-north-cascades-traverse",
+      "name": "#42 - The Great North Cascades Traverse",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 88.7,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/the-great-north-cascades-traverse",
+      "alltrails_id": null,
+      "rating": 4.7,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:mount-challenger-challenger-glacier-route",
+      "name": "#43 - Mount Challenger: Challenger Glacier Route",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 36.5,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/mount-challenger-challenger-glacier-route",
+      "alltrails_id": null,
+      "rating": 4,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:pacific-northwest-trail-stage-31",
+      "name": "#44 - Pacific Northwest Trail: Stage 31",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 55.1,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/pacific-northwest-trail-stage-31",
+      "alltrails_id": null,
+      "rating": 5,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    },
+    {
+      "trail_id": "noca:bridge-creek-to-north-fork-bridge-creek",
+      "name": "#45 - Bridge Creek to North Fork Bridge Creek",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 9.1,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/bridge-creek-to-north-fork-bridge-creek",
+      "alltrails_id": null,
+      "rating": 5,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:pierce-mountain-camp-via-sourdough-mountain-trail",
+      "name": "#46 - Pierce Mountain Camp via Sourdough Mountain Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 12,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/pierce-mountain-camp-via-sourdough-mountain-trail",
+      "alltrails_id": null,
+      "rating": 4.7,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:stetattle-trail",
+      "name": "#47 - Stetattle Trail [CLOSED]",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 5.8,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/stetattle-trail",
+      "alltrails_id": null,
+      "rating": 3.4,
+      "tags": []
+    },
+    {
+      "trail_id": "noca:thornton-lakes-trail",
+      "name": "#5 - Thornton Lakes Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 9.5,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/thornton-lakes-trail",
+      "alltrails_id": null,
+      "rating": 4.5,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:sahale-arm-trail-to-sahale-mountain",
+      "name": "#6 - Sahale Arm Trail to Sahale Mountain",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 13.1,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/sahale-arm-trail-to-sahale-mountain",
+      "alltrails_id": null,
+      "rating": 4.9,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:agnes-gorge-trail",
+      "name": "#7 - Agnes Gorge Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 5,
+      "elevation_gain_ft": null,
+      "difficulty": "Moderate",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/agnes-gorge-trail",
+      "alltrails_id": null,
+      "rating": 4.5,
+      "tags": []
+    },
+    {
+      "trail_id": "noca:eldorado-peak--2",
+      "name": "#8 - Eldorado Peak via Eldorado Basin Trail",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 8.8,
+      "elevation_gain_ft": null,
+      "difficulty": "Strenuous",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/eldorado-peak--2",
+      "alltrails_id": null,
+      "rating": 4.8,
+      "tags": [
+        "long"
+      ]
+    },
+    {
+      "trail_id": "noca:copper-ridge-trail",
+      "name": "#9 - Copper Ridge Trail To Copper Lake",
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "region": "Washington",
+      "country": "United States",
+      "distance_mi": 23,
+      "elevation_gain_ft": null,
+      "difficulty": "Hard",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/washington/copper-ridge-trail",
+      "alltrails_id": null,
+      "rating": 4.8,
+      "tags": [
+        "long",
+        "backpacking_candidate"
+      ]
+    }
+  ]
+}

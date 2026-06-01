@@ -1,0 +1,160 @@
+{
+  "catalog_version": 1,
+  "written_at_utc": "2026-05-29T00:00:00Z",
+  "source": {
+    "method": "dev_seed",
+    "note": "Partial Yellowstone list for local dev until browser export fills yell.json. Not authoritative."
+  },
+  "park_code": "yell",
+  "park_name": "Yellowstone National Park",
+  "region": "Wyoming",
+  "country": "United States",
+  "trail_count": 12,
+  "trails": [
+    {
+      "trail_id": "yell:heart-lake-trail",
+      "name": "Heart Lake Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 15.2,
+      "difficulty": "Hard",
+      "route_type": "Out & Back",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/heart-lake-trail",
+      "tags": ["long", "backpacking_candidate"]
+    },
+    {
+      "trail_id": "yell:shoshone-lake-via-deception-pass",
+      "name": "Shoshone Lake via Deception Pass",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 20.5,
+      "difficulty": "Hard",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/shoshone-lake-via-deception-pass",
+      "tags": ["long", "backpacking_candidate"]
+    },
+    {
+      "trail_id": "yell:bechler-river-trail",
+      "name": "Bechler River Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 28.0,
+      "difficulty": "Hard",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/bechler-river-trail",
+      "tags": ["long", "backpacking_candidate"]
+    },
+    {
+      "trail_id": "yell:union-falls-trail",
+      "name": "Union Falls Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 15.8,
+      "difficulty": "Hard",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/union-falls-trail",
+      "tags": ["long", "backpacking_candidate"]
+    },
+    {
+      "trail_id": "yell:specimen-ridge-trail",
+      "name": "Specimen Ridge Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 17.0,
+      "difficulty": "Hard",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/specimen-ridge-trail",
+      "tags": ["long", "backpacking_candidate"]
+    },
+    {
+      "trail_id": "yell:mount-washburn-trail",
+      "name": "Mount Washburn Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 6.2,
+      "difficulty": "Moderate",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/mount-washburn-trail",
+      "tags": []
+    },
+    {
+      "trail_id": "yell:avalanche-peak-trail",
+      "name": "Avalanche Peak Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 4.5,
+      "difficulty": "Hard",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/avalanche-peak-trail",
+      "tags": []
+    },
+    {
+      "trail_id": "yell:grand-canyon-of-the-yellowstone-trail",
+      "name": "Grand Canyon of the Yellowstone Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 9.0,
+      "difficulty": "Moderate",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/grand-canyon-of-the-yellowstone-trail",
+      "tags": ["long"]
+    },
+    {
+      "trail_id": "yell:lamar-valley-trail",
+      "name": "Lamar Valley Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 5.0,
+      "difficulty": "Easy",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/lamar-valley-trail",
+      "tags": []
+    },
+    {
+      "trail_id": "yell:artist-point-to-point-sublime",
+      "name": "Artist Point to Point Sublime",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 3.2,
+      "difficulty": "Easy",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/artist-point-to-point-sublime",
+      "tags": []
+    },
+    {
+      "trail_id": "yell:fairy-falls-trail",
+      "name": "Fairy Falls Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 5.4,
+      "difficulty": "Moderate",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/fairy-falls-trail",
+      "tags": []
+    },
+    {
+      "trail_id": "yell:lonestar-geyser-trail",
+      "name": "Lonestar Geyser Trail",
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "region": "Wyoming",
+      "country": "United States",
+      "distance_mi": 4.8,
+      "difficulty": "Easy",
+      "source_url": "https://www.alltrails.com/trail/us/wyoming/lonestar-geyser-trail",
+      "tags": []
+    }
+  ]
+}

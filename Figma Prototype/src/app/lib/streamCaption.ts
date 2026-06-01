@@ -54,6 +54,23 @@ export function startRotatingWaitCaption(
   return () => window.clearInterval(id);
 }
 
+/** Keeps the workspace/card overlay alive during long structured JSON generation. */
+export function startStructuredPlannerHeartbeat(
+  setCaption: (s: string) => void,
+  mode: StructuredStreamMode = "workspace",
+  intervalMs = 4500,
+): () => void {
+  const lines = STRUCTURED_PLANNER_HEARTBEAT_CAPTIONS[mode];
+  if (!lines.length) return () => {};
+  let i = 0;
+  setCaption(lines[0] ?? "");
+  const id = window.setInterval(() => {
+    i = (i + 1) % lines.length;
+    setCaption(lines[i] ?? "");
+  }, intervalMs);
+  return () => window.clearInterval(id);
+}
+
 export function runStatusCaption(status: string): string | null {
   const u = status.toUpperCase();
   if (u === "CREATING") return "Getting your travel agent ready…";
@@ -66,6 +83,22 @@ export function runStatusCaption(status: string): string | null {
 export const OVERLAY_STRUCTURED_PLANNER_STATUS: Record<StructuredStreamMode, string> = {
   workspace: "Updating your trip cards and traveler profile…",
   itinerary: "Building your day-by-day outline…",
+};
+
+/** Rotates while structured workspace JSON streams with few/no token deltas (overlay only). */
+export const STRUCTURED_PLANNER_HEARTBEAT_CAPTIONS: Record<StructuredStreamMode, readonly string[]> = {
+  workspace: [
+    OVERLAY_STRUCTURED_PLANNER_STATUS.workspace,
+    "Still updating destination cards on your board…",
+    "Aligning sidebar profile with your request…",
+    "Almost done with the trip workspace JSON…",
+  ],
+  itinerary: [
+    OVERLAY_STRUCTURED_PLANNER_STATUS.itinerary,
+    "Still writing day-by-day plan details…",
+    "Filling in lodging and trail logistics…",
+    "Almost done with this card's itinerary…",
+  ],
 };
 
 function overlayThinkingCaption(thinkingDraft: { text: string }, thinkWindow: number): string {
@@ -110,6 +143,29 @@ export function looksLikeStructuredPlannerPayload(oneLine: string): boolean {
     /"itinerary"\s*:/.test(oneLine) ||
     (/[\[{]/.test(oneLine[0] || "") && /"day"\s*:/.test(oneLine))
   );
+}
+
+/** Early SSE chunks often start with ``{"assistant_markdown`` before ``:`` — must not show as prose. */
+export function looksLikePartialStructuredPlannerPayload(oneLine: string): boolean {
+  if (looksLikeStructuredPlannerPayload(oneLine)) return true;
+  const t = oneLine.trimStart();
+  if (!t.startsWith("{") && !t.startsWith("[")) return false;
+  return (
+    /"assistant_markdown/.test(oneLine) ||
+    /"destinations/.test(oneLine) ||
+    /"profile_pills/.test(oneLine) ||
+    /"itinerary/.test(oneLine) ||
+    /"transport_plan/.test(oneLine) ||
+    /"outdoor_adventure/.test(oneLine)
+  );
+}
+
+export function isOverlayStructuredStatusCaption(caption: string): boolean {
+  const c = caption.trim();
+  if (!c) return false;
+  if (Object.values(OVERLAY_STRUCTURED_PLANNER_STATUS).includes(c)) return true;
+  return STRUCTURED_PLANNER_HEARTBEAT_CAPTIONS.workspace.includes(c) ||
+    STRUCTURED_PLANNER_HEARTBEAT_CAPTIONS.itinerary.includes(c);
 }
 
 export type StreamCaptionOpts = {
@@ -162,11 +218,14 @@ export function streamEventToCaption(
     assistantDraft.text += ev.delta;
     const oneLine = assistantDraft.text.replace(/\s+/g, " ").trim();
     if (!oneLine) return "";
-    if (looksLikeStructuredPlannerPayload(oneLine)) {
+    if (looksLikePartialStructuredPlannerPayload(oneLine)) {
       if (overlay) {
         return overlayStructuredPlannerCaption(thinkingDraft, structuredMode, thinkWindow);
       }
-      return structuredPlannerStreamCaption(oneLine, thinkingDraft, structuredMode, structuredTail);
+      if (looksLikeStructuredPlannerPayload(oneLine)) {
+        return structuredPlannerStreamCaption(oneLine, thinkingDraft, structuredMode, structuredTail);
+      }
+      return OVERLAY_STRUCTURED_PLANNER_STATUS[structuredMode];
     }
     const proseWindow = oneLine.length > proseWindowMax ? `…${oneLine.slice(-proseWindowMax)}` : oneLine;
     return overlay ? proseWindow : `Writing your plan — ${proseWindow}`;

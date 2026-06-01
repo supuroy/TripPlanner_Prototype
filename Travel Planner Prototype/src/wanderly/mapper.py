@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from src.wanderly.commerce_stub import attach_commerce_placeholders
+from src.wanderly.outdoor_adventure import DEFAULT_TRIP_STYLE, infer_trip_style_from_text
 from src.wanderly.schemas import SmokeProfilePillDTO, WanderlyWorkspaceDTO, sanitize_traveler_place_pill_value
 
 
@@ -34,7 +35,7 @@ def _who_pill_value(gs: Any, gt: str) -> str:
 
 
 def _profile_to_pills(tp: dict[str, Any]) -> list[SmokeProfilePillDTO]:
-    """Six pills in the same key order as ``merge_profile_pills_advisor_precedence`` (when, who, from, …)."""
+    """Seven pills in the same key order as ``merge_profile_pills_advisor_precedence`` (when, who, from, …)."""
     pills: list[SmokeProfilePillDTO] = []
     gs = tp.get("group_size")
     gt = tp.get("group_type") or "travelers"
@@ -66,6 +67,20 @@ def _profile_to_pills(tp: dict[str, Any]) -> list[SmokeProfilePillDTO]:
         pills.append(SmokeProfilePillDTO(key="vibe", label="Vibe", value=vibe[:120], icon="✨"))
     else:
         pills.append(SmokeProfilePillDTO(key="vibe", label="Vibe", value=str(tp.get("trip_type") or "leisure"), icon="✨"))
+    notes = str(tp.get("editable_notes") or "")
+    trip_style = infer_trip_style_from_text(
+        tp.get("trip_type"),
+        notes,
+        ", ".join(str(p) for p in (prefs if isinstance(prefs, list) else [])),
+    )
+    pills.append(
+        SmokeProfilePillDTO(
+            key="trip_style",
+            label="Trip style",
+            value=trip_style[:120] if trip_style else DEFAULT_TRIP_STYLE,
+            icon="🥾",
+        )
+    )
     budget = tp.get("budget_max_usd")
     if isinstance(budget, (int, float)):
         pills.append(

@@ -420,12 +420,12 @@ function Workspace() {
                     <div className="w-1.5 h-1.5 shrink-0 rounded-full bg-indigo-400 animate-pulse" />
                     <span className="text-[12px] text-white/30">
                       {agentStatus ||
-                        `Refreshing day-by-day plans (${itineraryLaneQueueDepth} in queue, one at a time)…`}
+                        `Refreshing day-by-day plans (${itineraryLaneQueueDepth} card${itineraryLaneQueueDepth === 1 ? "" : "s"} in queue, one at a time)…`}
                     </span>
                   </div>
                   {agentStatus && itineraryLaneQueueDepth > 0 ? (
                     <span className="max-w-full text-[10px] leading-snug text-white/22">
-                      Itinerary lane: {itineraryLaneQueueDepth} job{itineraryLaneQueueDepth > 1 ? "s" : ""} queued — cards
+                      Itinerary lane: {itineraryLaneQueueDepth} card{itineraryLaneQueueDepth > 1 ? "s" : ""} queued — cards
                       stay open; updates apply as each run finishes.
                     </span>
                   ) : null}

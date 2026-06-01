@@ -487,6 +487,13 @@ const PROFILE_OPTIONS: Record<string, string[]> = {
   who: ["Solo traveler", "2 travelers", "Family (4)", "Group (6+)"],
   from: ["Seattle (SEA)", "San Francisco (SFO)", "Los Angeles (LAX)", "New York (JFK)", "Chicago (ORD)", "Denver (DEN)"],
   vibe: ["Warm, culture, food", "Adventure, hiking, nature", "Relaxation, spa, beaches", "Romance, wine, scenery"],
+  trip_style: [
+    "General leisure",
+    "Backpacking / multi-day hike",
+    "Car camping",
+    "Road trip",
+    "City break",
+  ],
   budget: ["~$2-3k total", "~$3-5k total", "~$5-8k total", "~$8k+ total"],
   duration: ["3-4 days", "7 days", "10-14 days", "2+ weeks"],
 };

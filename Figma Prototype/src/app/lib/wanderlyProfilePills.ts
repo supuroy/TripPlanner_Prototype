@@ -1,12 +1,13 @@
 import type { ProfilePill } from "../components/TripStore";
 
-/** Six placeholder slots — must not be persisted to trip disk via sync_ui. */
+/** Seven placeholder slots — must not be persisted to trip disk via sync_ui. */
 export function defaultWanderlyProfilePills(): ProfilePill[] {
   return [
     { key: "when", label: "When", value: "Not specified", icon: "📅", editable: true },
     { key: "who", label: "Who", value: "Travelers", icon: "👥", editable: true },
     { key: "from", label: "Flying from", value: "Not specified", icon: "✈️", editable: true },
     { key: "vibe", label: "Vibe", value: "leisure", icon: "✨", editable: true },
+    { key: "trip_style", label: "Trip style", value: "General leisure", icon: "🥾", editable: true },
     { key: "budget", label: "Budget", value: "Flexible", icon: "💰", editable: true },
     { key: "duration", label: "Duration", value: "Not specified", icon: "⏱", editable: true },
   ];

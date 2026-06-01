@@ -9,6 +9,7 @@ import type {
   WanderlyWorkspaceDTO,
 } from "../types/workspace";
 import type { FlightOption, HotelOption, ItinDay, ProfilePill } from "../app/components/TripStore";
+import { logItin } from "../app/lib/itineraryDebug";
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -131,12 +132,15 @@ export async function refineTurn(
     confirmWorkspaceDrop?: boolean;
     orchestration?: WanderlyOrchestration | null;
     focusDestinationId?: string;
+    /** Live board cards — used when server session lost the shortlist. */
+    clientDestinations?: Record<string, unknown>[];
   },
 ): Promise<WanderlyRefineResponse> {
   const body: Record<string, unknown> = { session_id: sessionId, message };
   if (opts?.confirmWorkspaceDrop) body.confirm_workspace_drop = true;
   if (opts?.orchestration) body.orchestration = opts.orchestration;
   if (opts?.focusDestinationId) body.focus_destination_id = opts.focusDestinationId;
+  if (opts?.clientDestinations?.length) body.client_destinations = opts.clientDestinations;
   return apiFetch<WanderlyRefineResponse>("/api/wanderly/refine", {
     method: "POST",
     body: JSON.stringify(body),
@@ -153,6 +157,7 @@ export async function refineTurnStream(
     signal?: AbortSignal;
     orchestration?: WanderlyOrchestration | null;
     focusDestinationId?: string;
+    clientDestinations?: Record<string, unknown>[];
     /** Fires when SSE ``done`` arrives (before stream close). Used for parallel post-refine prefetch. */
     onWorkspaceReady?: (res: WanderlyRefineResponse) => void;
   },
@@ -162,6 +167,7 @@ export async function refineTurnStream(
   if (opts?.confirmWorkspaceDrop) body.confirm_workspace_drop = true;
   if (opts?.orchestration) body.orchestration = opts.orchestration;
   if (opts?.focusDestinationId) body.focus_destination_id = opts.focusDestinationId;
+  if (opts?.clientDestinations?.length) body.client_destinations = opts.clientDestinations;
   await apiPostSseJson(
     "/api/wanderly/refine_stream",
     body,
@@ -382,6 +388,114 @@ export async function enrichHeroOne(sessionId: string, destination: Record<strin
   );
 }
 
+export type NpsAlert = {
+  title?: string;
+  description?: string;
+  category?: string;
+  url?: string;
+  park_code?: string;
+  last_indexed?: string;
+};
+
+export type NpsCampgroundMatch = {
+  plan_camp_label?: string;
+  name?: string | null;
+  description?: string;
+  reservation_url?: string;
+  park_code?: string;
+  fee_summary?: string[];
+  operating_hours?: string;
+  amenities?: string[];
+  status?: string;
+  notes?: string;
+  match_score?: number;
+  latitude?: number | null;
+  longitude?: number | null;
+};
+
+export type NpsParkFees = {
+  park_name?: string;
+  park_code?: string;
+  url?: string;
+  entrance_fees?: Array<{ title?: string; cost?: string; description?: string }>;
+  entrance_passes?: Array<{ title?: string; cost?: string; description?: string }>;
+  other_fees?: string[];
+  reservation_info?: string;
+};
+
+export type NpsOutdoorEnrichResponse = {
+  ok?: boolean;
+  configured?: boolean;
+  in_scope?: boolean;
+  message?: string;
+  park_codes?: string[];
+  resolve_method?: string;
+  alerts?: NpsAlert[];
+  parks?: NpsParkFees[];
+  campgrounds?: NpsCampgroundMatch[];
+  camp_matches?: NpsCampgroundMatch[];
+  /** Planned camp labels sent to the matcher (for debugging). */
+  camp_labels_queried?: string[];
+  /** First N developed campground names returned from NPS for the resolved park(s). */
+  campground_pool_sample?: string[];
+  permits_from_plan?: Array<{
+    name?: string;
+    agency?: string;
+    quota_window?: string;
+    booking_url_hint?: string;
+    notes?: string;
+    required?: boolean;
+  }>;
+  fee_links?: Array<{ label?: string; url?: string }>;
+  source?: string;
+  docs_url?: string;
+  fetched_at?: string;
+};
+
+export type ItineraryQaIssue = {
+  code?: string;
+  severity?: "error" | "warning" | "info" | string;
+  message?: string;
+  day?: number;
+  suggestion?: string;
+};
+
+export type ItineraryQaResult = {
+  ok?: boolean;
+  issues?: ItineraryQaIssue[];
+  error_count?: number;
+  warning_count?: number;
+  skipped?: boolean;
+};
+
+/** U.S. NPS alerts, campgrounds, and fees for hiking/camping destinations (requires NPS_API_KEY on server). */
+export async function fetchNpsOutdoorEnrich(
+  sessionId: string,
+  destination: Record<string, unknown>,
+  profilePills: Array<{ key: string; label?: string; value: string; icon?: string }>,
+  opts?: {
+    refresh?: boolean;
+    signal?: AbortSignal;
+    tripName?: string;
+    peerDestinationNames?: string[];
+  },
+): Promise<NpsOutdoorEnrichResponse> {
+  return apiFetch<NpsOutdoorEnrichResponse>("/api/wanderly/nps_outdoor", {
+    method: "POST",
+    signal: opts?.signal,
+    body: JSON.stringify({
+      session_id: sessionId,
+      destination,
+      profile_pills: profilePills,
+      refresh: Boolean(opts?.refresh),
+      trip_name: opts?.tripName?.trim() || undefined,
+      peer_destination_names: opts?.peerDestinationNames?.length
+        ? opts.peerDestinationNames
+        : undefined,
+    }),
+  });
+}
+
 export type BookingSearchHints = {
   flight_to_label?: string;
   flight_return_from_label?: string;
@@ -413,6 +527,7 @@ export async function buildItinerary(
     needs_commercial_flight?: boolean;
     transport_plan?: WanderlyTransportPlan | null;
     booking_hooks?: WanderlyBookingHooks | null;
+    alltrails_search_context?: Record<string, unknown> | null;
   }>(
     "/api/wanderly/build_itinerary",
     {
@@ -441,6 +556,8 @@ export async function buildItineraryStream(
   needs_commercial_flight?: boolean;
   transport_plan?: WanderlyTransportPlan | null;
   booking_hooks?: WanderlyBookingHooks | null;
+  itinerary_qa?: ItineraryQaResult | null;
+  alltrails_search_context?: Record<string, unknown> | null;
 }> {
   const body: Record<string, unknown> = {
     session_id: sessionId,
@@ -463,6 +580,8 @@ export async function buildItineraryStream(
         needs_commercial_flight?: boolean;
         transport_plan?: WanderlyTransportPlan | null;
         booking_hooks?: WanderlyBookingHooks | null;
+        itinerary_qa?: ItineraryQaResult | null;
+        alltrails_search_context?: Record<string, unknown> | null;
       }
     | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -477,6 +596,7 @@ export async function buildItineraryStream(
             throw new Error(String((obj as { message?: string }).message || "Stream error"));
           }
           if (obj.type === "done" && obj.session_id != null && obj.destination_id != null) {
+            const atcRaw = (obj as { alltrails_search_context?: unknown }).alltrails_search_context;
             const it = obj.itinerary;
             const bgRaw = (obj as { budget_guidance?: unknown }).budget_guidance;
             const bhRaw = (obj as { booking_search_hints?: unknown }).booking_search_hints;
@@ -508,6 +628,35 @@ export async function buildItineraryStream(
             if (hooksRaw && typeof hooksRaw === "object" && !Array.isArray(hooksRaw)) {
               booking_hooks = hooksRaw as WanderlyBookingHooks;
             }
+            const iqaRaw = (obj as { itinerary_qa?: unknown }).itinerary_qa;
+            let itinerary_qa: ItineraryQaResult | undefined;
+            if (iqaRaw && typeof iqaRaw === "object" && !Array.isArray(iqaRaw)) {
+              itinerary_qa = iqaRaw as ItineraryQaResult;
+            }
+            let alltrails_search_context: Record<string, unknown> | undefined;
+            if (atcRaw && typeof atcRaw === "object" && !Array.isArray(atcRaw)) {
+              alltrails_search_context = atcRaw as Record<string, unknown>;
+            }
+            const serverSentAtc = alltrails_search_context != null;
+            const parsedIntoResult = serverSentAtc;
+            logItin("stream_done_alltrails", {
+              destinationId: obj.destination_id,
+              serverSentAtc,
+              parsedIntoResult,
+              trailName:
+                alltrails_search_context && typeof alltrails_search_context.trail_name === "string"
+                  ? alltrails_search_context.trail_name
+                  : undefined,
+              verificationStatus:
+                alltrails_search_context && typeof alltrails_search_context.verification_status === "string"
+                  ? alltrails_search_context.verification_status
+                  : undefined,
+              hasParentUrl: Boolean(
+                alltrails_search_context &&
+                  typeof alltrails_search_context.parent_alltrails_url === "string" &&
+                  alltrails_search_context.parent_alltrails_url.trim(),
+              ),
+            });
             result = {
               session_id: String(obj.session_id),
               destination_id: String(obj.destination_id),
@@ -517,6 +666,8 @@ export async function buildItineraryStream(
               needs_commercial_flight,
               transport_plan,
               booking_hooks,
+              itinerary_qa,
+              alltrails_search_context,
             };
           }
         },

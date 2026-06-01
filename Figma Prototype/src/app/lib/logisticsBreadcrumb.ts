@@ -60,12 +60,21 @@ const COUNTRY_TYPICALLY_REQUIRES_OVERSEAS_FLIGHT = new Set<string>([
   "Canada",
 ]);
 
-export type LogisticsCrumbKind = "flight_in" | "flight_return" | "hotel" | "car" | "ferry" | "train";
+export type LogisticsCrumbKind =
+  | "flight_in"
+  | "flight_return"
+  | "hotel"
+  | "camp"
+  | "car"
+  | "ferry"
+  | "train";
 
 export interface LogisticsCrumb {
   kind: LogisticsCrumbKind;
   /** Hotel nights when kind === "hotel" */
   nights?: number;
+  /** Camp / campsite label when kind === "camp" (tooltip). */
+  label?: string;
 }
 
 function effectiveTransport(dest: DestCard): WanderlyTransportPlan | undefined {
@@ -241,6 +250,40 @@ export function collectLodgingStayBlocks(
  * Best-effort stay blocks for card icons: itinerary lodging rows, with ``lodging_moves`` when
  * per-day check-in/out under-count multi-night bases (common on 7-day ski trips).
  */
+const BACKCOUNTRY_LODGING_HINT =
+  /\b(campsite|creek|river|trail|backcountry|wct|west coast trail|camp\s+night|walk-?in)\b/i;
+
+function looksLikeBackcountryCampLabel(label: string): boolean {
+  const s = label.trim();
+  if (!s) return false;
+  return BACKCOUNTRY_LODGING_HINT.test(s);
+}
+
+/** Ordered backcountry camps from day_logistics / outdoor_adventure (one crumb per night). */
+export function collectCampBlocksForDest(dest: DestCard): Array<{ label: string }> {
+  const days = [...(dest.itinerary || [])].sort((a, b) => (a.day ?? 0) - (b.day ?? 0));
+  const fromItin: Array<{ label: string }> = [];
+  for (const row of days) {
+    const camp = row.day_logistics?.camp_night;
+    if (!camp || typeof camp !== "object") continue;
+    const label = String(camp.label || "").trim();
+    if (label) fromItin.push({ label });
+  }
+  if (fromItin.length) return fromItin;
+
+  const oa = dest.outdoor_adventure?.camp_nights ?? dest.booking_hooks?.outdoor_adventure?.camp_nights;
+  if (Array.isArray(oa)) {
+    const out: Array<{ label: string }> = [];
+    for (const c of oa) {
+      if (!c || typeof c !== "object") continue;
+      const label = String(c.label || "").trim();
+      if (label) out.push({ label });
+    }
+    if (out.length) return out;
+  }
+  return [];
+}
+
 export function collectLodgingStayBlocksForDest(dest: DestCard): Array<{ label: string; nights: number }> {
   const fromItin = collectLodgingStayBlocksFromItinerary(dest.itinerary);
   const fromMoves = lodgingMovesStayBlocks(dest);
@@ -278,7 +321,11 @@ export function buildLogisticsBreadcrumb(dest: DestCard): LogisticsCrumb[] {
       (!mode && segs.length > 0));
 
   const { hasDrive, hasFerry, hasTrain } = scanSurfaceModes(dest.itinerary);
-  const stays = collectLodgingStayBlocksForDest(dest);
+  const camps = collectCampBlocksForDest(dest);
+  let stays = collectLodgingStayBlocksForDest(dest);
+  if (camps.length > 0) {
+    stays = stays.filter((s) => !looksLikeBackcountryCampLabel(s.label));
+  }
 
   const hasReturnAir =
     treatAsAir &&
@@ -308,6 +355,10 @@ export function buildLogisticsBreadcrumb(dest: DestCard): LogisticsCrumb[] {
     if (hasFerry) crumbs.push({ kind: "ferry" });
     if (hasTrain) crumbs.push({ kind: "train" });
     if (!hasDrive && !hasFerry && !hasTrain) crumbs.push({ kind: "car" });
+  }
+
+  for (const c of camps) {
+    crumbs.push({ kind: "camp", label: c.label });
   }
 
   for (const s of stays) {

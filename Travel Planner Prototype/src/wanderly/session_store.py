@@ -261,14 +261,16 @@ def wanderly_destinations_for_session(s: dict[str, Any]) -> list[dict[str, Any]]
     ``last_destinations`` has one for the same id (planner kept slim UI rows), backfill so restores
     do not look like an empty plan and the client does not immediately queue lazy rebuilds.
     """
+    from src.wanderly.day_logistics import repair_destination_camp_logistics
+
     ui = s.get("ui_destinations")
     last_raw = s.get("last_destinations")
     ui_list = [dict(x) for x in ui if isinstance(x, dict)] if isinstance(ui, list) else []
     last_list = [x for x in last_raw if isinstance(x, dict)] if isinstance(last_raw, list) else []
     if not ui_list:
-        return [dict(x) for x in last_list]
+        return [repair_destination_camp_logistics(dict(x)) for x in last_list]
     if not last_list:
-        return ui_list
+        return [repair_destination_camp_logistics(d) for d in ui_list]
     last_by_id = {str(x.get("id") or ""): x for x in last_list}
     out: list[dict[str, Any]] = []
     for u in ui_list:
@@ -294,7 +296,7 @@ def wanderly_destinations_for_session(s: dict[str, Any]) -> list[dict[str, Any]]
         if isinstance(bsh, dict) and bsh and not merged.get("booking_search_hints"):
             merged["booking_search_hints"] = dict(bsh)
         out.append(merged)
-    return out
+    return [repair_destination_camp_logistics(d) for d in out]
 
 
 def patch_session_destination_itinerary(
@@ -307,6 +309,8 @@ def patch_session_destination_itinerary(
     needs_commercial_flight: bool | None = None,
     transport_plan: dict[str, Any] | None = None,
     booking_hooks: dict[str, Any] | None = None,
+    itinerary_qa: dict[str, Any] | None = None,
+    alltrails_search_context: dict[str, Any] | None = None,
 ) -> None:
     """Merge a completed lazy itinerary into stored session rows and persist (survives tab close)."""
     sid = (session_id or "").strip()
@@ -342,6 +346,10 @@ def patch_session_destination_itinerary(
                 row["transport_plan"] = transport_plan
             if isinstance(booking_hooks, dict) and isinstance(booking_hooks.get("transport"), dict):
                 row["booking_hooks"] = booking_hooks
+            if isinstance(itinerary_qa, dict):
+                row["itinerary_qa"] = itinerary_qa
+            if isinstance(alltrails_search_context, dict) and alltrails_search_context.get("trail_name"):
+                row["alltrails_search_context"] = alltrails_search_context
             out_list.append(row)
         return out_list if hit else None
 
@@ -370,6 +378,13 @@ def patch_session_destination_itinerary(
                 f"path=wanderly.patch_itinerary sid={sid[:12]!r} dest_id={did!r} rows={len(itinerary)} "
                 f"incoming_days_with_day_logistics={dl_in} "
                 f"incoming_has_transport_plan={bool(tp0 and str(tp0.get('primary_mode') or '').strip())}"
+            )
+            from src.wanderly.alltrails_build_trace import log_alltrails_patch_session
+
+            log_alltrails_patch_session(
+                session_id=sid,
+                dest_id=did,
+                alltrails_search_context=alltrails_search_context,
             )
         persist_wanderly_session_snapshot(sid)
         clear_booking_prepare_caches(sid, did)

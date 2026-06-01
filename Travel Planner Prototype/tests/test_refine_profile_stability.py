@@ -5,6 +5,10 @@ from __future__ import annotations
 from src.wanderly.smoke_service import itinerary_primary_refine_message
 
 
+def test_single_named_card_not_trip_wide_primary() -> None:
+    assert not itinerary_primary_refine_message("rebuild the Heart Lake trail card")
+
+
 def test_itinerary_primary_refresh_cards() -> None:
     assert itinerary_primary_refine_message("Please refresh the itinerary for each destination card")
 

@@ -6,7 +6,7 @@ import json
 import os
 from typing import Any
 
-_CANONICAL_TRAVELER_KEYS = ("from", "who", "when", "duration", "budget", "vibe")
+_CANONICAL_TRAVELER_KEYS = ("from", "who", "when", "duration", "budget", "vibe", "trip_style")
 
 _ITINERARY_PROMPT_COMPACT = """
 You are Wanderly. For ONE destination, return ONLY one JSON object (no markdown fences, no prose).
@@ -30,6 +30,7 @@ Hard contracts (invalid keys are dropped server-side):
    needs_commercial_flight true. ground_only only when there is truly no commercial airline leg (e.g. regional ferry/drive).
 3) Every day includes day_logistics. Each day must have at least one of: non-null lodging (overnight check-in),
    flight.segments non-empty, or surface_legs with >=1 leg. Rest day at one base: one short walk surface_leg.
+   Backpacking/hiking days: surface_legs must include a walk leg (from_label + to_label); do not describe hikes only in items.
    lodging when used: destination_search_label, optional area_hint, check_in/check_out YYYY-MM-DD when dates known,
    rooms, guests {adults,children,infants_in_seat}, traveler_party matching guests, pet_friendly from Who,
    room_preferences[], booking_factors[].
@@ -71,6 +72,8 @@ def slim_traveler_from_profile_pills(profile_pills: list[dict[str, Any]] | None)
 
 
 def destination_block_for_prompt(destination: dict[str, Any]) -> dict[str, Any]:
+    from src.wanderly.alltrails_search_context import derive_alltrails_search_context
+
     hook = str(destination.get("hook") or "").strip()
     vibe_raw = destination.get("vibe")
     vibe: list[str] = []
@@ -78,13 +81,24 @@ def destination_block_for_prompt(destination: dict[str, Any]) -> dict[str, Any]:
         for x in vibe_raw[:8]:
             if isinstance(x, str) and x.strip():
                 vibe.append(x.strip()[:48])
-    return {
+    block: dict[str, Any] = {
         "id": destination.get("id"),
         "name": destination.get("name"),
         "country": destination.get("country"),
         "hook": hook[:320],
         "vibe": vibe,
     }
+    atc = derive_alltrails_search_context(destination)
+    if atc:
+        block["alltrails_search_context"] = atc
+        block["alltrails_authority"] = {
+            "trail_name": atc.get("trail_name"),
+            "parent_alltrails_url": atc.get("parent_alltrails_url"),
+            "park_name": atc.get("park_name"),
+            "region": atc.get("region"),
+            "search_query": atc.get("search_query"),
+        }
+    return block
 
 
 def build_itinerary_context_payload(

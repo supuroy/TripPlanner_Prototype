@@ -36,6 +36,13 @@ from src.wanderly.inline_itinerary import (
     refine_inline_itinerary_instructions,
 )
 from src.wanderly.json_llm_repair import repair_llm_json_blob
+from src.wanderly.outdoor_adventure import (
+    infer_trip_style_from_text,
+    is_backpacking_or_multiday_hike,
+    is_outdoor_adventure_profile,
+    outdoor_planner_destination_hints,
+    outdoor_refine_itinerary_hints,
+)
 from src.wanderly.itinerary_lazy import _normalize_needs_commercial_flight, ensure_transport_plan_after_extract
 from src.wanderly.parallel_post_refine import (
     PROFILE_LISTENER_THREAD_KEY,
@@ -69,13 +76,28 @@ def _prepare_refine_turn(
     *,
     orchestration: dict[str, Any] | None = None,
     focus_destination_id: str | None = None,
+    client_prior_destinations: list[dict[str, Any]] | None = None,
 ) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Build refine planner prompt and return ``(prompt, prior_dests, prior_pills)``.
     """
+    from src.wanderly.refine_shortlist_guard import (
+        orchestration_for_single_card_refine,
+        resolve_refine_prior_destinations,
+    )
+
     um = (user_message or "").strip()
     prior_pills = snapshot_profile_pills(session_id)
-    context, prior_dests = _refine_prompt_context_json(session_id)
+    prior_dests = resolve_refine_prior_destinations(
+        session_id, client_destinations=client_prior_destinations
+    )
+    orchestration = orchestration_for_single_card_refine(
+        um,
+        prior_dests,
+        orchestration,
+        focus_destination_id=focus_destination_id,
+    )
+    context, prior_dests = _refine_prompt_context_json(session_id, prior_dests=prior_dests)
     valid_ids = {
         str(d.get("id") or "").strip()
         for d in prior_dests
@@ -102,10 +124,14 @@ def _prepare_refine_turn(
     if try_inline and inline_candidates:
         extra["inline_itinerary_destination_ids"] = inline_candidates
     if extra:
-        context, prior_dests = _refine_prompt_context_json(session_id, extra_context=extra)
+        context, prior_dests = _refine_prompt_context_json(
+            session_id, extra_context=extra, prior_dests=prior_dests
+        )
     instructions = _REFINE_INSTRUCTIONS
     if try_inline and inline_candidates:
         instructions = _REFINE_INSTRUCTIONS + "\n\n" + refine_inline_itinerary_instructions()
+    if is_outdoor_adventure_profile(prior_pills):
+        instructions = instructions + "\n\n" + outdoor_refine_itinerary_hints()
     prompt = instructions + "\n" + context + "\n\nUser refinement:\n" + um
     return prompt, prior_dests, prior_pills
 
@@ -144,15 +170,15 @@ def _apply_inline_itinerary_delivery(
     )
     if not lazy_candidates and not inline_candidates:
         return dto, [], []
-    applied: list[str] = []
-    if inline_candidates:
-        applied, _ = partition_inline_vs_lazy(
-            dest_rows,
-            inline_candidates,
-            try_inline=True,
-        )
-    applied_set = set(applied)
-    lazy = [c for c in lazy_candidates if c not in applied_set]
+    # Union candidates: trip-wide refine may embed complete day-by-day JSON on every card even when
+    # inline_candidates is empty (targeted_itinerary_edit-only path). Without this, refine returns
+    # 5-day plans then lazy_build still marks every card dirty and re-runs itinerary_lazy × N.
+    check_ids = list(dict.fromkeys([*inline_candidates, *lazy_candidates]))
+    applied, lazy = partition_inline_vs_lazy(
+        dest_rows,
+        check_ids,
+        try_inline=True,
+    )
     if not applied and not lazy:
         return dto, [], []
     patched = apply_itinerary_dirty_flags(
@@ -177,6 +203,7 @@ Shape:
     {"key": "who", "label": "Who", "value": "short", "icon": "👥", "editable": true},
     {"key": "from", "label": "Flying from", "value": "City or airport", "icon": "✈️", "editable": true},
     {"key": "vibe", "label": "Vibe", "value": "short", "icon": "✨", "editable": true},
+    {"key": "trip_style", "label": "Trip style", "value": "General leisure", "icon": "🥾", "editable": true},
     {"key": "budget", "label": "Budget", "value": "short", "icon": "💰", "editable": true},
     {"key": "duration", "label": "Duration", "value": "short", "icon": "⏱", "editable": true}
   ],
@@ -184,14 +211,37 @@ Shape:
 }
 Rules:
 - 1–5 destinations; scores 0–100 integers.
-- profile_pills: exactly those six keys in that order (placeholders ok). Companion pass may refine pills — prioritize assistant_markdown + destinations.
+- profile_pills: exactly those seven keys in that order (placeholders ok). Companion pass may refine pills — prioritize assistant_markdown + destinations.
+- **trip_style** values: ``General leisure``, ``Backpacking / multi-day hike``, ``Car camping``, ``Road trip``, ``City break``. Set ``Backpacking / multi-day hike`` when the user mentions backpacking, thru-hikes, or multi-day wilderness trails.
 - No ``tags`` pill; extra nuance → pills or assistant_markdown.
 - Home airport / "from Seattle" / "SEA" → set key "from".
 - **from** values must be plain city / metro / airport text Expedia-style search would accept (e.g. ``Seattle, WA``, ``SEA``). Do **not** emit prose like ``Seattle-based``, ``…-based``, or ``… based`` — those break live flight URL building.
 - Infer from the user message; placeholders if unknown.
 - Do **not** rewrite traveler ``profile_pills`` for editorial polish when the user did not state new facts; keep wording stable across turns.
 - No live fares or availability claims.
+- When **trip_style** is ``Backpacking / multi-day hike``, each destination is **one trail / one park** — never a multi-trail "sampler" in a single card name or hook.
 """.strip()
+
+
+def _smoke_planner_instructions(user_message: str) -> str:
+    """Base planner JSON instructions; add outdoor card rules when the request is hiking-focused."""
+    extra = ""
+    um = (user_message or "").lower()
+    if is_backpacking_or_multiday_hike(
+        [{"key": "trip_style", "value": "Backpacking / multi-day hike"}]
+    ) or any(
+        tok in um
+        for tok in (
+            "backpack",
+            "multi-day hike",
+            "thru-hike",
+            "national park",
+            "west coast trail",
+            "wilderness",
+        )
+    ):
+        extra = "\n\n" + outdoor_planner_destination_hints()
+    return _JSON_INSTRUCTIONS + extra
 
 
 _REFINE_INSTRUCTIONS = """
@@ -211,8 +261,8 @@ Rules:
   asks to remove or replace that place (stable id, you may refresh hook/score).
 - Do not include destinations with dismissed=true unless the user asks to bring one back.
 - For new suggestions, assign new lowercase-slug ids; when editing an existing row, keep its id.
-- Always return the full profile_pills array for the six keys when, who, from, vibe, budget, duration (not a partial list; placeholders ok; a fast companion pass may refine).
-- Do **not** emit a ``tags`` pill; fold constraints into the appropriate one of the six fields or assistant_markdown.
+- Always return the full profile_pills array for the seven keys when, who, from, vibe, trip_style, budget, duration (not a partial list; placeholders ok; a fast companion pass may refine).
+- Do **not** emit a ``tags`` pill; fold constraints into the appropriate one of the seven fields or assistant_markdown.
 - Context JSON includes **sidebar_profile_pills** (the live sidebar before this turn). **Start from those values.** Only change a pill when the user refinement message states a **material** new fact for that slot; otherwise keep each pill **value identical** (character-for-character), especially **vibe** — no paraphrase, punctuation tweaks, synonym swaps, or "cleaner" rewrites when the meaning is unchanged.
 - **Material change** = new or different facts that affect planning: travel dates or trip length, budget level, party / kids / pets, home airport / "flying from …", accessibility or other hard new constraints, or the traveler clearly stating **different** vibe/pace intent in this message.
 - **Not material** = rewording that does not add/remove constraints. For itinerary-only asks (refresh/rebuild/regenerate day plans or cards without new profile facts), every ``profile_pills`` value must match **sidebar_profile_pills** exactly.
@@ -223,7 +273,11 @@ Rules:
 - When you **do** emit ``itinerary`` for a destination, each day object may include **day_logistics** (parallel to human ``items``): a compact booking slice the server stores verbatim.
   - **day_logistics.flight:** use JSON **null** when that day has no commercial airline leg; otherwise ``{"segments":[{"from_search_label","to_search_label","role"}]}`` with Expedia-style city+country strings. **Every** flight segment must use **only** ``from_search_label`` and ``to_search_label`` — **never** ``from_label`` / ``to_label`` on airline legs (those keys are **only** for ``surface_legs``); wrong keys cause the server to drop all legs. Never use the same city as both endpoints unless it is a genuine same-city positioning hop.
   - **day_logistics.lodging:** use **null** when there is no new overnight stay that night; otherwise include **destination_search_label**, optional **area_hint**, **check_in** / **check_out** as **YYYY-MM-DD** when trip dates are known from profile/context, **rooms** (1–9), **guests** ``{adults, children, infants_in_seat}`` and matching **traveler_party** ``{total, adults, children, infants_in_seat}`` (total = sum) aligned to the **Who** pill, **pet_friendly** **true** whenever Who/vibe mentions a dog/cat/pet (**false** only when the profile clearly excludes pets), **room_preferences** (short strings), and **booking_factors** (0–10 short OTA-relevant tags inferred from context: accessibility, late arrival, EV parking, connecting rooms, ferry timing risk, etc.).
-  - **day_logistics.surface_legs:** optional list of ``{kind: drive|ferry|train|walk|other, from_label?, to_label?, operator_hint?}`` for that calendar day (e.g. named ferry endpoints).
+  - **day_logistics.surface_legs:** **required** on days with movement. List ``{kind: drive|ferry|train|walk|other, from_label?, to_label?, operator_hint?}`` in travel order. On **hiking days** include ≥1 ``walk`` leg with **both** ``from_label`` and ``to_label`` (trailhead → camp); add ``trail_name`` + distance/elevation on the walk leg when you emit ``trail_segment``. **Never** put the hike only in ``items`` without a ``walk`` row.
+  - **day_logistics.camp_night** (backpacking / camping trips): **required** on every backcountry overnight — ``{kind, label}`` where **label** is the **named campsite** (e.g. "Michigan Creek campsite", "8H2 Sheridan Creek campground"); use instead of **lodging** on trail nights; keep **lodging** for gateway towns only.
+  - **day_logistics.trail_segment** (backpacking / hiking days): **required** on every day with a main ``walk`` surface_leg — ``{name, distance_mi, elevation_gain_ft, elevation_loss_ft, notes?}`` with official trail name and realistic stats for that day.
+- **Backpacking / multi-day hikes:** use official trail or AllTrails **segment** data for ``trail_segment`` (not invented mileage). On **point-to-point** trails, never walk back to the start trailhead after day 1. Day ``label`` must match walk ``from_label``/``to_label``. When a registered trail catalog applies (server-side), follow its segment order exactly. **Every hiking day must have structured ``surface_legs`` with a ``walk`` leg** — not hike prose in ``items`` alone.
+- When **trip_style** is backpacking or multi-day hiking and you emit ``itinerary``, also include top-level **outdoor_adventure** with ``permit_requirements[]`` and ``camp_nights[]`` aligned to each night's ``camp_night.label``.
 - When you emit or refresh ``itinerary`` for a destination, you MUST also emit (or preserve) that row's top-level **transport_plan**, **needs_commercial_flight**, and **booking_search_hints** so they match the same story:
   - **transport_plan** must cover **home / hub → this destination → home** using ``profile_pills`` **from** + the card's ``country`` / ``name``. If **from** is a US airport or city and the destination is overseas, do **not** use ``ground_only`` with empty ``commercial_flight_segments`` unless the profile explicitly describes an all-surface journey. Each entry in ``commercial_flight_segments`` must use **only** ``from_search_label``, ``to_search_label``, and ``role`` (same as lazy itinerary — **never** ``from_label`` / ``to_label`` on flights). Include **inbound** + **return** (and **within_trip** domestic connectors as needed) with Expedia-style labels.
   - Set ``day_logistics.flight`` on days with real airline legs (especially first/last long-haul days) so day rows align with ``commercial_flight_segments``.
@@ -311,21 +365,48 @@ def _infer_origin_from_message(msg: str) -> str | None:
 
 def _merge_profile_with_inference(dto: WanderlyWorkspaceDTO, user_message: str) -> WanderlyWorkspaceDTO:
     origin = _infer_origin_from_message(user_message)
-    if not origin:
+    trip_style = infer_trip_style_from_text(user_message)
+    style_is_default = trip_style == "General leisure"
+    if not origin and style_is_default:
         return dto
     pills = list(dto.profile_pills)
-    for i, p in enumerate(pills):
-        if p.key == "from":
-            pills[i] = p.model_copy(update={"value": origin, "label": "Flying from"})
-            return dto.model_copy(update={"profile_pills": pills})
-    pills.append(
-        SmokeProfilePillDTO(
-            key="from",
-            label="Flying from",
-            value=origin,
-            icon="✈️",
-        )
-    )
+    updated = False
+    if origin:
+        for i, p in enumerate(pills):
+            if p.key == "from":
+                pills[i] = p.model_copy(update={"value": origin, "label": "Flying from"})
+                updated = True
+                break
+        else:
+            pills.append(
+                SmokeProfilePillDTO(
+                    key="from",
+                    label="Flying from",
+                    value=origin,
+                    icon="✈️",
+                )
+            )
+            updated = True
+    if not style_is_default:
+        for i, p in enumerate(pills):
+            if p.key == "trip_style":
+                cur = str(p.value or "").strip()
+                if not cur or cur.lower() in ("general leisure", "not specified", "leisure"):
+                    pills[i] = p.model_copy(update={"value": trip_style})
+                    updated = True
+                break
+        else:
+            pills.append(
+                SmokeProfilePillDTO(
+                    key="trip_style",
+                    label="Trip style",
+                    value=trip_style,
+                    icon="🥾",
+                )
+            )
+            updated = True
+    if not updated:
+        return dto
     return dto.model_copy(update={"profile_pills": pills})
 
 
@@ -379,6 +460,7 @@ _MODEL_DESTINATION_OVERLAY_KEYS: tuple[str, ...] = (
     "needs_commercial_flight",
     "transport_plan",
     "booking_hooks",
+    "outdoor_adventure",
     "itinerary_dirty",
     "commerce",
     "warnings",
@@ -587,13 +669,14 @@ def _refine_prompt_context_json(
     session_id: str,
     *,
     extra_context: dict[str, Any] | None = None,
+    prior_dests: list[dict[str, Any]] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """
     Build the JSON block embedded in the refine planner prompt.
 
     Returns ``(context_json, prior_dests_full)`` — the model sees slim cards; merge logic uses full prior.
     """
-    prior = snapshot_destinations_for_model(session_id)
+    prior = list(prior_dests) if prior_dests else snapshot_destinations_for_model(session_id)
     chat = chat_context_snippet(session_id, max_messages=6)
     slim = _slim_destinations_for_refine_prompt(prior)
     sidebar_pills = snapshot_profile_pills(session_id)
@@ -897,9 +980,18 @@ def _normalize_parsed(raw: dict[str, Any]) -> WanderlyWorkspaceDTO:
 
 def _mirror_ui_destinations_from_dto(session_id: str, dto: WanderlyWorkspaceDTO) -> None:
     """Keep session ``ui_destinations`` aligned so GET workspace reflects planner cards per session."""
+    from src.wanderly.trail_authority import enrich_destination_alltrails_authority
+
     s = get_session(session_id)
     raw = dto.model_dump().get("destinations")
-    s["ui_destinations"] = [x for x in raw if isinstance(x, dict)] if isinstance(raw, list) else []
+    if isinstance(raw, list):
+        s["ui_destinations"] = [
+            enrich_destination_alltrails_authority(x) if isinstance(x, dict) else x
+            for x in raw
+            if isinstance(x, dict)
+        ]
+    else:
+        s["ui_destinations"] = []
 
 
 def _complete_smoke_turn(session_id: str, user_message: str, raw_text: str) -> dict[str, Any]:
@@ -931,12 +1023,13 @@ def run_smoke_turn(user_message: str, session_id: str) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
     um = (user_message or "").strip()
-    prompt = _JSON_INSTRUCTIONS + "\n\nUser request:\n" + um
+    instructions = _smoke_planner_instructions(um)
+    prompt = instructions + "\n\nUser request:\n" + um
     with basic_client(key) as client:
         raw_text = run_prompt_collect_assistant_text(
             client,
             prompt,
-            persistent_instruction_prefix=_JSON_INSTRUCTIONS + "\n\nUser request:\n",
+            persistent_instruction_prefix=instructions + "\n\nUser request:\n",
             llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
             llm_telemetry_sub_activity="smoke_turn",
             llm_telemetry_meta=telemetry_meta(session_id=session_id),
@@ -962,7 +1055,8 @@ def run_smoke_turn_streaming(
     load_env_from_roots()
     key = get_api_key()
     um = (user_message or "").strip()
-    prompt = _JSON_INSTRUCTIONS + "\n\nUser request:\n" + um
+    instructions = _smoke_planner_instructions(um)
+    prompt = instructions + "\n\nUser request:\n" + um
     emit_lock = threading.Lock()
 
     def safe_emit(obj: dict[str, Any]) -> None:
@@ -977,7 +1071,7 @@ def run_smoke_turn_streaming(
             client,
             prompt,
             emit=safe_emit,
-            persistent_instruction_prefix=_JSON_INSTRUCTIONS + "\n\nUser request:\n",
+            persistent_instruction_prefix=instructions + "\n\nUser request:\n",
             llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
             llm_telemetry_sub_activity="smoke_turn_stream",
             llm_telemetry_meta=telemetry_meta(session_id=session_id),
@@ -1000,7 +1094,13 @@ def _complete_refine_turn(
     orchestration: dict[str, Any] | None = None,
     focus_destination_id: str | None = None,
     prior_pills: list[dict[str, Any]] | None = None,
+    client_prior_destinations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    from src.wanderly.refine_shortlist_guard import merge_prior_for_shortlist_guard
+
+    prior_dests = merge_prior_for_shortlist_guard(
+        session_id, prior_dests, client_destinations=client_prior_destinations
+    )
     parsed = _extract_json_object(raw_text)
     restored_omitted: list[str] = []
     if parsed:
@@ -1060,6 +1160,7 @@ def run_refine_turn(
     confirm_workspace_drop: bool = False,
     orchestration: dict[str, Any] | None = None,
     focus_destination_id: str | None = None,
+    client_prior_destinations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
@@ -1071,6 +1172,7 @@ def run_refine_turn(
         um,
         orchestration=orchestration,
         focus_destination_id=focus_destination_id,
+        client_prior_destinations=client_prior_destinations,
     )
     mod, persist = _refine_model_persist_kwargs(session_id, trace_path="wanderly.refine_turn.json")
     with basic_client(key) as client:
@@ -1094,6 +1196,7 @@ def run_refine_turn(
         orchestration=orchestration,
         focus_destination_id=focus_destination_id,
         prior_pills=prior_pills,
+        client_prior_destinations=client_prior_destinations,
     )
     if freeze_profile:
         return out
@@ -1117,6 +1220,7 @@ def run_refine_turn_streaming(
     confirm_workspace_drop: bool = False,
     orchestration: dict[str, Any] | None = None,
     focus_destination_id: str | None = None,
+    client_prior_destinations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     load_env_from_roots()
     key = get_api_key()
@@ -1128,6 +1232,7 @@ def run_refine_turn_streaming(
         um,
         orchestration=orchestration,
         focus_destination_id=focus_destination_id,
+        client_prior_destinations=client_prior_destinations,
     )
     emit_lock = threading.Lock()
 
@@ -1161,6 +1266,7 @@ def run_refine_turn_streaming(
         orchestration=orchestration,
         focus_destination_id=focus_destination_id,
         prior_pills=prior_pills,
+        client_prior_destinations=client_prior_destinations,
     )
     if emit and out.get("shortlist_drop_blocked"):
         safe_emit(

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, ValidationError
 from src.integrations.cursor_agent_client import basic_client, get_api_key, load_env_from_roots, run_prompt_collect_assistant_text
 from src.wanderly.llm_telemetry import ACTIVITY_DESTINATION_FOLLOWUP, telemetry_meta
 from src.wanderly.cursor_advisor import advisor_model_id, structured_followup_model_id
+from src.wanderly.inline_itinerary import is_plan_compare_only_question, itinerary_primary_refine_message
 from src.wanderly.itinerary_debug_log import log_itinerary_build
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
 
@@ -135,6 +136,64 @@ def _intent_model_id() -> str | None:
     return advisor_model_id() or structured_followup_model_id()
 
 
+def _fast_path_intent_classification(
+    user_message: str,
+    *,
+    session_id: str = "",
+    focus_destination_id: str | None = None,
+) -> WanderlyIntentClassification | None:
+    """Skip a blocking Cursor call for unambiguous trip-wide itinerary / compare lines."""
+    um = (user_message or "").strip()
+    if not um:
+        return None
+    focus = (focus_destination_id or "").strip()
+    if is_plan_compare_only_question(um):
+        return WanderlyIntentClassification(
+            workspace_action="compare_places",
+            confidence=0.88,
+            rationale="compare_only_fast_path",
+            itinerary_refresh="none",
+            itinerary_delivery="none",
+            focus_destination_ids=[focus] if focus else [],
+            lock_canvas_navigation=False,
+        )
+    from src.wanderly.refine_shortlist_guard import (
+        is_trip_wide_itinerary_refine_message,
+        match_focus_destination_id,
+        resolve_refine_prior_destinations,
+    )
+
+    if itinerary_primary_refine_message(um) and is_trip_wide_itinerary_refine_message(um):
+        focus_ids = [focus] if focus else []
+        return WanderlyIntentClassification(
+            workspace_action="refine_workspace",
+            confidence=0.9,
+            rationale="trip_wide_itinerary_rebuild_fast_path",
+            itinerary_refresh="all",
+            itinerary_delivery="lazy_build",
+            focus_destination_ids=focus_ids,
+            lock_canvas_navigation=True,
+        )
+    prior_dests = resolve_refine_prior_destinations(session_id)
+    matched = focus or match_focus_destination_id(um, prior_dests)
+    if matched and not is_trip_wide_itinerary_refine_message(um):
+        if re.search(
+            r"\b(rebuild|refresh|regenerate|redo|revise|update|rewrite)\b",
+            um,
+            re.I,
+        ):
+            return WanderlyIntentClassification(
+                workspace_action="targeted_itinerary_edit",
+                confidence=0.88,
+                rationale="single_card_refine_fast_path",
+                itinerary_refresh="focus_only",
+                itinerary_delivery="lazy_build",
+                focus_destination_ids=[matched],
+                lock_canvas_navigation=False,
+            )
+    return None
+
+
 def classify_user_intent_llm(
     *,
     user_message: str,
@@ -144,6 +203,17 @@ def classify_user_intent_llm(
     """
     Run a small structured Cursor call. Returns ``None`` if no model id, network failure, or invalid JSON.
     """
+    fast = _fast_path_intent_classification(
+        user_message,
+        session_id=session_id,
+        focus_destination_id=focus_destination_id,
+    )
+    if fast is not None:
+        log_itinerary_build(
+            f"path=wanderly.user_intent_llm fast_path sid={(session_id or '')[:12]!r} "
+            f"action={fast.workspace_action!r} refresh={fast.itinerary_refresh!r}"
+        )
+        return fast
     mid = _intent_model_id()
     if not mid:
         log_itinerary_build("path=wanderly.user_intent_llm skip no_model_id")

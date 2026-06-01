@@ -140,6 +140,17 @@ def _orchestration_from_payload(payload: dict[str, Any]) -> dict[str, Any] | Non
     return raw if isinstance(raw, dict) else None
 
 
+def _client_destinations_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """Client board mirror for refine merge when server session is empty."""
+    raw = payload.get("client_destinations")
+    if isinstance(raw, list):
+        return [x for x in raw if isinstance(x, dict)]
+    raw = payload.get("destinations")
+    if isinstance(raw, list):
+        return [x for x in raw if isinstance(x, dict)]
+    return None
+
+
 def _refine_delivery_fields(out: dict[str, Any]) -> dict[str, Any]:
     """Always emit delivery arrays (even empty) so the client does not fall back to stale heuristics."""
     extra: dict[str, Any] = {}
@@ -426,6 +437,7 @@ def run_web_server(
                             confirm_workspace_drop=confirm_drop,
                             orchestration=_orchestration_from_payload(payload),
                             focus_destination_id=(payload.get("focus_destination_id") or "").strip() or None,
+                            client_prior_destinations=_client_destinations_from_payload(payload),
                         )
                         wly_r = out.get("wanderly")
                         nd_r = (
@@ -479,6 +491,7 @@ def run_web_server(
                                 confirm_workspace_drop=confirm_drop_rs,
                                 orchestration=_orchestration_from_payload(payload),
                                 focus_destination_id=(payload.get("focus_destination_id") or "").strip() or None,
+                                client_prior_destinations=_client_destinations_from_payload(payload),
                             )
                             profile_job = _pop_profile_listener_thread(out_r)
                             done_payload: dict[str, Any] = {
@@ -752,6 +765,81 @@ def run_web_server(
                         self._send_json({"error": str(exc)}, status=500)
                     return
 
+                if path == "/api/wanderly/nps_outdoor":
+                    from src.wanderly.nps_provider import enrich_outdoor_nps
+
+                    dest = payload.get("destination")
+                    if not isinstance(dest, dict):
+                        self._send_json(
+                            {"ok": False, "error": "Expected 'destination' object."},
+                            status=400,
+                        )
+                        return
+                    pills_in = payload.get("profile_pills")
+                    pills = (
+                        [x for x in pills_in if isinstance(x, dict)]
+                        if isinstance(pills_in, list)
+                        else []
+                    )
+                    if not pills:
+                        sid_nps = (payload.get("session_id") or "").strip()
+                        if sid_nps:
+                            try:
+                                snap = get_session(sid_nps) or {}
+                                pills = [
+                                    x
+                                    for x in (snap.get("profile_pills") or [])
+                                    if isinstance(x, dict)
+                                ]
+                            except Exception:
+                                pills = []
+                    refresh = payload.get("refresh") in (True, 1, "1", "true", "yes")
+                    try:
+                        oa = dest.get("outdoor_adventure") or (
+                            (dest.get("booking_hooks") or {}).get("outdoor_adventure")
+                            if isinstance(dest.get("booking_hooks"), dict)
+                            else None
+                        )
+                        sid_nps = (payload.get("session_id") or "").strip()
+                        trip_name_nps = str(payload.get("trip_name") or "").strip()
+                        peer_names: list[str] = []
+                        if sid_nps:
+                            snap_nps = get_session(sid_nps) or {}
+                            if not trip_name_nps:
+                                tm = snap_nps.get("trip_meta")
+                                if isinstance(tm, dict):
+                                    trip_name_nps = str(tm.get("trip_name") or "").strip()
+                            for d in snap_nps.get("ui_destinations") or []:
+                                if isinstance(d, dict):
+                                    nm = str(d.get("name") or "").strip()
+                                    if nm and nm != str(dest.get("name") or "").strip():
+                                        peer_names.append(nm)
+                        raw_peers = payload.get("peer_destination_names")
+                        if isinstance(raw_peers, list):
+                            for x in raw_peers:
+                                s = str(x or "").strip()
+                                if s and s not in peer_names:
+                                    peer_names.append(s)
+                        out = enrich_outdoor_nps(
+                            destination_name=str(dest.get("name") or ""),
+                            destination_country=str(dest.get("country") or "") or None,
+                            destination_hook=str(dest.get("hook") or "") or None,
+                            itinerary=dest.get("itinerary")
+                            if isinstance(dest.get("itinerary"), list)
+                            else None,
+                            outdoor_adventure=oa if isinstance(oa, dict) else None,
+                            profile_pills=pills,
+                            trip_name=trip_name_nps or None,
+                            peer_destination_names=peer_names or None,
+                            use_cache=not refresh,
+                        )
+                        self._send_json(out, status=200)
+                    except Exception as exc:
+                        print(f"[web] /api/wanderly/nps_outdoor error: {exc!r}")
+                        traceback.print_exc()
+                        self._send_json({"ok": False, "error": str(exc)}, status=500)
+                    return
+
                 if path == "/api/wanderly/build_itinerary":
                     sid = (payload.get("session_id") or "").strip()
                     if not sid:
@@ -803,6 +891,8 @@ def run_web_server(
                         ncf = itin_out.get("needs_commercial_flight")
                         itp = itin_out.get("transport_plan")
                         ibh = itin_out.get("booking_hooks")
+                        iqa = itin_out.get("itinerary_qa")
+                        atc = itin_out.get("alltrails_search_context")
                         print(
                             f"[web] /api/wanderly/build_itinerary ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -832,6 +922,11 @@ def run_web_server(
                             resp_body["transport_plan"] = itp
                         if isinstance(ibh, dict) and isinstance(ibh.get("transport"), dict):
                             resp_body["booking_hooks"] = ibh
+                        if isinstance(iqa, dict):
+                            resp_body["itinerary_qa"] = iqa
+                        atc_in_resp = isinstance(atc, dict) and bool(atc.get("trail_name"))
+                        if atc_in_resp:
+                            resp_body["alltrails_search_context"] = atc
                         if rows:
                             patch_session_destination_itinerary(
                                 sid,
@@ -842,6 +937,8 @@ def run_web_server(
                                 needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                                 transport_plan=itp if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip() else None,
                                 booking_hooks=ibh if isinstance(ibh, dict) and isinstance(ibh.get("transport"), dict) else None,
+                                itinerary_qa=iqa if isinstance(iqa, dict) else None,
+                                alltrails_search_context=atc if isinstance(atc, dict) else None,
                             )
                         self._send_json(resp_body, status=200)
                     except Exception as exc:
@@ -925,6 +1022,8 @@ def run_web_server(
                         ncf = itin_out.get("needs_commercial_flight")
                         itp = itin_out.get("transport_plan")
                         ibh = itin_out.get("booking_hooks")
+                        iqa = itin_out.get("itinerary_qa")
+                        atc = itin_out.get("alltrails_search_context")
                         print(
                             f"[web] /api/wanderly/build_itinerary_stream ok rid={rid} dest_id={did!r} rows={len(rows)}",
                             flush=True,
@@ -955,6 +1054,11 @@ def run_web_server(
                             done_payload["transport_plan"] = itp
                         if isinstance(ibh, dict) and isinstance(ibh.get("transport"), dict):
                             done_payload["booking_hooks"] = ibh
+                        if isinstance(iqa, dict):
+                            done_payload["itinerary_qa"] = iqa
+                        atc_in_done = isinstance(atc, dict) and bool(atc.get("trail_name"))
+                        if atc_in_done:
+                            done_payload["alltrails_search_context"] = atc
                         emit_itin(done_payload)
                         if rows:
                             patch_session_destination_itinerary(
@@ -966,6 +1070,8 @@ def run_web_server(
                                 needs_commercial_flight=ncf if isinstance(ncf, bool) else None,
                                 transport_plan=itp if isinstance(itp, dict) and str(itp.get("primary_mode") or "").strip() else None,
                                 booking_hooks=ibh if isinstance(ibh, dict) and isinstance(ibh.get("transport"), dict) else None,
+                                itinerary_qa=iqa if isinstance(iqa, dict) else None,
+                                alltrails_search_context=atc if isinstance(atc, dict) else None,
                             )
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         _trace_itin_web(
@@ -1099,6 +1205,14 @@ def run_web_server(
                             patch["editable_notes"] = v[:500]
                         elif k == "vibe":
                             patch["destination_preferences"] = [x.strip() for x in v.split(",") if x.strip()][:12]
+                        elif k == "trip_style":
+                            prev = (
+                                orchestrator.session.get_traveler_profile().editable_notes or ""
+                            ).strip()
+                            tid = f"Trip style: {v.strip()[:100]}"
+                            patch["editable_notes"] = (
+                                f"{prev}; {tid}".strip("; ") if prev else tid
+                            )[:2000]
                         elif k == "when":
                             patch["traveler_summary"] = v[:2000]
                         elif k == "duration":

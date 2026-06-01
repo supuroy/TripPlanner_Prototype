@@ -11,25 +11,32 @@ import { startRotatingWaitCaption, WAIT_ORCHESTRATE_CAPTIONS } from "./streamCap
 type SetDestinations = (u: DestCard[] | ((prev: DestCard[]) => DestCard[])) => void;
 
 const chainByKey = new Map<string, Promise<void>>();
-const inFlight = new Set<string>();
+/** Destination ids with a build scheduled or in flight (background + expanded share this). */
+const activeDestBuilds = new Set<string>();
+/** Avoid scheduling the same dirty-card wave twice (workspace apply + canvas effect). */
+const lastPrefetchSigBySession = new Map<string, string>();
 
 function itineraryParallelDestClient(): boolean {
   return import.meta.env.VITE_WANDERLY_ITINERARY_PARALLEL_DEST === "1";
 }
 
-/** Queue depth (scheduled + currently running) for UI hints — cards stay openable; work is serialized server-side. */
+/** Queue depth (unique cards + any non-destination lane jobs) for UI hints. */
 type LaneDepthSink = (depth: number) => void;
 let laneDepthSink: LaneDepthSink | null = null;
-let pendingLaneJobs = 0;
+let pendingGlobalLaneJobs = 0;
+
+function itineraryLaneQueueDepth(): number {
+  return activeDestBuilds.size + pendingGlobalLaneJobs;
+}
 
 function notifyLaneDepth(): void {
-  laneDepthSink?.(pendingLaneJobs);
+  laneDepthSink?.(itineraryLaneQueueDepth());
 }
 
 /** TripProvider registers this for optional “N itinerary updates queued” UI (header / expanded card). */
 export function registerItineraryLaneDepthSink(sink: LaneDepthSink | null): void {
   laneDepthSink = sink;
-  if (sink) sink(pendingLaneJobs);
+  if (sink) sink(itineraryLaneQueueDepth());
 }
 
 /** @deprecated use registerItineraryLaneDepthSink — kept so older imports don’t break if any exist */
@@ -37,27 +44,45 @@ export function registerItineraryLaneBusySink(sink: ((busy: boolean) => void) | 
   registerItineraryLaneDepthSink(sink ? (depth) => sink(depth > 0) : null);
 }
 
+/** True when a background or expanded itinerary build is already queued or running for this card. */
+export function isDestinationItineraryBuildActive(destId: string): boolean {
+  const id = String(destId || "").trim();
+  return id.length > 0 && activeDestBuilds.has(id);
+}
+
+export function tryClaimDestinationItineraryBuild(destId: string): boolean {
+  const id = String(destId || "").trim();
+  if (!id || activeDestBuilds.has(id)) return false;
+  activeDestBuilds.add(id);
+  notifyLaneDepth();
+  return true;
+}
+
+export function releaseDestinationItineraryBuild(destId: string): void {
+  const id = String(destId || "").trim();
+  if (!id || !activeDestBuilds.delete(id)) return;
+  notifyLaneDepth();
+}
+
 /**
  * Serialize every itinerary HTTP call (background JSON builds + expanded-card SSE).
  * Cursor reuses one agent per session lane; overlapping runs return ``409 Conflict``.
  *
- * The queue must never leave ``pendingLaneJobs`` elevated: if ``chain`` were ever rejected,
- * a bare ``chain.then(run)`` would skip ``run`` while we already incremented — locking the UI
- * with the queue counter stuck high. Normalize with ``Promise.resolve(chain).catch`` and
- * swallow the terminal rejection so the next enqueue always schedules.
+ * With ``VITE_WANDERLY_ITINERARY_PARALLEL_DEST=1`` and a destination ``queueKey``, each card
+ * uses its own chain so builds can overlap — server must set ``WANDERLY_ITINERARY_PARALLEL_DEST=1``.
+ *
+ * Returns false when the same destination already has a lane job (caller should not start a duplicate HTTP build).
  */
-/**
- * Serialize itinerary HTTP work. With ``VITE_WANDERLY_ITINERARY_PARALLEL_DEST=1`` and a
- * non-empty ``queueKey`` (e.g. destination id), each card uses its own chain so builds can
- * overlap — server must set ``WANDERLY_ITINERARY_PARALLEL_DEST=1`` for matching Cursor lanes.
- */
-export function enqueueItineraryLane(fn: () => Promise<void>, queueKey?: string | null): void {
+export function enqueueItineraryLane(fn: () => Promise<void>, queueKey?: string | null): boolean {
+  const destId = queueKey != null ? String(queueKey).trim() : "";
   const key =
-    itineraryParallelDestClient() && queueKey && String(queueKey).trim()
-      ? `d:${String(queueKey).trim()}`
-      : "__default__";
-  pendingLaneJobs += 1;
-  notifyLaneDepth();
+    itineraryParallelDestClient() && destId.length > 0 ? `d:${destId}` : "__default__";
+
+  if (!destId.length) {
+    pendingGlobalLaneJobs += 1;
+    notifyLaneDepth();
+  }
+
   const prev = chainByKey.get(key) ?? Promise.resolve();
   const next = Promise.resolve(prev)
     .catch(() => {})
@@ -65,19 +90,42 @@ export function enqueueItineraryLane(fn: () => Promise<void>, queueKey?: string 
       try {
         await fn();
       } finally {
-        pendingLaneJobs -= 1;
-        if (pendingLaneJobs <= 0) pendingLaneJobs = 0;
-        notifyLaneDepth();
+        if (!destId.length) {
+          pendingGlobalLaneJobs = Math.max(0, pendingGlobalLaneJobs - 1);
+          notifyLaneDepth();
+        }
       }
     })
     .catch(() => {});
   chainByKey.set(key, next);
+  return true;
 }
 
 function requestId(prefix: string): string {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
     ? `${prefix}-${crypto.randomUUID()}`
     : `${prefix}-${Date.now()}`;
+}
+
+function prefetchWaveSig(dirtyIds: string[]): string {
+  return dirtyIds
+    .map((id) => String(id).trim())
+    .filter(Boolean)
+    .sort()
+    .join(",");
+}
+
+function shouldSchedulePrefetchWave(sessionId: string, dirtyIds: string[]): boolean {
+  const sid = sessionId.trim();
+  const sig = prefetchWaveSig(dirtyIds);
+  if (!sid || !sig) return false;
+  if (lastPrefetchSigBySession.get(sid) === sig) return false;
+  lastPrefetchSigBySession.set(sid, sig);
+  return true;
+}
+
+function dirtyNonDismissedIds(cards: DestCard[]): string[] {
+  return cards.filter((d) => !d.dismissed && d.itinerary_dirty === true).map((d) => String(d.id));
 }
 
 /** One serialized background build; skips if the same destination is already queued or running. */
@@ -87,12 +135,14 @@ export function enqueueBackgroundItineraryBuild(args: {
   profile: ProfilePill[];
   setDestinations: SetDestinations;
   source: string;
+  /** When true, trip-wide rebuilds share one client lane (avoids parallel Cursor 409s). */
+  serializeLane?: boolean;
 }): void {
   const id = String(args.dest.id);
-  if (inFlight.has(id)) return;
   if (args.dest.dismissed || args.dest.itinerary_dirty !== true) return;
-  inFlight.add(id);
-  enqueueItineraryLane(async () => {
+  if (!tryClaimDestinationItineraryBuild(id)) return;
+
+  const enqueued = enqueueItineraryLane(async () => {
     const rid = requestId(`itin-${args.source}`);
     const destLabel = String(args.dest.name || id).trim() || id;
     cardStreamOpen({
@@ -144,6 +194,8 @@ export function enqueueBackgroundItineraryBuild(args: {
             typeof res.needs_commercial_flight === "boolean" ? res.needs_commercial_flight : null,
             res.transport_plan ?? null,
             res.booking_hooks ?? null,
+            res.itinerary_qa ?? null,
+            res.alltrails_search_context ?? null,
           );
         });
         queueMicrotask(() => {
@@ -159,9 +211,11 @@ export function enqueueBackgroundItineraryBuild(args: {
     } finally {
       stopSpin?.();
       cardStreamClose(1000, id);
-      inFlight.delete(id);
+      releaseDestinationItineraryBuild(id);
     }
-  }, id);
+  }, args.serializeLane ? null : id);
+
+  if (!enqueued) releaseDestinationItineraryBuild(id);
 }
 
 /**
@@ -196,15 +250,27 @@ export function scheduleWorkspaceItineraryPrefetch(opts: {
       if (sb !== 0) return sb;
       return String(a.name || "").localeCompare(String(b.name || ""));
     });
+  const dirtyIds = dirtyNonDismissedIds(merged);
   if (targets.length === 0) return;
+  if (!shouldSchedulePrefetchWave(opts.sessionId, dirtyIds)) {
+    logItin("background_prefetch_skipped_duplicate_wave", {
+      sessionId: opts.sessionId.slice(0, 12),
+      dirtyIds,
+      targetIds: targets.map((x) => x.id),
+      source: "workspace_apply",
+    });
+    return;
+  }
   const delayMs = opts.delayMs ?? 450;
   logItin("background_prefetch_scheduled", {
     sessionId: opts.sessionId.slice(0, 12),
     delayMs,
+    dirtyIds,
     targetIds: targets.map((x) => x.id),
     expandedExcluded: ex ?? null,
     source: "workspace_apply",
   });
+  const serializeLane = targets.length > 1;
   window.setTimeout(() => {
     for (const d of targets) {
       enqueueBackgroundItineraryBuild({
@@ -213,6 +279,7 @@ export function scheduleWorkspaceItineraryPrefetch(opts: {
         profile,
         setDestinations: opts.setDestinations,
         source: "workspace_apply",
+        serializeLane,
       });
     }
   }, delayMs);
@@ -242,15 +309,27 @@ export function scheduleCardsItineraryPrefetch(opts: {
       if (sb !== 0) return sb;
       return String(a.name || "").localeCompare(String(b.name || ""));
     });
+  const dirtyIds = dirtyNonDismissedIds(opts.cards);
   if (targets.length === 0) return;
+  if (!shouldSchedulePrefetchWave(opts.sessionId, dirtyIds)) {
+    logItin("background_prefetch_skipped_duplicate_wave", {
+      sessionId: opts.sessionId.slice(0, 12),
+      dirtyIds,
+      targetIds: targets.map((x) => x.id),
+      source: "canvas_store",
+    });
+    return;
+  }
   const delayMs = opts.delayMs ?? 600;
   logItin("background_prefetch_scheduled", {
     sessionId: opts.sessionId.slice(0, 12),
     delayMs,
+    dirtyIds,
     targetIds: targets.map((x) => x.id),
     expandedExcluded: ex ?? null,
     source: "canvas_store",
   });
+  const serializeLane = targets.length > 1;
   window.setTimeout(() => {
     for (const d of targets) {
       enqueueBackgroundItineraryBuild({
@@ -259,7 +338,14 @@ export function scheduleCardsItineraryPrefetch(opts: {
         profile: opts.profile,
         setDestinations: opts.setDestinations,
         source: "canvas_store",
+        serializeLane,
       });
     }
   }, delayMs);
+}
+
+/** Reset prefetch dedupe when switching trips (TripStore should call on trip id change). */
+export function resetItineraryPrefetchSession(sessionId: string): void {
+  const sid = sessionId.trim();
+  if (sid) lastPrefetchSigBySession.delete(sid);
 }

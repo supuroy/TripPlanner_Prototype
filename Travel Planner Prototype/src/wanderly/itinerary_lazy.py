@@ -7,7 +7,7 @@ import os
 import re
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Callable
 
 from src.integrations.cursor_agent_client import (
     basic_client,
@@ -16,7 +16,12 @@ from src.integrations.cursor_agent_client import (
     run_prompt_collect_assistant_text,
     run_prompt_collect_assistant_text_streaming,
 )
-from src.wanderly.day_logistics import enrich_itinerary_rows_lodging_from_profile, normalize_day_logistics
+from src.wanderly.day_logistics import (
+    enrich_itinerary_rows_lodging_from_profile,
+    normalize_day_logistics,
+    sync_camp_nights_to_itinerary_rows,
+    sync_walk_surface_legs_to_itinerary_rows,
+)
 from src.wanderly.llm_telemetry import ACTIVITY_ITINERARY_BUILDER, telemetry_meta
 from src.wanderly.itinerary_debug_log import (
     itinerary_debug_verbose,
@@ -29,6 +34,20 @@ from src.wanderly.itinerary_prompt_variants import (
     _ITINERARY_TAIL_COMPACT,
     build_itinerary_context_json,
     itinerary_compact_prompt_enabled,
+)
+from src.wanderly.outdoor_adventure import (
+    is_backpacking_or_multiday_hike,
+    normalize_outdoor_adventure,
+    outdoor_itinerary_prompt_block,
+    outdoor_logistics_repair_append,
+)
+from src.wanderly.alltrails_search_context import (
+    derive_alltrails_search_context,
+    normalize_alltrails_search_context,
+)
+from src.wanderly.trail_authority import (
+    authoritative_trail_prompt_block,
+    enforce_trail_authority_for_destination,
 )
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane, get_cursor_agent_id
 
@@ -104,7 +123,8 @@ Rules:
   - **day_logistics (REQUIRED on every itinerary day):** Machine-readable booking slice **in addition to** human bullets. **Do not omit** this key. Downstream automation drops days with no concrete logistics.
   - **flight:** Always present on the object. Use **null** when this day has **no** commercial airline segment (typical road/ferry days). On days with airline travel (especially **day 1** inbound and the **last day** return when the trip uses long-haul), set non-null **flight.segments** using the **same** ``from_search_label`` / ``to_search_label`` / ``role`` fields as ``transport_plan`` (never ``from_label`` / ``to_label`` here). Do **not** leave **every** day's ``flight`` null while ``commercial_flight_segments`` lists international legs — align day rows with the plan.
   - **lodging:** **null** only when the traveler does **not** sleep in a new place that night (same hotel as wake-up, or pure multi-hop travel with no check-in). Otherwise include **destination_search_label** (city/town + country), optional **area_hint** (neighborhood when it narrows search, e.g. harbourfront, waterfront), **check_in** / **check_out** as **YYYY-MM-DD** when traveler dates are known from context else omit dates, **rooms** (integer 1–9; default one room per party unless the profile implies otherwise), **guests** `{adults, children, infants_in_seat}` **matching the profile Who pill counts**, **traveler_party** `{total, adults, children, infants_in_seat}` where **total** equals the sum of the four counts (repeat the same numbers as in **guests**), **pet_friendly** boolean (**true** whenever the profile mentions a dog/cat/pet; **false** only when the profile clearly excludes pets), **room_preferences** (1–6 short strings, e.g. `pet-friendly property`, `two beds`, `ground floor`, `kitchenette`), and **booking_factors** (0–10 short snake_case or human tags the OTA layer should respect: e.g. `ada_accessible_room`, `connecting_rooms`, `ev_charging`, `late_arrival`, `quiet_wing`, `kitchenette`, `free_cancellation_priority`, `ferry_schedule_risk` — anything you infer from profile or day story that matters for search filters or ranking, not prose).
-  - **surface_legs:** **Required** whenever the day moves by ferry/drive/train/walk between places (even if lodging is null). Use ordered legs: `{kind: drive|ferry|train|walk|other, from_label?, to_label?, operator_hint?}` (e.g. BC Ferries Tsawwassen→Nanaimo). On a quiet rest day at one base with no movement, use one short `walk` leg around the base town instead of an empty object.
+  - **surface_legs:** **Required** whenever the day moves by ferry/drive/train/walk between places (even if lodging is null). Use ordered legs: `{kind: drive|ferry|train|walk|other, from_label?, to_label?, operator_hint?}` (e.g. BC Ferries Tsawwassen→Nanaimo). On **backpacking / hiking days**, you MUST include a **`walk`** leg with **both** `from_label` and `to_label` (trailhead → camp); put `trail_name`, `distance_mi`, `elevation_gain_ft`, `elevation_loss_ft` on that walk leg when you have a `trail_segment`. **Do not** describe the hike only in `items` without a `walk` row. On a quiet rest day at one base with no movement, use one short `walk` leg around the base town instead of an empty object.
+  - **Backpacking day labels (critical):** Each hiking day `label` is **one** segment only — format `Place A to Place B` (or `A → B`). **Never** chain multiple days in one label (no `Day2 hike → Day3 hike → …`). Day N+1 `walk.from_label` must match day N `camp_night.label`. Exit / fly-home days: **no** backcountry `camp_night`; use flight/lodging only. All hike endpoints must stay in the **same national park** as this destination card.
   - **Validator rule:** Each day must have **at least one** of: non-null **lodging**, **flight** with a non-empty **segments** array, or **surface_legs** with ≥1 leg. All-null / all-omitted logistics is invalid.
 - budget_guidance: include all seven keys with non-empty strings. The four long fields are for detail panels; the three *_short fields MUST be concise (hard cap ~40 characters each, no newlines) so they fit destination mini-cards — compress ranges and drop filler words.
 - booking_search_hints: When ``commercial_flight_segments`` is non-empty, you MUST include this object with **flight_to_label** (primary gateway to search toward) and **flight_return_from_label** (city of the last main departure before home). Use concrete cities/airport metros Expedia would recognize (avoid broad regions like "Tuscany" alone for flight endpoints). Never append prose suffixes like "-based" or " based" to city names (breaks Expedia typeahead). Omit the whole object only when **primary_mode** is ``ground_only`` with **no** international positioning, or if you are genuinely unsure of endpoints.
@@ -925,7 +945,72 @@ def _logistics_followup_retry_enabled() -> bool:
     )
 
 
-def _logistics_repair_user_message(raw: str, *, n_days: int) -> str:
+def _itinerary_qa_retry_enabled() -> bool:
+    """Second Cursor pass when backpacking QA reports errors (chain breaks, cross-park, etc.)."""
+    return (os.environ.get("WANDERLY_ITIN_QA_RETRY") or "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def _itinerary_qa_repair_user_message(
+    raw: str,
+    *,
+    qa: dict[str, Any],
+    n_days: int,
+    profile_pills: list[dict[str, Any]] | None = None,
+    destination: dict[str, Any] | None = None,
+) -> str:
+    body = (raw or "").replace("\r", "").strip()
+    cap_s = (os.environ.get("WANDERLY_ITIN_QA_RETRY_MAX_PREVIOUS_CHARS") or "14000").strip() or "14000"
+    try:
+        cap = int(cap_s)
+    except ValueError:
+        cap = 14000
+    cap = max(2000, min(cap, 100_000))
+    if len(body) > cap:
+        body = body[: cap // 2] + "\n…\n" + body[-cap // 2 :]
+    issues = [i for i in (qa.get("issues") or []) if isinstance(i, dict)]
+    issue_lines = []
+    for row in issues[:12]:
+        if str(row.get("severity") or "").lower() != "error":
+            continue
+        day = row.get("day")
+        prefix = f"Day {day}: " if day else ""
+        issue_lines.append(f"- {prefix}{row.get('code')}: {row.get('message')}")
+    issues_block = "\n".join(issue_lines) or "- Fix backpacking route continuity and park scope."
+    from src.wanderly.trail_authority import authoritative_trail_prompt_block
+
+    authority = ""
+    if destination:
+        authority = authoritative_trail_prompt_block(destination) or ""
+    return (
+        "BACKPACKING QA FIX REQUIRED: your previous JSON failed automated route checks.\n\n"
+        "Fix every issue below. Return ONLY one complete JSON object (no markdown fences).\n"
+        f"Keep exactly {n_days} days when possible; preserve transport and gateway days.\n\n"
+        "Issues to fix:\n"
+        f"{issues_block}\n\n"
+        "Rules:\n"
+        "- One national park per destination card — no day hikes in a different park on this card.\n"
+        "- Day N+1 walk `from_label` must match day N `camp_night.label` (or trailhead on day 1).\n"
+        "- No `camp_night` on fly-home or exit-only days.\n"
+        "- Use trail stats from Context `alltrails_search_context` when the model emits it (optional reference URL).\n"
+        "- Every hiking day: `surface_legs` with `walk` + `trail_segment`.\n\n"
+        f"{authority}\n\n"
+        "Broken output to repair:\n"
+        f"{body}\n"
+        f"{outdoor_logistics_repair_append(profile_pills)}"
+    )
+
+
+def _logistics_repair_user_message(
+    raw: str,
+    *,
+    n_days: int,
+    profile_pills: list[dict[str, Any]] | None = None,
+) -> str:
     body = (raw or "").replace("\r", "").strip()
     cap_s = (os.environ.get("WANDERLY_ITIN_LOGISTICS_RETRY_MAX_PREVIOUS_CHARS") or "16000").strip() or "16000"
     try:
@@ -948,8 +1033,9 @@ def _logistics_repair_user_message(raw: str, *, n_days: int) -> str:
         "- `lodging`: non-null when the traveler checks into an overnight stay that night (include `destination_search_label`, "
         "`check_in`/`check_out` as YYYY-MM-DD when known, **`rooms`**, **`guests`**, **`traveler_party`** (total = sum of party), "
         "**`pet_friendly`** aligned to profile Who, **`room_preferences`**, optional **`area_hint`**, **`booking_factors`** for any other OTA-relevant constraints).\n"
-        "- `surface_legs`: non-empty whenever the day moves by ferry/drive/train between towns (kind + from_label + to_label). "
-        "On a rest day at one base, use one short `walk` leg around that base.\n"
+        "- `surface_legs`: non-empty whenever the day moves by ferry/drive/train/walk (kind + from_label + to_label). "
+        "On hiking/backpacking days: at least one `walk` leg with from_label + to_label matching day label / camp_night; "
+        "mirror trail_segment stats on the walk leg. On a rest day at one base, one short `walk` leg around that base.\n"
         "Each day must satisfy: non-null lodging OR non-empty flight.segments OR non-empty surface_legs.\n\n"
         "Also correct **transport_plan**, **needs_commercial_flight**, and **booking_search_hints** if they are inconsistent "
         "with home-to-destination reality: when the traveler flies from a US hub (see Context **from** / profile) to an "
@@ -961,7 +1047,114 @@ def _logistics_repair_user_message(raw: str, *, n_days: int) -> str:
         "the relevant days' `day_logistics.flight`.\n\n"
         "Broken output to repair:\n"
         f"{body}\n"
+        f"{outdoor_logistics_repair_append(profile_pills)}"
     )
+
+
+def _apply_itinerary_qa_retry(
+    *,
+    raw: str,
+    out: list[dict[str, Any]],
+    extracted: list[Any],
+    budget: dict[str, str] | None,
+    booking_hints: dict[str, str] | None,
+    needs_cf: bool | None,
+    transport_plan: dict[str, Any] | None,
+    booking_hooks: dict[str, Any] | None,
+    raw_wrapper: dict[str, Any] | None,
+    rid: str,
+    mode: str,
+    did: str,
+    n: int,
+    profile_pills: list[dict[str, Any]],
+    destination: dict[str, Any],
+    run_repair_prompt: Callable[[str], str],
+) -> tuple[
+    str,
+    list[dict[str, Any]],
+    list[Any],
+    dict[str, str] | None,
+    dict[str, str] | None,
+    bool | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
+    """Run a second LLM pass when backpacking QA still reports errors."""
+    if not _itinerary_qa_retry_enabled() or not out:
+        return raw, out, extracted, budget, booking_hints, needs_cf, transport_plan, booking_hooks, raw_wrapper
+    qa = _itinerary_qa_for_response(
+        itinerary_rows=out, destination=destination, profile_pills=profile_pills
+    )
+    if not qa or qa.get("ok") is not False or int(qa.get("error_count") or 0) < 1:
+        return raw, out, extracted, budget, booking_hints, needs_cf, transport_plan, booking_hooks, raw_wrapper
+    log_itinerary_build(
+        f"QA_RETRY_BEGIN rid={rid} mode={mode} dest_id={did!r} errors={qa.get('error_count')}"
+    )
+    repair = _itinerary_qa_repair_user_message(
+        raw, qa=qa, n_days=n, profile_pills=profile_pills, destination=destination
+    )
+    t_retry = time.perf_counter()
+    try:
+        raw2 = run_repair_prompt(repair)
+    except Exception as e:
+        log_itinerary_build(
+            f"QA_RETRY_FAIL rid={rid} mode={mode} dest_id={did!r} exc={type(e).__name__}: {e!s}"
+        )
+        return raw, out, extracted, budget, booking_hints, needs_cf, transport_plan, booking_hooks, raw_wrapper
+    (
+        out2,
+        extracted2,
+        budget2,
+        booking_hints2,
+        needs_cf2,
+        transport_plan2,
+        booking_hooks2,
+        raw_wrapper2,
+    ) = _process_lazy_itinerary_raw(
+        raw2,
+        trace_rid=f"{rid}+qa_retry",
+        mode=mode,
+        dest_id=did,
+        n=n,
+        profile_pills=profile_pills,
+        destination=destination,
+    )
+    retry_ms = (time.perf_counter() - t_retry) * 1000.0
+    qa2 = _itinerary_qa_for_response(
+        itinerary_rows=out2, destination=destination, profile_pills=profile_pills
+    )
+    improved = bool(
+        out2
+        and qa2
+        and (
+            qa2.get("ok") is True
+            or int(qa2.get("error_count") or 99) < int(qa.get("error_count") or 0)
+        )
+    )
+    if improved:
+        log_itinerary_build(
+            f"QA_RETRY_OK rid={rid} mode={mode} dest_id={did!r} "
+            f"errors_before={qa.get('error_count')} errors_after={qa2.get('error_count')} "
+            f"elapsed_retry_ms={retry_ms:.1f}"
+        )
+        return (
+            raw2,
+            out2,
+            extracted2,
+            budget2,
+            booking_hints2,
+            needs_cf2,
+            transport_plan2,
+            booking_hooks2,
+            raw_wrapper2,
+        )
+    log_itinerary_build(
+        f"QA_RETRY_NO_IMPROVEMENT rid={rid} mode={mode} dest_id={did!r} "
+        f"errors_first={qa.get('error_count')} errors_second={(qa2 or {}).get('error_count')} "
+        f"elapsed_retry_ms={retry_ms:.1f}"
+    )
+    return raw, out, extracted, budget, booking_hints, needs_cf, transport_plan, booking_hooks, raw_wrapper
 
 
 def _process_lazy_itinerary_raw(
@@ -989,6 +1182,21 @@ def _process_lazy_itinerary_raw(
     out = _merge_wrapper_parallel_day_logistics(out, raw_wrapper if isinstance(raw_wrapper, dict) else None)
     out = _enforce_comfortable_hops(out, max_days=n, profile_pills=profile_pills, destination=destination)
     out = enrich_itinerary_rows_lodging_from_profile(out, profile_pills)
+    out, trail_warnings = enforce_trail_authority_for_destination(out, destination)
+    for w in trail_warnings:
+        log_itinerary_build(f"TRAIL_AUTHORITY rid={trace_rid} {w}")
+    oa_for_camps = _outdoor_adventure_for_itinerary_response(
+        raw_wrapper if isinstance(raw_wrapper, dict) else None,
+        destination,
+    )
+    out = sync_camp_nights_to_itinerary_rows(out, oa_for_camps, destination=destination)
+    out = sync_walk_surface_legs_to_itinerary_rows(out, outdoor_adventure=oa_for_camps)
+    dest_qa = dict(destination)
+    dest_qa["itinerary"] = out
+    from src.wanderly.backpacking_itinerary_qa import apply_backpacking_itinerary_qa
+
+    dest_qa = apply_backpacking_itinerary_qa(dest_qa, profile_pills=profile_pills)
+    out = dest_qa.get("itinerary") if isinstance(dest_qa.get("itinerary"), list) else out
     _logistics_trace_lazy_build(
         rid=trace_rid,
         mode=mode,
@@ -996,6 +1204,13 @@ def _process_lazy_itinerary_raw(
         raw=raw,
         extracted=list(ext_list),
         normalized=out,
+        raw_wrapper=raw_wrapper if isinstance(raw_wrapper, dict) else None,
+    )
+    from src.wanderly.alltrails_build_trace import log_alltrails_llm_wrapper
+
+    log_alltrails_llm_wrapper(
+        rid=trace_rid,
+        dest_id=dest_id,
         raw_wrapper=raw_wrapper if isinstance(raw_wrapper, dict) else None,
     )
     return out, ext_list, budget, booking_hints, needs_cf, transport_plan, booking_hooks, raw_wrapper
@@ -1080,12 +1295,62 @@ def _itinerary_prompt_and_days(
     n = max(3, min(int(days), 14))
     prefix = _itinerary_persistent_prefix()
     tail = _itinerary_prompt_tail()
+    outdoor_block = outdoor_itinerary_prompt_block(profile_pills)
+    if outdoor_block:
+        tail = tail + "\n\n" + outdoor_block
+    if is_backpacking_or_multiday_hike(profile_pills):
+        trail_block = authoritative_trail_prompt_block(destination)
+        if trail_block:
+            tail = tail + "\n\n" + trail_block
     ctx = build_itinerary_context_json(destination=destination, profile_pills=profile_pills)
     prompt = prefix + f" {n}\n\nContext JSON:\n{ctx}\n\n" + tail
     rm = (refinement_message or "").strip()
     if rm:
         prompt += f"\n\nTraveler refinement (honor this when rebuilding the day-by-day plan):\n{rm[:4000]}\n"
     return prompt, n, prefix
+
+
+def _outdoor_from_wrapper(raw_wrapper: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(raw_wrapper, dict):
+        return None
+    return normalize_outdoor_adventure(raw_wrapper.get("outdoor_adventure"))
+
+
+def _outdoor_adventure_for_itinerary_response(
+    raw_wrapper: dict[str, Any] | None,
+    destination: dict[str, Any],
+) -> dict[str, Any] | None:
+    return _outdoor_from_wrapper(raw_wrapper)
+
+
+def _alltrails_context_for_itinerary_response(
+    raw_wrapper: dict[str, Any] | None,
+    destination: dict[str, Any],
+    itinerary_rows: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    from src.wanderly.itinerary_debug_log import log_alltrails_itinerary_context
+
+    did = str(destination.get("id") or "")
+    llm_had_ctx: bool | None = None
+    ctx = None
+    if isinstance(raw_wrapper, dict):
+        llm_had_ctx = isinstance(raw_wrapper.get("alltrails_search_context"), dict)
+        ctx = normalize_alltrails_search_context(raw_wrapper.get("alltrails_search_context"))
+    if not ctx:
+        ctx = derive_alltrails_search_context(
+            {**destination, "itinerary": itinerary_rows},
+        )
+    if not ctx:
+        log_alltrails_itinerary_context(
+            dest_id=did, atc=None, llm_wrapper_had_ctx=llm_had_ctx, channel="build"
+        )
+        return None
+    # Apify verify disabled by default; pass through LLM-emitted context only.
+    out = normalize_alltrails_search_context(ctx)
+    log_alltrails_itinerary_context(
+        dest_id=did, atc=out, llm_wrapper_had_ctx=llm_had_ctx, channel="build"
+    )
+    return out
 
 
 def _itinerary_client_response(
@@ -1096,6 +1361,9 @@ def _itinerary_client_response(
     needs_commercial_flight: bool | None,
     transport_plan: dict[str, Any] | None = None,
     booking_hooks: dict[str, Any] | None = None,
+    outdoor_adventure: dict[str, Any] | None = None,
+    itinerary_qa: dict[str, Any] | None = None,
+    alltrails_search_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from src.wanderly.booking_hooks import build_booking_hooks_from_transport_plan, normalize_booking_hooks
 
@@ -1114,7 +1382,32 @@ def _itinerary_client_response(
         out["transport_plan"] = tp_out
     if bh:
         out["booking_hooks"] = bh
+    oa = normalize_outdoor_adventure(outdoor_adventure)
+    if not oa and isinstance(bh, dict):
+        oa = normalize_outdoor_adventure(bh.get("outdoor_adventure"))
+    if oa:
+        out["outdoor_adventure"] = oa
+    if isinstance(itinerary_qa, dict) and not itinerary_qa.get("skipped"):
+        out["itinerary_qa"] = itinerary_qa
+    atc = normalize_alltrails_search_context(alltrails_search_context)
+    if atc:
+        out["alltrails_search_context"] = atc
     return out
+
+
+def _itinerary_qa_for_response(
+    *,
+    itinerary_rows: list[dict[str, Any]],
+    destination: dict[str, Any],
+    profile_pills: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    dest = {**destination, "itinerary": itinerary_rows}
+    from src.wanderly.backpacking_itinerary_qa import validate_backpacking_itinerary
+
+    qa = validate_backpacking_itinerary(dest, profile_pills=profile_pills)
+    if qa.get("skipped"):
+        return None
+    return qa
 
 
 def build_itinerary_for_destination(
@@ -1196,7 +1489,7 @@ def build_itinerary_for_destination(
         log_itinerary_build(
             f"LOGISTICS_RETRY_BEGIN rid={rid} mode=json dest_id={did!r} itinerary_days={len(out)} n={n}"
         )
-        repair = _logistics_repair_user_message(raw, n_days=n)
+        repair = _logistics_repair_user_message(raw, n_days=n, profile_pills=profile_pills)
         t_retry = time.perf_counter()
         try:
             with basic_client(key) as client:
@@ -1264,6 +1557,57 @@ def build_itinerary_for_destination(
                     f"persisted_dl_first={_persisted_logistics_day_count(out)} "
                     f"persisted_dl_second={_persisted_logistics_day_count(out2)} elapsed_retry_ms={retry_ms:.1f}"
                 )
+
+    def _run_qa_repair(repair_prompt: str) -> str:
+        with basic_client(key) as client:
+            return run_prompt_collect_assistant_text(
+                client,
+                repair_prompt,
+                model_id_override=light,
+                persistent_instruction_prefix=itin_prefix,
+                llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                llm_telemetry_sub_activity="build_itinerary_qa_retry",
+                llm_telemetry_meta=telemetry_meta(
+                    session_id=session_id,
+                    destination_id=did,
+                    request_id=rid,
+                    days=days,
+                ),
+                **cursor_run_persist_kwargs_for_lane(
+                    session_id or "",
+                    _lane,
+                    trace_path=f"{_tp}.qa_retry",
+                ),
+            )
+
+    (
+        raw,
+        out,
+        extracted,
+        budget,
+        booking_hints,
+        needs_cf,
+        transport_plan,
+        booking_hooks,
+        raw_wrapper,
+    ) = _apply_itinerary_qa_retry(
+        raw=raw,
+        out=out,
+        extracted=extracted,
+        budget=budget,
+        booking_hints=booking_hints,
+        needs_cf=needs_cf,
+        transport_plan=transport_plan,
+        booking_hooks=booking_hooks,
+        raw_wrapper=raw_wrapper if isinstance(raw_wrapper, dict) else None,
+        rid=rid,
+        mode="json",
+        did=did,
+        n=n,
+        profile_pills=profile_pills,
+        destination=destination,
+        run_repair_prompt=_run_qa_repair,
+    )
     if out:
         transport_plan, needs_cf, booking_hints = ensure_transport_plan_after_extract(
             transport_plan=transport_plan,
@@ -1296,6 +1640,20 @@ def build_itinerary_for_destination(
         needs_commercial_flight=needs_cf,
         transport_plan=transport_plan,
         booking_hooks=booking_hooks,
+        outdoor_adventure=_outdoor_adventure_for_itinerary_response(
+            raw_wrapper if isinstance(raw_wrapper, dict) else None,
+            destination,
+        ),
+        itinerary_qa=_itinerary_qa_for_response(
+            itinerary_rows=out,
+            destination=destination,
+            profile_pills=profile_pills,
+        ),
+        alltrails_search_context=_alltrails_context_for_itinerary_response(
+            raw_wrapper if isinstance(raw_wrapper, dict) else None,
+            destination,
+            out,
+        ),
     )
 
 
@@ -1386,7 +1744,7 @@ def build_itinerary_for_destination_streaming(
         log_itinerary_build(
             f"LOGISTICS_RETRY_BEGIN rid={rid} mode=sse dest_id={did!r} itinerary_days={len(out)} n={n}"
         )
-        repair = _logistics_repair_user_message(raw, n_days=n)
+        repair = _logistics_repair_user_message(raw, n_days=n, profile_pills=profile_pills)
         t_retry = time.perf_counter()
         try:
             with basic_client(key) as client:
@@ -1455,6 +1813,58 @@ def build_itinerary_for_destination_streaming(
                     f"persisted_dl_first={_persisted_logistics_day_count(out)} "
                     f"persisted_dl_second={_persisted_logistics_day_count(out2)} elapsed_retry_ms={retry_ms:.1f}"
                 )
+
+    def _run_qa_repair_sse(repair_prompt: str) -> str:
+        with basic_client(key) as client:
+            return run_prompt_collect_assistant_text_streaming(
+                client,
+                repair_prompt,
+                emit=_safe_emit if emit else None,
+                model_id_override=light,
+                persistent_instruction_prefix=itin_prefix,
+                llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                llm_telemetry_sub_activity="build_itinerary_qa_retry_stream",
+                llm_telemetry_meta=telemetry_meta(
+                    session_id=session_id,
+                    destination_id=did,
+                    request_id=rid,
+                    days=days,
+                ),
+                **cursor_run_persist_kwargs_for_lane(
+                    session_id or "",
+                    _lane,
+                    trace_path=f"{_tp}.qa_retry",
+                ),
+            )
+
+    (
+        raw,
+        out,
+        extracted,
+        budget,
+        booking_hints,
+        needs_cf,
+        transport_plan,
+        booking_hooks,
+        raw_wrapper,
+    ) = _apply_itinerary_qa_retry(
+        raw=raw,
+        out=out,
+        extracted=extracted,
+        budget=budget,
+        booking_hints=booking_hints,
+        needs_cf=needs_cf,
+        transport_plan=transport_plan,
+        booking_hooks=booking_hooks,
+        raw_wrapper=raw_wrapper if isinstance(raw_wrapper, dict) else None,
+        rid=rid,
+        mode="sse",
+        did=did,
+        n=n,
+        profile_pills=profile_pills,
+        destination=destination,
+        run_repair_prompt=_run_qa_repair_sse,
+    )
     if out:
         transport_plan, needs_cf, booking_hints = ensure_transport_plan_after_extract(
             transport_plan=transport_plan,
@@ -1487,6 +1897,20 @@ def build_itinerary_for_destination_streaming(
         needs_commercial_flight=needs_cf,
         transport_plan=transport_plan,
         booking_hooks=booking_hooks,
+        outdoor_adventure=_outdoor_adventure_for_itinerary_response(
+            raw_wrapper if isinstance(raw_wrapper, dict) else None,
+            destination,
+        ),
+        itinerary_qa=_itinerary_qa_for_response(
+            itinerary_rows=out,
+            destination=destination,
+            profile_pills=profile_pills,
+        ),
+        alltrails_search_context=_alltrails_context_for_itinerary_response(
+            raw_wrapper if isinstance(raw_wrapper, dict) else None,
+            destination,
+            out,
+        ),
     )
 
 

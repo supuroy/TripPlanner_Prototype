@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import type {
   DayLogistics,
   ItineraryBudgetGuidance,
+  OutdoorAdventureMeta,
   WanderlyBookingHooks,
   WanderlyProfilePillDTO,
   WanderlyTransportPlan,
@@ -109,6 +110,29 @@ export interface DestCard {
   transport_plan?: WanderlyTransportPlan;
   /** Canonical book-time hooks from itinerary build (``transport`` mirrors ``transport_plan``). */
   booking_hooks?: WanderlyBookingHooks;
+  /** Permits, camp nights, and trail metadata from lazy itinerary (backpacking / outdoor trips). */
+  outdoor_adventure?: OutdoorAdventureMeta;
+  /** Catalog-grounded trail (offline ``data/trail_catalog``). */
+  grounding?: {
+    trail_id?: string;
+    source_url?: string;
+    status?: "catalog" | string;
+    catalog_version?: number;
+  };
+  /** Optional trail metadata from itinerary LLM (no live AllTrails verify). */
+  alltrails_search_context?: {
+    trail_name?: string;
+    park_name?: string;
+    region?: string;
+    country?: string;
+    parent_alltrails_url?: string;
+    search_query?: string;
+    disambiguation?: string;
+  };
+  /** Live U.S. NPS API enrich (alerts, campgrounds, fees) — optional, not persisted to disk by default. */
+  nps_outdoor?: import("../../api/wanderly").NpsOutdoorEnrichResponse;
+  /** Deterministic backpacking continuity QA from the server. */
+  itinerary_qa?: import("../../api/wanderly").ItineraryQaResult;
 }
 
 export type TripDiskPersistStatus = "unknown" | "saved" | "dirty" | "saving";

@@ -44,6 +44,8 @@ function destCardPersistSlice(d: DestCard): unknown {
     itinerary_len: d.itinerary?.length ?? 0,
     itinerary_dirty: Boolean(d.itinerary_dirty),
     hotels: (d.hotels ?? []).map(hotelPersistSlice),
+    grounding: d.grounding?.trail_id ?? "",
+    nps_outdoor: d.nps_outdoor?.fetched_at ?? Boolean(d.nps_outdoor?.ok),
     flights: (d.flights ?? []).map(flightPersistSlice),
     activities_len: d.activities?.length ?? 0,
   };

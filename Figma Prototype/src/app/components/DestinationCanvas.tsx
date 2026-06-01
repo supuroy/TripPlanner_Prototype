@@ -34,6 +34,7 @@ import {
   ChevronDown,
   ChevronUp,
   Route,
+  Tent,
 } from "lucide-react";
 import { ExportItineraryPdfButton } from "./ExportItineraryPdfButton";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
@@ -44,7 +45,13 @@ import { logItin } from "../lib/itineraryDebug";
 import { mergeItineraryBuildIntoDest } from "../lib/itineraryMergeCard";
 import { buildLogisticsBreadcrumb, type LogisticsCrumb } from "../lib/logisticsBreadcrumb";
 import { cardTripDaysLabel, itineraryLogisticsSignature } from "../lib/syncCardLogisticsFromItinerary";
-import { enqueueItineraryLane, scheduleCardsItineraryPrefetch } from "../lib/lazyItineraryPrefetch";
+import {
+  enqueueItineraryLane,
+  isDestinationItineraryBuildActive,
+  scheduleCardsItineraryPrefetch,
+  tryClaimDestinationItineraryBuild,
+  releaseDestinationItineraryBuild,
+} from "../lib/lazyItineraryPrefetch";
 import { createCardStreamFromSseHandler } from "../lib/cardStreamFromSse";
 import { streamEventToCaption } from "../lib/streamCaption";
 import { useCardStreamingOverlay } from "../hooks/useCardStreamingOverlay";
@@ -201,6 +208,15 @@ function LogisticsCrumbIcon({ crumb }: { crumb: LogisticsCrumb }) {
           ) : null}
         </span>
       );
+    case "camp":
+      return (
+        <span
+          className="inline-flex items-center"
+          title={crumb.label || "Backcountry camp"}
+        >
+          <Tent className="w-3 h-3 shrink-0 text-lime-300/90" aria-hidden />
+        </span>
+      );
     case "car":
       return <Car className="w-3 h-3 shrink-0 text-emerald-300/85" aria-hidden />;
     case "ferry":
@@ -228,15 +244,25 @@ function LogisticsBreadcrumbRow({ dest }: { dest: DestCard }) {
       dest.needs_commercial_flight,
       dest.country,
       dest.name,
+      dest.outdoor_adventure,
+      dest.booking_hooks?.outdoor_adventure,
     ],
   );
+  const crumbTitle = crumbs
+    .filter((c) => c.kind === "camp" && c.label)
+    .map((c) => c.label)
+    .join(" · ");
   return (
     <span
       className="inline-flex flex-wrap items-center gap-x-0.5 gap-y-0.5 min-w-0 max-w-[58%] sm:max-w-[64%]"
-      title="Logistics outline from itinerary (flights, ferries, drives, stays)"
+      title={
+        crumbTitle
+          ? `Logistics: ${crumbTitle}`
+          : "Logistics outline from itinerary (flights, ferries, drives, camps, stays)"
+      }
     >
       {crumbs.map((c, i) => (
-        <Fragment key={`${i}-${c.kind}-${c.nights ?? ""}`}>
+        <Fragment key={`${i}-${c.kind}-${c.nights ?? ""}-${c.label ?? ""}`}>
           {i > 0 ? <ChevronRight className="w-2.5 h-2.5 text-white/15 shrink-0 self-center" aria-hidden /> : null}
           <LogisticsCrumbIcon crumb={c} />
         </Fragment>
@@ -621,6 +647,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const [itinThought, setItinThought] = useState("");
   const itinStreamAssistantRef = useRef({ text: "" });
   const itinStreamThinkingRef = useRef({ text: "" });
+  const itinBuildGenRef = useRef(0);
   const [bookingFace, setBookingFace] = useState(false);
 
   /** Main-board planner/refine only — not card Q&A (``advising``). */
@@ -673,6 +700,7 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
       setItinLoading(false);
       return;
     }
+    const buildGen = ++itinBuildGenRef.current;
     setItinErrorKind(null);
     setItinThought("");
     itinStreamAssistantRef.current = { text: "" };
@@ -694,15 +722,26 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
       itineraryLen: dest.itinerary?.length ?? 0,
       profileSigLen: profileSig.length,
       debounceMs,
+      buildGen,
     });
     const startTimer = window.setTimeout(() => {
-      if (ac.signal.aborted) return;
-      setItinLoading(true);
-      enqueueItineraryLane(async () => {
-        if (ac.signal.aborted) {
+      if (ac.signal.aborted || buildGen !== itinBuildGenRef.current) return;
+      if (isDestinationItineraryBuildActive(dest.id)) {
+        setItinLoading(true);
+        logItin("expanded_effect_skip_duplicate", { requestId, destId: dest.id, buildGen });
+        return;
+      }
+      if (!tryClaimDestinationItineraryBuild(dest.id)) {
+        setItinLoading(true);
+        return;
+      }
+      const enqueued = enqueueItineraryLane(async () => {
+        if (ac.signal.aborted || buildGen !== itinBuildGenRef.current) {
+          releaseDestinationItineraryBuild(dest.id);
           setItinLoading(false);
           return;
         }
+        setItinLoading(true);
         try {
           const res = await buildItineraryStream(
             sessionId,
@@ -758,6 +797,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
                 typeof res.needs_commercial_flight === "boolean" ? res.needs_commercial_flight : null,
                 res.transport_plan ?? null,
                 res.booking_hooks ?? null,
+                res.itinerary_qa ?? null,
+                res.alltrails_search_context ?? null,
               );
             });
             queueMicrotask(() => {
@@ -780,9 +821,14 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           logItin("expanded_fetch_error", { requestId, destId: dest.id, message: String(err) });
           setItinErrorKind("request_failed");
         } finally {
-          if (!ac.signal.aborted) setItinLoading(false);
+          releaseDestinationItineraryBuild(dest.id);
+          if (!ac.signal.aborted && buildGen === itinBuildGenRef.current) setItinLoading(false);
         }
       }, dest.id);
+      if (!enqueued) {
+        releaseDestinationItineraryBuild(dest.id);
+        setItinLoading(false);
+      }
     }, debounceMs);
     return () => {
       window.clearTimeout(startTimer);
@@ -792,6 +838,11 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     // Keep deps minimal so a long-running build is not aborted by redundant identity churn
     // (e.g. ``profile`` ref vs stable ``profileSig``).
   }, [sessionId, dest.id, needsItinFetch, profileSig, addResponse, setDestinations, queuePlanReviewAfterItineraries, beginTripDiskSave, completeTripDiskSave, failTripDiskSave, wanderlyTripId]);
+
+  useEffect(() => {
+    if (needsItinFetch) return;
+    if (!isDestinationItineraryBuildActive(dest.id)) setItinLoading(false);
+  }, [needsItinFetch, dest.id, dest.itinerary_dirty, dest.itinerary?.length]);
 
   const images = useMemo(() => {
     const imgs = (dest.images || []).filter((u): u is string => typeof u === "string" && u.trim().length > 0);
@@ -1708,9 +1759,18 @@ export function DestinationCanvas() {
   );
 
   const profileSig = useMemo(() => JSON.stringify(profile.map((p) => [p.key, p.value])), [profile]);
+  const dirtyPrefetchSig = useMemo(
+    () =>
+      destinations
+        .filter((d) => !d.dismissed && d.itinerary_dirty === true)
+        .map((d) => String(d.id))
+        .sort()
+        .join(","),
+    [destinations],
+  );
 
   useEffect(() => {
-    if (!sessionId || destinations.length === 0) return;
+    if (!sessionId || !dirtyPrefetchSig) return;
     const t = window.setTimeout(() => {
       scheduleCardsItineraryPrefetch({
         sessionId,
@@ -1722,7 +1782,7 @@ export function DestinationCanvas() {
       });
     }, 650);
     return () => clearTimeout(t);
-  }, [sessionId, destinations, expandedDest, profileSig, profile, setDestinations]);
+  }, [sessionId, dirtyPrefetchSig, destinations, expandedDest, profileSig, profile, setDestinations]);
 
   // Reset pagination when expanded card changes - MUST be before early returns
   useEffect(() => {

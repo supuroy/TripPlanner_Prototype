@@ -37,7 +37,7 @@ _EDIT_CUE_RE = re.compile(
     re.I,
 )
 
-_CRITICAL_PROFILE_KEYS = frozenset({"when", "who", "from", "budget", "duration"})
+_CRITICAL_PROFILE_KEYS = frozenset({"when", "who", "from", "budget", "duration", "trip_style"})
 
 _REFINE_INLINE_ITINERARY_BLOCK = """
 **Inline itinerary mode (this turn):** The traveler asked to rebuild day-by-day plan(s). For each
@@ -71,7 +71,9 @@ def resolve_itinerary_delivery(orchestration: dict[str, Any] | None) -> str:
 
 
 def itinerary_primary_refine_message(message: str) -> bool:
-    """Mirrors Figma ``isItineraryPrimaryRefineMessage`` (avoid importing smoke_service)."""
+    """Trip-wide itinerary rebuild (not a single named card, not a profile-only edit)."""
+    from src.wanderly.refine_shortlist_guard import is_trip_wide_itinerary_refine_message
+
     m = (message or "").strip()
     if not m:
         return False
@@ -91,7 +93,9 @@ def itinerary_primary_refine_message(message: str) -> bool:
         or re.search(r"\b(update|edit)\s+(my\s+)?(travel|traveler)\s+profile\b", ml, re.I)
         or re.search(r"\b(profile\s+pills?|sidebar\s+profile)\b", ml, re.I)
     )
-    return not asks_profile
+    if asks_profile:
+        return False
+    return is_trip_wide_itinerary_refine_message(m)
 
 
 def is_plan_compare_only_question(message: str) -> bool:

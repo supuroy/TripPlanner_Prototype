@@ -1,0 +1,31 @@
+{
+  "catalog_version": 1,
+  "written_at_utc": "2026-05-31T02:47:47Z",
+  "source": {
+    "park_url": "https://www.alltrails.com/parks/us/minnesota/a-a-kordiak-park",
+    "method": "playwright_directory_batch"
+  },
+  "park_code": "aako",
+  "park_name": "A A Kordiak Park",
+  "region": "Minnesota",
+  "country": "United States",
+  "trail_count": 1,
+  "trails": [
+    {
+      "trail_id": "aako:highland-lake-loop",
+      "name": "#1 - Highland Lake Loop",
+      "park_code": "aako",
+      "park_name": "A A Kordiak Park",
+      "region": "Minnesota",
+      "country": "United States",
+      "distance_mi": 1.1,
+      "elevation_gain_ft": null,
+      "difficulty": "Easy",
+      "route_type": null,
+      "source_url": "https://www.alltrails.com/trail/us/minnesota/highland-lake-loop",
+      "alltrails_id": null,
+      "rating": 4.3,
+      "tags": []
+    }
+  ]
+}
