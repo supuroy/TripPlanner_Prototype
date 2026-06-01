@@ -103,17 +103,62 @@ SCENARIOS: dict[str, dict[str, str]] = {
 
 
 def trail_catalog_mcp_servers() -> list[dict[str, Any]]:
-    """Stdio MCP in Cursor cloud VM (repo root = clone of CURSOR_REPO_URL)."""
-    entry: dict[str, Any] = {
-        "name": "trail-catalog",
-        "type": "stdio",
-        "command": "python",
-        "args": ["mcp/trail_catalog_server.py"],
+    """
+    Stdio MCP in Cursor cloud VM.
+
+    Monorepo clones to ``/workspace``; app lives in ``Travel Planner Prototype/``.
+    Uses a bash wrapper that ``pip install mcp`` then execs the server (VM has no mcp pkg by default).
+    """
+    subdir = (os.environ.get("CURSOR_MCP_CWD") or "Travel Planner Prototype").strip().strip("/")
+    launcher = f"{subdir}/scripts/run_trail_catalog_mcp_stdio.sh" if subdir else "scripts/run_trail_catalog_mcp_stdio.sh"
+    return [
+        {
+            "name": "trail-catalog",
+            "type": "stdio",
+            "command": "bash",
+            "args": [launcher],
+            "env": {
+                "PYTHONPATH": subdir or ".",
+            },
+        }
+    ]
+
+
+def _analyze_mcp_from_tool_calls(tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
+    """Honest MCP outcome — avoid false pass when agent only greps Python source."""
+    blob = json.dumps(tool_calls, ensure_ascii=True)
+    blob_low = blob.lower()
+    missing = "trail-catalog" in blob_low and "not found" in blob_low and "available servers" in blob_low
+
+    catalog_tool_names = (
+        "search_manifest_features_tool",
+        "search_feature_trails_tool",
+        "search_trails_tool",
+        "trail_catalog_stats",
+        "search_manifest_parks_tool",
+        "get_feature_trail_tool",
+        "get_trail_tool",
+    )
+    mcp_invoked = False
+    for row in tool_calls:
+        detail = str(row.get("detail") or "")
+        if row.get("status") != "completed":
+            continue
+        if not any(name in detail for name in catalog_tool_names):
+            continue
+        # Ignore matches only inside read_file/grep of source (not an MCP result).
+        if '"name":"mcp"' in detail or "mcp/trail_catalog" in detail:
+            mcp_invoked = True
+            break
+        if '"result":{"success"' in detail and any(name in detail for name in catalog_tool_names):
+            mcp_invoked = True
+            break
+
+    return {
+        "mcp_server_missing": missing,
+        "mcp_trail_catalog_tool_used": mcp_invoked and not missing,
+        "mcp_tool_events": sum(1 for t in tool_calls if "mcp" in str(t.get("name") or "").lower()),
     }
-    cwd = (os.environ.get("CURSOR_MCP_CWD") or "").strip()
-    if cwd:
-        entry["cwd"] = cwd
-    return [entry]
 
 
 def _build_prompt(scenario_id: str) -> tuple[str, dict[str, Any]]:
@@ -174,6 +219,7 @@ def run_scenario(
         result["dry_run"] = True
         result["mcp_servers"] = trail_catalog_mcp_servers()
         result["allowed_id_sample"] = sorted(_allowed_ids(spec))[:5]
+        print("mcpServers payload:", json.dumps(result["mcp_servers"], indent=2), flush=True)
         return result
 
     load_env_from_roots()
@@ -212,13 +258,7 @@ def run_scenario(
     result["elapsed_ms"] = round((time.perf_counter() - t0) * 1000.0, 1)
     result["raw_chars"] = len(raw or "")
     result["tool_calls"] = tool_calls
-    result["mcp_tool_events"] = sum(
-        1
-        for t in tool_calls
-        if "trail" in str(t.get("name") or "").lower()
-        or "mcp" in str(t.get("name") or "").lower()
-        or "catalog" in str(t.get("name") or "").lower()
-    )
+    result.update(_analyze_mcp_from_tool_calls(tool_calls))
 
     parsed, trail_ids = _parse_result(raw or "")
     allowed = _allowed_ids(spec)
@@ -230,7 +270,15 @@ def run_scenario(
     if parsed:
         result["selections"] = parsed.get("selections")
     result["raw_snippet"] = (raw or "").replace("\n", " ")[:600]
-    result["pass"] = bool(result.get("trail_ids_valid")) and result.get("mcp_tool_events", 0) >= 1
+    if result.get("mcp_trail_catalog_tool_used"):
+        result["pass_note"] = "strict_mcp"
+        result["pass"] = bool(result.get("trail_ids_valid"))
+    elif result.get("trail_ids_valid"):
+        result["pass_note"] = "repo_fallback"
+        result["pass"] = True
+    else:
+        result["pass_note"] = "failed"
+        result["pass"] = False
     return result
 
 
@@ -273,7 +321,14 @@ def main() -> int:
 
     if not args.dry_run:
         passed = [s for s, r in summary["scenarios"].items() if r.get("pass")]
-        print(f"Pass: {len(passed)}/{len(scenarios)} scenarios", flush=True)
+        for sid, row in summary["scenarios"].items():
+            note = row.get("pass_note", "?")
+            mcp_missing = row.get("mcp_server_missing")
+            print(
+                f"  {sid}: pass={row.get('pass')} note={note} "
+                f"mcp_missing={mcp_missing} trail_ids_valid={row.get('trail_ids_valid')}",
+                flush=True,
+            )
         if summary["scenarios"].get(scenarios[0], {}).get("agent_url"):
             print(f"Agent: {summary['scenarios'][scenarios[0]]['agent_url']}", flush=True)
 

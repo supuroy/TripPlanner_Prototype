@@ -169,9 +169,22 @@ Results: `.cache/poc_cursor_trail_agent/<timestamp>/summary.json`
 | Symptom | Fix |
 |---------|-----|
 | `trail_ids_valid: false`, empty tools | Catalog not on branch Cursor clones; push `features/` + manifests |
-| MCP never called | Confirm `mcpServers` in API body; check agent run logs at `agent_url` |
-| `FileNotFoundError` for catalog in cloud | Wrong repo root: set `CURSOR_MCP_CWD` |
+| **`trail-catalog` not found. Available: Atlassian, Figma** | Custom stdio MCP did not start in the VM (see below). Catalog still works via **repo fallback** (`python3` + `search_feature_trails`). |
+| MCP never called | Run `python scripts/poc_cursor_cloud_trail_agent.py --dry-run` and confirm `mcpServers` payload; open `agent_url` logs |
+| `FileNotFoundError` for catalog in cloud | Wrong repo root: set `CURSOR_MCP_CWD=Travel Planner Prototype` |
 | 409 on agent runs | Wait / use fresh agent; Wanderly serializes lanes in prod |
+
+### If MCP stays missing (only Atlassian / Figma)
+
+The API accepts `mcpServers` (log shows `mcp_servers=1`), but the agent still cannot see `trail-catalog`. Common causes:
+
+1. **`mcp` Python package not installed** in the cloud VM — launcher script `scripts/run_trail_catalog_mcp_stdio.sh` runs `pip install mcp` first (commit + push this script).
+2. **Account / rollout** — inline stdio MCP on Cloud Agents may be limited; confirm with Cursor docs or support.
+3. **PoC still valid without MCP** — agent clones repo and runs `PYTHONPATH=. python3 -c "from src.wanderly.trail_catalog.search import …"` (same metadata, not MCP transport).
+
+Check `pass_note` in `summary.json`: `strict_mcp` = real MCP; `repo_fallback` = catalog via repo shell (your recent runs).
+
+Local IDE test: open `Travel Planner Prototype` in Cursor; `.cursor/mcp.json` registers the server for chat (not the same as Cloud API).
 
 ## After PoC
 
