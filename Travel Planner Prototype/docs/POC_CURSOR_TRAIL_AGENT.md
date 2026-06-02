@@ -9,9 +9,19 @@ Standalone proof of concept **before** wiring Wanderly or the Figma app. A Cloud
 | `data/trail_catalog/` | Offline metadata (parks, features, manifests) |
 | `mcp/trail_catalog_server.py` | Stdio MCP tools (`search_trails_tool`, `search_feature_trails_tool`, …) |
 | `scripts/poc_cursor_cloud_trail_agent.py` | Creates cloud agent + runs 1–3 scenarios |
+| `scripts/poc_cursor_trail_agent_session.py` | **Same agent** across follow-ups; prints MCP query log |
 | `src/integrations/cursor_agent_client.py` | `create_agent_run(..., mcp_servers=…)` |
 
 The agent gets a **small prompt** (~2k chars) and must call MCP to read catalogs cloned from GitHub in Cursor’s VM.
+
+## Local vs Cloud MCP config
+
+| Workspace | Config file | Launcher |
+|-----------|-------------|----------|
+| Monorepo root (`TripPlanner_Prototype`) | `.cursor/mcp.json` | `python Travel Planner Prototype/scripts/run_trail_catalog_mcp.py` |
+| App folder (`Travel Planner Prototype`) | `Travel Planner Prototype/.cursor/mcp.json` | `python mcp/trail_catalog_server.py` (after `pip install mcp`) |
+
+`run_trail_catalog_mcp.py` installs `mcp` then starts the server (Windows + Linux). **Do not** point local Windows MCP at `run_trail_catalog_mcp_stdio.sh` (bash only — Cloud VM / API).
 
 ## Prerequisites
 
@@ -135,6 +145,39 @@ python scripts/poc_cursor_cloud_trail_agent.py --scenario all
 
 Results: `.cache/poc_cursor_trail_agent/<timestamp>/summary.json`
 
+### Persistent session (one agent, many questions, MCP query log)
+
+Use this when you want to confirm the agent **reuses** the same Cloud Agent and you can **see each MCP tool + arguments** it issued.
+
+```powershell
+cd "Travel Planner Prototype"
+
+# 1) Create agent + bootstrap (trail_catalog_stats via MCP)
+python scripts/poc_cursor_trail_agent_session.py start
+
+# 2) Custom follow-up: exactly 3 trails
+python scripts/poc_cursor_trail_agent_session.py ask ^
+  "3 moderate waterfall hikes in Utah or nearby national parks, under 7 miles"
+
+# 3) Or a built-in scenario on the same agent
+python scripts/poc_cursor_trail_agent_session.py ask --scenario park
+python scripts/poc_cursor_trail_agent_session.py ask --scenario feature
+
+# 4) Run park + feature + combined in one session
+python scripts/poc_cursor_trail_agent_session.py suite --scenarios park feature combined
+
+python scripts/poc_cursor_trail_agent_session.py status
+```
+
+| Output | Meaning |
+|--------|---------|
+| Console `MCP call N: …` | Tool name, `arguments` JSON, truncated `result` |
+| `.cache/poc_trail_agent_session.json` | Saved `agent_id` for follow-ups |
+| `.cache/poc_trail_agent_session/<timestamp>/mcp_calls.json` | Full structured MCP log per turn |
+| `tool_calls_raw.json` | Raw SSE `tool_call` payloads (raise `--detail-limit` if truncated) |
+
+`pass_note`: `strict_mcp` when `mcp_call_count` ≥ 1; `no_mcp_calls` if the model answered without MCP (failure for this PoC).
+
 ### Pass criteria
 
 | Field | Meaning |
@@ -174,17 +217,27 @@ Results: `.cache/poc_cursor_trail_agent/<timestamp>/summary.json`
 | `FileNotFoundError` for catalog in cloud | Wrong repo root: set `CURSOR_MCP_CWD=Travel Planner Prototype` |
 | 409 on agent runs | Wait / use fresh agent; Wanderly serializes lanes in prod |
 
+### Cloud agent: fix MCP (after local works)
+
+1. **Push** repo root `.cursor/mcp.json` + `Travel Planner Prototype/scripts/run_trail_catalog_mcp.py` on `CURSOR_REPO_REF`.
+2. **New Cloud Agent** (old agents may not pick up MCP config).
+3. In the agent UI: **Workspace MCP** → enable **trail-catalog** (from cloned repo).
+4. Chat: *List every MCP server you can use* → must include **trail-catalog** (not only Figma/Atlassian).
+5. Terminal proof:
+   ```powershell
+   python scripts/prove_trail_catalog_cloud.py diagnose-mcp
+   python scripts/poc_cursor_trail_agent_session.py prove-mcp
+   ```
+
+API `mcpServers` uses the same launcher (`python3` + `run_trail_catalog_mcp.py`). If `diagnose-mcp` still lists only Figma/Atlassian, enable **trail-catalog** in the Cloud Agent UI from the repo config.
+
 ### If MCP stays missing (only Atlassian / Figma)
 
-The API accepts `mcpServers` (log shows `mcp_servers=1`), but the agent still cannot see `trail-catalog`. Common causes:
+1. **`mcp` not installed in VM** — use `scripts/run_trail_catalog_mcp.py` (pip install + server), not raw `mcp/trail_catalog_server.py` alone.
+2. **Windows local** — do not use `bash` / `.sh` in `.cursor/mcp.json`; use `run_trail_catalog_mcp.py`.
+3. **Account / rollout** — inline stdio MCP on Cloud Agents may be limited; confirm in UI + Cursor support.
 
-1. **`mcp` Python package not installed** in the cloud VM — launcher script `scripts/run_trail_catalog_mcp_stdio.sh` runs `pip install mcp` first (commit + push this script).
-2. **Account / rollout** — inline stdio MCP on Cloud Agents may be limited; confirm with Cursor docs or support.
-3. **PoC still valid without MCP** — agent clones repo and runs `PYTHONPATH=. python3 -c "from src.wanderly.trail_catalog.search import …"` (same metadata, not MCP transport).
-
-Check `pass_note` in `summary.json`: `strict_mcp` = real MCP; `repo_fallback` = catalog via repo shell (your recent runs).
-
-Local IDE test: open `Travel Planner Prototype` in Cursor; `.cursor/mcp.json` registers the server for chat (not the same as Cloud API).
+Check `pass_note`: `strict_mcp` = real MCP tool calls; `mcp_ready_get_mcp_tools` = server visible via discovery.
 
 ## After PoC
 

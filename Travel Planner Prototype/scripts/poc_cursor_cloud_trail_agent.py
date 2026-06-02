@@ -107,22 +107,19 @@ def trail_catalog_mcp_servers() -> list[dict[str, Any]]:
     Stdio MCP in Cursor cloud VM.
 
     Monorepo clones to ``/workspace``; app lives in ``Travel Planner Prototype/``.
-    Uses bash -lc so pip+server run from the app dir (VM cwd is usually repo root).
+    Uses ``run_trail_catalog_mcp.py`` (pip install + server) — same as repo ``.cursor/mcp.json``.
     """
     subdir = (os.environ.get("CURSOR_MCP_CWD") or "Travel Planner Prototype").strip().strip("/")
-    if subdir:
-        inner = (
-            f"cd '{subdir}' && python3 -m pip install -q 'mcp>=1.6.0' "
-            "&& exec python3 mcp/trail_catalog_server.py"
-        )
-    else:
-        inner = "python3 -m pip install -q 'mcp>=1.6.0' && exec python3 mcp/trail_catalog_server.py"
+    launcher = (
+        f"{subdir}/scripts/run_trail_catalog_mcp.py" if subdir else "scripts/run_trail_catalog_mcp.py"
+    )
+    py = (os.environ.get("CURSOR_MCP_PYTHON") or "python3").strip() or "python3"
     return [
         {
             "name": "trail-catalog",
             "type": "stdio",
-            "command": "bash",
-            "args": ["-lc", inner],
+            "command": py,
+            "args": [launcher],
             "env": {
                 "PYTHONPATH": subdir or ".",
             },
