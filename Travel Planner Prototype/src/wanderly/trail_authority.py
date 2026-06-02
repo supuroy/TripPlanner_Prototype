@@ -13,6 +13,7 @@ from typing import Any
 from src.wanderly.alltrails_search_context import (
     catalog_trail_anchor_fallback,
     derive_alltrails_search_context,
+    is_alltrails_trail_page_url,
     normalize_alltrails_search_context,
     preferred_alltrails_urls_from_destination,
 )
@@ -198,10 +199,31 @@ def destination_alltrails_authority_block(destination: dict[str, Any] | None) ->
 
 def enrich_destination_alltrails_authority(destination: dict[str, Any]) -> dict[str, Any]:
     """Stamp ``alltrails_search_context`` when derivable from the card."""
-    ctx = derive_alltrails_search_context(destination)
-    if not ctx:
-        return destination
     out = dict(destination)
+    g = out.get("grounding")
+    if isinstance(g, dict) and str(g.get("status") or "").strip().lower() == "catalog":
+        su = str(g.get("source_url") or "").strip()
+        if su and is_alltrails_trail_page_url(su):
+            from src.wanderly.alltrails_search_context import (
+                extract_alltrails_url_from_text,
+                normalize_alltrails_search_context,
+            )
+
+            name = str(out.get("name") or "").strip()
+            ctx = normalize_alltrails_search_context(
+                {
+                    "trail_name": name,
+                    "parent_alltrails_url": extract_alltrails_url_from_text(su),
+                    "verification_status": "catalog",
+                    "country": out.get("country") or "United States",
+                    "park_name": g.get("park_code"),
+                }
+            )
+            if ctx:
+                out["alltrails_search_context"] = ctx
+    ctx = derive_alltrails_search_context(out)
+    if not ctx:
+        return out
     out["alltrails_search_context"] = ctx
     block = destination_alltrails_authority_block(out)
     if block:

@@ -57,9 +57,17 @@ from src.wanderly.session_store import (
     get_session,
     set_last_destinations,
     set_last_profile_pills,
+    set_trip_intent,
     snapshot_destinations_for_model,
     snapshot_profile_pills,
 )
+from src.wanderly.trip_intent_llm import (
+    TripIntentClassification,
+    classify_trip_intent_llm,
+    is_outdoor_trip_product,
+    leisure_destination_context_block,
+)
+from src.wanderly.trip_intent_resolve import resolve_trip_intent
 
 
 def _refine_model_persist_kwargs(session_id: str, *, trace_path: str) -> tuple[str | None, dict[str, Any]]:
@@ -223,24 +231,41 @@ Rules:
 """.strip()
 
 
-def _smoke_planner_instructions(user_message: str) -> str:
-    """Base planner JSON instructions; add outdoor card rules when the request is hiking-focused."""
+def _smoke_planner_instructions(
+    user_message: str,
+    *,
+    trip_intent: TripIntentClassification | None = None,
+) -> str:
+    """Base planner JSON instructions; outdoor hint block only for non-catalog leisure-style outdoor asks."""
     extra = ""
     um = (user_message or "").lower()
-    if is_backpacking_or_multiday_hike(
-        [{"key": "trip_style", "value": "Backpacking / multi-day hike"}]
-    ) or any(
-        tok in um
-        for tok in (
-            "backpack",
-            "multi-day hike",
-            "thru-hike",
-            "national park",
-            "west coast trail",
-            "wilderness",
+    use_outdoor_hints = trip_intent is None or not is_outdoor_trip_product(trip_intent.trip_product)
+    if use_outdoor_hints and (
+        is_backpacking_or_multiday_hike(
+            [{"key": "trip_style", "value": "Backpacking / multi-day hike"}]
+        )
+        or any(
+            tok in um
+            for tok in (
+                "backpack",
+                "multi-day hike",
+                "thru-hike",
+                "national park",
+                "west coast trail",
+                "wilderness",
+            )
         )
     ):
         extra = "\n\n" + outdoor_planner_destination_hints()
+    if trip_intent is not None and trip_intent.trip_product == "leisure":
+        extra += leisure_destination_context_block(trip_intent)
+    elif trip_intent is not None and is_outdoor_trip_product(trip_intent.trip_product):
+        hints = [h for h in trip_intent.destination_hints if h.strip()]
+        if hints:
+            extra += (
+                f"\n\n**Named places (hints):** {'; '.join(hints[:5])}\n"
+                "- Prefer destinations in or near these areas."
+            )
     return _JSON_INSTRUCTIONS + extra
 
 
@@ -994,6 +1019,30 @@ def _mirror_ui_destinations_from_dto(session_id: str, dto: WanderlyWorkspaceDTO)
         s["ui_destinations"] = []
 
 
+def _commit_smoke_workspace(
+    session_id: str,
+    user_message: str,
+    dto: WanderlyWorkspaceDTO,
+    *,
+    parse_ok: bool,
+    trip_intent_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    dto = _enrich_workspace_destinations_transport(dto)
+    _log_workspace_destinations_logistics(dto.destinations, session_id, "smoke_turn.commit")
+    append_chat(session_id, "user", user_message)
+    append_chat(session_id, "assistant", dto.assistant_markdown)
+    set_last_destinations(session_id, dto.destinations)
+    set_last_profile_pills(session_id, [p.model_dump() for p in dto.profile_pills])
+    _mirror_ui_destinations_from_dto(session_id, dto)
+    out: dict[str, Any] = {
+        "wanderly": dto.model_dump(),
+        "parse_ok": parse_ok,
+    }
+    if trip_intent_payload:
+        out["trip_intent"] = trip_intent_payload
+    return out
+
+
 def _complete_smoke_turn(session_id: str, user_message: str, raw_text: str) -> dict[str, Any]:
     parsed = _extract_json_object(raw_text)
     if not parsed:
@@ -1006,36 +1055,107 @@ def _complete_smoke_turn(session_id: str, user_message: str, raw_text: str) -> d
     else:
         dto = _normalize_parsed(parsed)
     dto = _merge_profile_with_inference(dto, user_message)
-    dto = _enrich_workspace_destinations_transport(dto)
-    _log_workspace_destinations_logistics(dto.destinations, session_id, "smoke_turn.commit")
-    append_chat(session_id, "user", user_message)
-    append_chat(session_id, "assistant", dto.assistant_markdown)
-    set_last_destinations(session_id, dto.destinations)
-    set_last_profile_pills(session_id, [p.model_dump() for p in dto.profile_pills])
-    _mirror_ui_destinations_from_dto(session_id, dto)
-    return {
-        "wanderly": dto.model_dump(),
-        "parse_ok": bool(_extract_json_object(raw_text)),
+    return _commit_smoke_workspace(session_id, user_message, dto, parse_ok=bool(parsed))
+
+
+def _run_smoke_with_trip_intent(
+    user_message: str,
+    session_id: str,
+    emit: Callable[[dict[str, Any]], None] | None = None,
+    *,
+    stream_planner: bool = False,
+) -> dict[str, Any]:
+    """Classify trip product, optionally run catalog outdoor lane, else generic smoke planner."""
+    um = (user_message or "").strip()
+
+    def safe_emit(obj: dict[str, Any]) -> None:
+        if emit:
+            emit(obj)
+
+    safe_emit({"type": "phase", "message": "Understanding trip type…"})
+    intent = classify_trip_intent_llm(user_message=um, session_id=session_id)
+    resolution = resolve_trip_intent(intent, user_message=um)
+    intent_payload = {
+        "classification": intent.model_dump(),
+        "resolution": resolution.model_dump(),
     }
+    set_trip_intent(session_id, intent_payload)
+
+    if resolution.catalog_eligible and resolution.primary_park_code:
+        from src.wanderly.catalog_smoke_turn import build_catalog_workspace
+
+        safe_emit(
+            {
+                "type": "phase",
+                "message": f"Outdoor catalog lane — {resolution.primary_park_name or resolution.primary_park_code}",
+            }
+        )
+        dto = build_catalog_workspace(
+            user_message=um,
+            session_id=session_id,
+            resolution=resolution,
+            emit=emit,
+        )
+        return _commit_smoke_workspace(
+            session_id,
+            um,
+            dto,
+            parse_ok=True,
+            trip_intent_payload=intent_payload,
+        )
+
+    safe_emit({"type": "phase", "message": "Building destination shortlist…"})
+    load_env_from_roots()
+    key = get_api_key()
+    instructions = _smoke_planner_instructions(um, trip_intent=intent)
+    prompt = instructions + "\n\nUser request:\n" + um
+    trace = "wanderly.smoke_turn.sse" if stream_planner else "wanderly.smoke_turn.json"
+    sub = "smoke_turn_stream" if stream_planner else "smoke_turn"
+    with basic_client(key) as client:
+        if stream_planner:
+            raw_text = run_prompt_collect_assistant_text_streaming(
+                client,
+                prompt,
+                emit=emit,
+                persistent_instruction_prefix=instructions + "\n\nUser request:\n",
+                llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                llm_telemetry_sub_activity=sub,
+                llm_telemetry_meta=telemetry_meta(session_id=session_id),
+                **cursor_run_persist_kwargs(session_id, None, trace_path=trace),
+            )
+        else:
+            raw_text = run_prompt_collect_assistant_text(
+                client,
+                prompt,
+                persistent_instruction_prefix=instructions + "\n\nUser request:\n",
+                llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                llm_telemetry_sub_activity=sub,
+                llm_telemetry_meta=telemetry_meta(session_id=session_id),
+                **cursor_run_persist_kwargs(session_id, None, trace_path=trace),
+            )
+    parsed = _extract_json_object(raw_text)
+    if not parsed:
+        dto = WanderlyWorkspaceDTO(
+            assistant_markdown=(raw_text[:8000] or "Empty response from model.").strip(),
+            profile_pills=[],
+            destinations=[],
+            agent_status_hint="Could not parse JSON; showing raw markdown only.",
+        )
+    else:
+        dto = _normalize_parsed(parsed)
+    dto = _merge_profile_with_inference(dto, user_message)
+    return _commit_smoke_workspace(
+        session_id,
+        um,
+        dto,
+        parse_ok=bool(parsed),
+        trip_intent_payload=intent_payload,
+    )
 
 
 def run_smoke_turn(user_message: str, session_id: str) -> dict[str, Any]:
-    load_env_from_roots()
-    key = get_api_key()
     um = (user_message or "").strip()
-    instructions = _smoke_planner_instructions(um)
-    prompt = instructions + "\n\nUser request:\n" + um
-    with basic_client(key) as client:
-        raw_text = run_prompt_collect_assistant_text(
-            client,
-            prompt,
-            persistent_instruction_prefix=instructions + "\n\nUser request:\n",
-            llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
-            llm_telemetry_sub_activity="smoke_turn",
-            llm_telemetry_meta=telemetry_meta(session_id=session_id),
-            **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.json"),
-        )
-    out = _complete_smoke_turn(session_id, user_message, raw_text)
+    out = _run_smoke_with_trip_intent(um, session_id, emit=None)
     if parallel_post_refine_enabled():
         threading.Thread(
             target=_profile_listener_background,
@@ -1052,11 +1172,7 @@ def run_smoke_turn_streaming(
     session_id: str,
     emit: Callable[[dict[str, Any]], None] | None,
 ) -> dict[str, Any]:
-    load_env_from_roots()
-    key = get_api_key()
     um = (user_message or "").strip()
-    instructions = _smoke_planner_instructions(um)
-    prompt = instructions + "\n\nUser request:\n" + um
     emit_lock = threading.Lock()
 
     def safe_emit(obj: dict[str, Any]) -> None:
@@ -1064,22 +1180,8 @@ def run_smoke_turn_streaming(
             with emit_lock:
                 emit(obj)
 
-    if emit:
-        safe_emit({"type": "phase", "message": "Starting planner…"})
-    with basic_client(key) as client:
-        raw_text = run_prompt_collect_assistant_text_streaming(
-            client,
-            prompt,
-            emit=safe_emit,
-            persistent_instruction_prefix=instructions + "\n\nUser request:\n",
-            llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
-            llm_telemetry_sub_activity="smoke_turn_stream",
-            llm_telemetry_meta=telemetry_meta(session_id=session_id),
-            **cursor_run_persist_kwargs(session_id, None, trace_path="wanderly.smoke_turn.sse"),
-        )
-    if emit:
-        safe_emit({"type": "phase", "message": "Parsing JSON and building cards…"})
-    out = _complete_smoke_turn(session_id, user_message, raw_text)
+    out = _run_smoke_with_trip_intent(um, session_id, emit=safe_emit, stream_planner=True)
+    safe_emit({"type": "phase", "message": "Finalizing workspace…"})
     return _finish_profile_listener_sync(session_id, um, out, safe_emit, freeze_profile=False)
 
 

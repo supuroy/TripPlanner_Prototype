@@ -71,6 +71,8 @@ from src.integrations.cursor_agent_client import (  # noqa: E402
 )
 from src.wanderly.trail_catalog.poc_cursor_agent import (  # noqa: E402
     BOOTSTRAP_PROMPT,
+    PROVE_MCP_PROMPT,
+    assess_trail_catalog_mcp,
     build_recommendation_prompt,
     extract_mcp_catalog_calls,
     parse_selections,
@@ -187,7 +189,7 @@ def _run_turn(
                 "status": ev.get("status"),
                 "callId": ev.get("callId"),
                 "truncated": ev.get("truncated"),
-                "detail": detail[:detail_limit],
+                "detail": detail[: max(detail_limit, 120_000)],
             }
         )
 
@@ -211,6 +213,7 @@ def _run_turn(
         )
         created = True
 
+    time.sleep(2.0)
     print(f"  run_id=…{str(run_id)[-8:]} (SSE + retry; poll up to {int(max_wait_s)}s if needed)", flush=True)
     sse_text = ""
     err: str | None = None
@@ -309,7 +312,8 @@ def cmd_start(args: argparse.Namespace) -> int:
     print(f"Bootstrap MCP calls: {turn['mcp_call_count']}", flush=True)
     _print_tool_call_summary(turn.get("tool_calls") or [])
     print_mcp_catalog_calls(turn["mcp_catalog_calls"])
-    if turn["mcp_call_count"] == 0:
+    mcp_ok, _ = assess_trail_catalog_mcp(turn.get("tool_calls") or [], turn.get("mcp_catalog_calls") or [])
+    if not mcp_ok:
         _print_mcp_zero_call_hints()
     if turn.get("raw"):
         print(f"\nAssistant (bootstrap):\n{turn['raw'][:800]}", flush=True)
@@ -362,7 +366,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
     else:
         turn["trail_ids_valid"] = turn["parse_ok"]
 
-    turn["pass_note"] = "strict_mcp" if turn["mcp_call_count"] > 0 else "no_mcp_calls"
+    mcp_ok, pass_note = assess_trail_catalog_mcp(
+        turn.get("tool_calls") or [], turn.get("mcp_catalog_calls") or []
+    )
+    turn["mcp_proven"] = mcp_ok
+    turn["pass_note"] = pass_note
     turn["scenario"] = label
 
     runs = session.get("runs")
@@ -393,7 +401,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
     print(f"\n--- MCP queries ({turn['mcp_call_count']}) ---", flush=True)
     _print_tool_call_summary(turn.get("tool_calls") or [])
     print_mcp_catalog_calls(turn["mcp_catalog_calls"])
-    if turn["mcp_call_count"] == 0:
+    mcp_ok, _ = assess_trail_catalog_mcp(turn.get("tool_calls") or [], turn.get("mcp_catalog_calls") or [])
+    if not mcp_ok:
         _print_mcp_zero_call_hints()
     print(f"\n--- Selections ---", flush=True)
     print(json.dumps(turn.get("selections") or [], indent=2, ensure_ascii=True), flush=True)
@@ -419,6 +428,46 @@ def cmd_suite(args: argparse.Namespace) -> int:
         if args.pause_s > 0:
             time.sleep(args.pause_s)
     return 0
+
+
+def cmd_prove_mcp(args: argparse.Namespace) -> int:
+    """Single-turn cloud agent created only to prove trail-catalog MCP attaches."""
+    load_env_from_roots()
+    key = get_api_key()
+    path = _session_path(args.session_file)
+
+    with basic_client(key, timeout_s=360.0) as client:
+        print("Creating Cloud Agent (prove trail-catalog MCP only)…", flush=True)
+        turn = _run_turn(
+            client,
+            agent_id=None,
+            prompt=PROVE_MCP_PROMPT,
+            model=args.model,
+            mcp_on_create=True,
+            detail_limit=args.detail_limit,
+            max_wait_s=args.max_wait_s,
+        )
+
+    mcp_ok, pass_note = assess_trail_catalog_mcp(
+        turn.get("tool_calls") or [], turn.get("mcp_catalog_calls") or []
+    )
+    session = {
+        "agent_id": turn["agent_id"],
+        "agent_url": turn["agent_url"],
+        "prove_mcp": mcp_ok,
+        "pass_note": pass_note,
+        "runs": [{"kind": "prove_mcp", **{k: turn[k] for k in turn if k not in ("raw", "tool_calls")}}],
+    }
+    _save_session(path, session)
+
+    print(f"\n=== PROVE MCP: {'PASS' if mcp_ok else 'FAIL'} ({pass_note}) ===", flush=True)
+    print(f"tool_call events: {len(turn.get('tool_calls') or [])}", flush=True)
+    _print_tool_call_summary(turn.get("tool_calls") or [])
+    print_mcp_catalog_calls(turn["mcp_catalog_calls"])
+    if turn.get("raw"):
+        print(f"\nAssistant:\n{turn['raw'][:1200]}", flush=True)
+    print(f"\nAgent: {turn['agent_url']}", flush=True)
+    return 0 if mcp_ok else 1
 
 
 def cmd_debug_run(args: argparse.Namespace) -> int:
@@ -520,6 +569,9 @@ def main() -> int:
     p_start = sub.add_parser("start", help="Create agent + MCP bootstrap")
     p_start.add_argument("--force-new", action="store_true")
 
+    p_prove = sub.add_parser("prove-mcp", help="One-shot: prove trail-catalog MCP on a new cloud agent")
+    p_prove.add_argument("--max-wait-s", type=float, default=300.0)
+
     p_ask = sub.add_parser("ask", help="Follow-up question on existing agent")
     p_ask.add_argument("message", nargs="?", default=None)
     p_ask.add_argument("--scenario", choices=tuple(SCENARIOS.keys()), default=None)
@@ -538,6 +590,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "start":
         return cmd_start(args)
+    if args.command == "prove-mcp":
+        return cmd_prove_mcp(args)
     if args.command == "ask":
         return cmd_ask(args)
     if args.command == "suite":

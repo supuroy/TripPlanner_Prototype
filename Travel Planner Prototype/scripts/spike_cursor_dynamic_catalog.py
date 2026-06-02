@@ -53,17 +53,9 @@ def _mcp_stdio_servers() -> list[dict[str, Any]]:
     """Stdio MCP runs inside Cursor's cloud VM at repo root after clone."""
     import os
 
-    subdir = (os.environ.get("CURSOR_MCP_CWD") or "Travel Planner Prototype").strip().strip("/")
-    launcher = f"{subdir}/scripts/run_trail_catalog_mcp_stdio.sh" if subdir else "scripts/run_trail_catalog_mcp_stdio.sh"
-    return [
-        {
-            "name": "trail-catalog",
-            "type": "stdio",
-            "command": "bash",
-            "args": [launcher],
-            "env": {"PYTHONPATH": subdir or "."},
-        }
-    ]
+    from scripts.poc_cursor_cloud_trail_agent import trail_catalog_mcp_servers
+
+    return trail_catalog_mcp_servers()
 
 
 def _prompt_inline(park_code: str, *, inline_limit: int, user_query: str) -> tuple[str, dict[str, Any]]:

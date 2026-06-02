@@ -512,6 +512,21 @@ def set_last_profile_pills(session_id: str, pills: list[dict[str, Any]]) -> None
     persist_wanderly_session_snapshot(session_id)
 
 
+def set_trip_intent(session_id: str, intent: dict[str, Any] | None) -> None:
+    s = get_session(session_id)
+    if intent is None:
+        s.pop("trip_intent", None)
+    else:
+        s["trip_intent"] = dict(intent)
+    persist_wanderly_session_snapshot(session_id)
+
+
+def get_trip_intent(session_id: str) -> dict[str, Any] | None:
+    s = get_session(session_id)
+    raw = s.get("trip_intent")
+    return dict(raw) if isinstance(raw, dict) else None
+
+
 def snapshot_profile_pills(session_id: str) -> list[dict[str, Any]]:
     s = get_session(session_id)
     raw = s.get("profile_pills")

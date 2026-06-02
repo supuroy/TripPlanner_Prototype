@@ -30,7 +30,7 @@ def extract_alltrails_url_from_text(text: str | None) -> str | None:
     return m.group(0).rstrip(".,)") if m else None
 
 
-_VERIFICATION_STATUSES = frozenset({"verified", "unverified", "provider_unavailable"})
+_VERIFICATION_STATUSES = frozenset({"verified", "unverified", "provider_unavailable", "catalog"})
 
 
 def normalize_alltrails_search_context(raw: Any) -> dict[str, Any] | None:
@@ -74,9 +74,9 @@ def normalize_alltrails_search_context(raw: Any) -> dict[str, Any] | None:
     verified_flag = raw.get("verified")
     if status not in _VERIFICATION_STATUSES:
         status = "verified" if verified_flag is True else ""
-    if status == "verified":
+    if status in ("verified", "catalog"):
         out["verified"] = True
-        out["verification_status"] = "verified"
+        out["verification_status"] = status
         if parent:
             out["parent_alltrails_url"] = parent
         tid = _clean(raw.get("alltrails_trail_id"), limit=64) or None
@@ -211,13 +211,17 @@ def derive_alltrails_search_context(
 
 
 def verified_parent_alltrails_url(destination: dict[str, Any] | None) -> str | None:
-    """Only the build-verified parent URL — never a guessed or LLM-hinted slug."""
+    """Authoritative parent URL: Apify-verified, catalog-grounded, or None."""
     if not destination:
         return None
     ctx = normalize_alltrails_search_context(destination.get("alltrails_search_context"))
     if ctx and ctx.get("verified") is True:
         u = str(ctx.get("parent_alltrails_url") or "").strip()
-        return u or None
+        if u:
+            return u
+    g = destination.get("grounding")
+    if isinstance(g, dict) and str(g.get("status") or "").strip().lower() == "catalog":
+        return extract_alltrails_url_from_text(str(g.get("source_url") or ""))
     return None
 
 
@@ -232,11 +236,20 @@ def preferred_alltrails_urls_from_destination(
     Authoritative URLs to hand the lookup — **verified evidence only**.
 
     No slug invention or LLM-hint promotion: a URL only appears here after a build-time
-    actor lookup confirmed it (``verified: true``). Otherwise empty, and the lookup falls back
-    to the unverified deterministic path instead of guessing pages that resolve to wrong trails.
+    actor lookup confirmed it (``verified: true``), or from offline trail catalog
+    (``verification_status: catalog`` / ``grounding.source_url``).
     """
     u = verified_parent_alltrails_url(destination)
-    return [u] if u else []
+    if u:
+        return [u]
+    if not destination:
+        return []
+    g = destination.get("grounding")
+    if isinstance(g, dict) and str(g.get("status") or "").strip().lower() == "catalog":
+        su = extract_alltrails_url_from_text(str(g.get("source_url") or ""))
+        if su:
+            return [su]
+    return []
 
 
 def _slugify_trail_name(name: str) -> str:

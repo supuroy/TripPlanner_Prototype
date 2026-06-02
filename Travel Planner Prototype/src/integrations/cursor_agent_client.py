@@ -352,6 +352,14 @@ def consume_sse_assistant(client: httpx.Client, agent_id: str, run_id: str) -> s
                     buffer.append(chunk)
             except json.JSONDecodeError:
                 pass
+        elif event_type == "result":
+            try:
+                payload = json.loads(data_raw)
+                chunk = str(payload.get("text") or "")
+                if chunk:
+                    buffer.append(chunk)
+            except json.JSONDecodeError:
+                pass
         event_type = None
         data_lines = []
 
@@ -448,12 +456,25 @@ def consume_sse_assistant_streaming(
                 snippet = (data_raw or "").replace("\n", " ").strip()
                 if snippet:
                     emit({"type": "tool_call", "detail": snippet[:500]})
-        elif event_type == "result" and emit:
+        elif event_type == "result":
             try:
                 payload = json.loads(data_raw)
-                emit({"type": "run_result", "status": str(payload.get("status") or "")})
+                chunk = str(payload.get("text") or "")
+                if chunk:
+                    buffer.append(chunk)
+                    if emit:
+                        emit({"type": "assistant_delta", "delta": chunk, "from": "result"})
+                if emit:
+                    emit(
+                        {
+                            "type": "run_result",
+                            "status": str(payload.get("status") or ""),
+                            "durationMs": payload.get("durationMs"),
+                        }
+                    )
             except json.JSONDecodeError:
-                pass
+                if emit:
+                    emit({"type": "run_result", "status": ""})
         elif event_type == "error" and emit:
             try:
                 payload = json.loads(data_raw)
@@ -513,6 +534,7 @@ def create_agent_run(
     body: dict[str, Any] = {
         "prompt": {"text": prompt_text},
         "repos": [repo_entry],
+        "mode": "agent",
     }
     if mcp_servers:
         body["mcpServers"] = mcp_servers
@@ -639,7 +661,7 @@ def create_followup_run(
     mcp_servers: list[dict[str, Any]] | None = None,
 ) -> str:
     """Start a new run on an existing Cloud Agent (same repo/workspace context as prior runs)."""
-    body: dict[str, Any] = {"prompt": {"text": prompt_text}}
+    body: dict[str, Any] = {"prompt": {"text": prompt_text}, "mode": "agent"}
     if mcp_servers:
         body["mcpServers"] = mcp_servers
         _trace_cursor(f"create_followup_run mcp_servers={len(mcp_servers)}", path=None)

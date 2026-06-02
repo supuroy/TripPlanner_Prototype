@@ -173,13 +173,37 @@ when checking in somewhere new; surface_legs when moving by drive/ferry/train).
 """.strip()
 
 
-def _extract_json_array(text: str) -> list[dict[str, Any]] | None:
+def _itinerary_day_dict_count(rows: list[Any]) -> int:
+    """Count list elements that look like day rows (not bare activity strings)."""
+    n = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw_day = row.get("day")
+        if raw_day is None:
+            raw_day = row.get("day_num") or row.get("dayNumber") or row.get("index")
+        if _parse_itinerary_day_number(raw_day) is not None:
+            n += 1
+    return n
+
+
+def _score_itinerary_array(rows: list[Any]) -> int:
+    """Prefer arrays of ``{day, label, items}`` over nested ``items`` string lists (Kyoto EMPTY logs)."""
+    day_n = _itinerary_day_dict_count(rows)
+    return day_n * 1000 + len(rows) * 10
+
+
+def _extract_json_array(text: str) -> list[Any] | None:
     """
-    Parse the first JSON array in ``text``.
+    Parse the best JSON array in ``text`` (not merely the first parseable ``[``).
 
     Avoid greedy ``[...]`` regex: model output often includes ``]`` inside strings or
     prose after the array, which breaks ``re.search(r'\\[[\\s\\S]*\\]')`` and yields
     ``extracted_len=0`` despite a valid array (see itinerary_debug EMPTY logs).
+
+    When the outer object is truncated, ``raw_decode`` may succeed on a day row's
+    ``items`` array (strings only) before the full ``itinerary`` array — always pick
+    the array with the most day-shaped dicts.
     """
     t = text.strip()
     if not t:
@@ -191,9 +215,21 @@ def _extract_json_array(text: str) -> list[dict[str, Any]] | None:
             t = t[: t.rfind("```")].strip()
 
     dec = json.JSONDecoder()
+    best: list[Any] | None = None
+    best_score = -1
+
+    def consider(candidate: Any) -> None:
+        nonlocal best, best_score
+        if not isinstance(candidate, list) or not candidate:
+            return
+        sc = _score_itinerary_array(candidate)
+        if sc > best_score:
+            best_score = sc
+            best = candidate
+
     try:
         out, _ = dec.raw_decode(t)
-        return out if isinstance(out, list) else None
+        consider(out)
     except json.JSONDecodeError:
         pass
 
@@ -202,11 +238,10 @@ def _extract_json_array(text: str) -> list[dict[str, Any]] | None:
             continue
         try:
             out, _end = dec.raw_decode(t, i)
-            if isinstance(out, list):
-                return out
+            consider(out)
         except json.JSONDecodeError:
             continue
-    return None
+    return best
 
 
 def _strip_code_fences(text: str) -> str:
@@ -216,6 +251,53 @@ def _strip_code_fences(text: str) -> str:
         if "```" in t:
             t = t[: t.rfind("```")].strip()
     return t
+
+
+def _bracket_balance_suffix(fragment: str) -> str:
+    """Close unterminated ``{`` / ``[`` when the model JSON was cut off mid-stream."""
+    stack: list[str] = []
+    in_str = False
+    esc = False
+    for ch in fragment:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+            continue
+        if ch == "{":
+            stack.append("}")
+        elif ch == "[":
+            stack.append("]")
+        elif ch in "}]" and stack and stack[-1] == ch:
+            stack.pop()
+    return "".join(reversed(stack))
+
+
+def _try_parse_truncated_json_value(t: str, *, start: int = 0) -> Any | None:
+    """Parse JSON at ``start``, appending bracket closers when the value was truncated."""
+    dec = json.JSONDecoder()
+    fragment = t[start:].lstrip()
+    if not fragment:
+        return None
+    try:
+        val, _end = dec.raw_decode(fragment)
+        return val
+    except json.JSONDecodeError:
+        pass
+    suffix = _bracket_balance_suffix(fragment)
+    if not suffix:
+        return None
+    try:
+        val, _end = dec.raw_decode(fragment + suffix)
+        return val
+    except json.JSONDecodeError:
+        return None
 
 
 _BUDGET_GUIDANCE_KEYS = (
@@ -278,10 +360,18 @@ def _normalize_needs_commercial_flight(raw: Any) -> bool | None:
 
 
 def _itinerary_list_from_wrapper(obj: dict[str, Any]) -> list[Any] | None:
+    best: list[Any] | None = None
+    best_score = 0
     for key in ("itinerary", "Itinerary", "days", "Days"):
         v = obj.get(key)
-        if isinstance(v, list) and len(v) > 0:
-            return v
+        if not isinstance(v, list) or not v:
+            continue
+        sc = _score_itinerary_array(v)
+        if sc > best_score:
+            best_score = sc
+            best = v
+    if best is not None and _itinerary_day_dict_count(best) > 0:
+        return best
     return None
 
 
@@ -311,7 +401,7 @@ def _collect_wrapped_itinerary_dicts(t: str) -> list[dict[str, Any]]:
 
 def _score_itinerary_wrapper(obj: dict[str, Any]) -> int:
     rows = _itinerary_list_from_wrapper(obj) or []
-    sc = len(rows) * 10
+    sc = _score_itinerary_array(rows)
     raw_tp = obj.get("transport_plan") if isinstance(obj.get("transport_plan"), dict) else None
     if raw_tp is None and isinstance(obj.get("transport"), dict):
         raw_tp = obj["transport"]
@@ -520,17 +610,19 @@ def _extract_itinerary_payload(
     dec = json.JSONDecoder()
     try:
         top, _end = dec.raw_decode(t, 0)
-        if isinstance(top, dict) and isinstance(top.get("itinerary"), list) and len(top["itinerary"]) > 0:
-            bg = _normalize_budget_guidance(top.get("budget_guidance"))
-            bsearch = _normalize_booking_search_hints(top.get("booking_search_hints"))
-            ncf = _normalize_needs_commercial_flight(top.get("needs_commercial_flight"))
-            raw_tp = top.get("transport_plan") if isinstance(top.get("transport_plan"), dict) else None
-            if raw_tp is None and isinstance(top.get("transport"), dict):
-                raw_tp = top["transport"]
-            tp = _normalize_transport_plan(raw_tp)
-            bhooks = top.get("booking_hooks") if isinstance(top.get("booking_hooks"), dict) else None
-            return list(top["itinerary"]), bg, bsearch, ncf, tp, bhooks, top
-        if isinstance(top, list) and len(top) > 0:
+        if isinstance(top, dict):
+            rows = _itinerary_list_from_wrapper(top)
+            if rows:
+                bg = _normalize_budget_guidance(top.get("budget_guidance"))
+                bsearch = _normalize_booking_search_hints(top.get("booking_search_hints"))
+                ncf = _normalize_needs_commercial_flight(top.get("needs_commercial_flight"))
+                raw_tp = top.get("transport_plan") if isinstance(top.get("transport_plan"), dict) else None
+                if raw_tp is None and isinstance(top.get("transport"), dict):
+                    raw_tp = top["transport"]
+                tp = _normalize_transport_plan(raw_tp)
+                bhooks = top.get("booking_hooks") if isinstance(top.get("booking_hooks"), dict) else None
+                return list(rows), bg, bsearch, ncf, tp, bhooks, top
+        if isinstance(top, list) and _itinerary_day_dict_count(top) > 0:
             return top, None, None, None, None, None, None
     except json.JSONDecodeError:
         pass
@@ -539,19 +631,58 @@ def _extract_itinerary_payload(
             continue
         try:
             obj, _end = dec.raw_decode(t, i)
-            if isinstance(obj, dict) and isinstance(obj.get("itinerary"), list) and len(obj["itinerary"]) > 0:
-                bg = _normalize_budget_guidance(obj.get("budget_guidance"))
-                bsearch = _normalize_booking_search_hints(obj.get("booking_search_hints"))
-                ncf = _normalize_needs_commercial_flight(obj.get("needs_commercial_flight"))
-                raw_tp = obj.get("transport_plan") if isinstance(obj.get("transport_plan"), dict) else None
-                if raw_tp is None and isinstance(obj.get("transport"), dict):
-                    raw_tp = obj["transport"]
-                tp = _normalize_transport_plan(raw_tp)
-                bhooks = obj.get("booking_hooks") if isinstance(obj.get("booking_hooks"), dict) else None
-                return list(obj["itinerary"]), bg, bsearch, ncf, tp, bhooks, obj
+            if isinstance(obj, dict):
+                rows = _itinerary_list_from_wrapper(obj)
+                if rows:
+                    bg = _normalize_budget_guidance(obj.get("budget_guidance"))
+                    bsearch = _normalize_booking_search_hints(obj.get("booking_search_hints"))
+                    ncf = _normalize_needs_commercial_flight(obj.get("needs_commercial_flight"))
+                    raw_tp = obj.get("transport_plan") if isinstance(obj.get("transport_plan"), dict) else None
+                    if raw_tp is None and isinstance(obj.get("transport"), dict):
+                        raw_tp = obj["transport"]
+                    tp = _normalize_transport_plan(raw_tp)
+                    bhooks = obj.get("booking_hooks") if isinstance(obj.get("booking_hooks"), dict) else None
+                    return list(rows), bg, bsearch, ncf, tp, bhooks, obj
         except json.JSONDecodeError:
             continue
+
+    anchor = t.find('{"itinerary"')
+    if anchor < 0:
+        anchor = t.find("{")
+    if anchor >= 0:
+        repaired = _try_parse_truncated_json_value(t, start=anchor)
+        if isinstance(repaired, dict):
+            rows = _itinerary_list_from_wrapper(repaired)
+            if rows:
+                log_itinerary_build(
+                    f"EXTRACT_TRUNC_REPAIR day_rows={len(rows)} anchor={anchor}"
+                )
+                bg = _normalize_budget_guidance(repaired.get("budget_guidance"))
+                bsearch = _normalize_booking_search_hints(repaired.get("booking_search_hints"))
+                ncf = _normalize_needs_commercial_flight(repaired.get("needs_commercial_flight"))
+                raw_tp = (
+                    repaired.get("transport_plan")
+                    if isinstance(repaired.get("transport_plan"), dict)
+                    else None
+                )
+                if raw_tp is None and isinstance(repaired.get("transport"), dict):
+                    raw_tp = repaired["transport"]
+                tp = _normalize_transport_plan(raw_tp)
+                bhooks = repaired.get("booking_hooks") if isinstance(repaired.get("booking_hooks"), dict) else None
+                return list(rows), bg, bsearch, ncf, tp, bhooks, repaired
+
     legacy = _extract_json_array(raw_text) or []
+    if _itinerary_day_dict_count(legacy) > 0:
+        return legacy, None, None, None, None, None, None
+
+    salvaged = _salvage_itinerary_day_dicts_from_text(t, max_days=16)
+    if salvaged:
+        log_itinerary_build(
+            f"EXTRACT_SALVAGE day_objects={len(salvaged)} "
+            f"legacy_string_array={bool(legacy) and _itinerary_day_dict_count(legacy) == 0}"
+        )
+        return salvaged, None, None, None, None, None, None
+
     return legacy, None, None, None, None, None, None
 
 
@@ -578,6 +709,32 @@ def _parse_itinerary_day_number(raw: Any) -> int | None:
     except ValueError:
         m2 = re.search(r"(\d+)", s)
         return int(m2.group(1)) if m2 else None
+
+
+def _salvage_itinerary_day_dicts_from_text(t: str, *, max_days: int = 12) -> list[dict[str, Any]]:
+    """
+    Collect complete ``{day, label, items, ...}`` objects when the outer wrapper JSON was truncated.
+
+    Kyoto-style failures: the only fully closed array is day-1 ``items`` (strings); bracket repair on
+  the full wrapper recovers the real itinerary rows.
+    """
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    lower = t.lower()
+    pos = 0
+    while len(out) < max_days:
+        i = lower.find('{"day":', pos)
+        if i < 0:
+            break
+        obj = _try_parse_truncated_json_value(t, start=i)
+        if isinstance(obj, dict):
+            day = _parse_itinerary_day_number(obj.get("day"))
+            if day is not None and 1 <= day <= max_days and day not in seen:
+                seen.add(day)
+                out.append(obj)
+        pos = i + 7
+    out.sort(key=lambda o: int(_parse_itinerary_day_number(o.get("day")) or 0))
+    return out
 
 
 def _string_to_item_bullets(s: str) -> list[str]:
@@ -1424,6 +1581,23 @@ def build_itinerary_for_destination(
     """
     rid = (request_id or "?").strip() or "?"
     did = str(destination.get("id") or "")
+    from src.wanderly.catalog_itinerary import (
+        build_catalog_itinerary_for_destination,
+        is_catalog_grounded_destination,
+    )
+
+    if is_catalog_grounded_destination(destination):
+        log_itinerary_build(
+            f"ROUTE catalog_itinerary rid={rid} sid={(session_id or '')[:12]!r} dest_id={did!r}"
+        )
+        return build_catalog_itinerary_for_destination(
+            destination=destination,
+            profile_pills=profile_pills,
+            days=days,
+            session_id=session_id,
+            request_id=rid,
+            refinement_message=refinement_message,
+        )
     load_env_from_roots()
     key = get_api_key()
     prompt, n, itin_prefix = _itinerary_prompt_and_days(
@@ -1674,6 +1848,29 @@ def build_itinerary_for_destination_streaming(
     """
     rid = (request_id or "?").strip() or "?"
     did = str(destination.get("id") or "")
+    from src.wanderly.catalog_itinerary import (
+        build_catalog_itinerary_for_destination,
+        is_catalog_grounded_destination,
+    )
+
+    if is_catalog_grounded_destination(destination):
+        log_itinerary_build(
+            f"ROUTE catalog_itinerary_sse rid={rid} sid={(session_id or '')[:12]!r} dest_id={did!r}"
+        )
+
+        def _safe_emit(ev: dict[str, Any]) -> None:
+            if emit is not None:
+                emit(ev)
+
+        return build_catalog_itinerary_for_destination(
+            destination=destination,
+            profile_pills=profile_pills,
+            days=days,
+            session_id=session_id,
+            request_id=rid,
+            refinement_message=refinement_message,
+            emit=_safe_emit,
+        )
     load_env_from_roots()
     key = get_api_key()
     prompt, n, itin_prefix = _itinerary_prompt_and_days(

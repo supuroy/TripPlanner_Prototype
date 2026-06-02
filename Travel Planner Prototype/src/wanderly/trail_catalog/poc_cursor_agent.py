@@ -68,6 +68,52 @@ def parse_mcp_tool_payload(detail: str) -> dict[str, Any] | None:
     return outer
 
 
+PROVE_MCP_PROMPT = """
+You are verifying trail-catalog MCP on a Cursor Cloud Agent.
+
+Do this in order:
+1. Use MCP server ``trail-catalog`` (stdio). Call ``trail_catalog_stats`` once.
+2. Return ONLY one JSON object (no markdown):
+   {"ok": true, "mcp_server": "trail-catalog", "stats": <object from tool>}
+If the server is missing, return:
+   {"ok": false, "error": "<exact error text>"}
+
+Do not use repo grep or python shell for catalog data on this turn — MCP only.
+""".strip()
+
+
+def assess_trail_catalog_mcp(
+    tool_calls: list[dict[str, Any]],
+    mcp_catalog_calls: list[dict[str, Any]],
+) -> tuple[bool, str]:
+    """
+    True when trail-catalog MCP is proven from SSE tool_call events.
+  """
+    if mcp_catalog_calls:
+        return True, "strict_mcp"
+    blob = json.dumps(tool_calls, ensure_ascii=True).lower()
+    if "trail-catalog" in blob and "not found" in blob and "available servers" in blob:
+        return False, "mcp_not_found"
+    for row in tool_calls:
+        if str(row.get("name") or "").lower() != "get_mcp_tools":
+            continue
+        if str(row.get("status") or "").lower() != "completed":
+            continue
+        detail = str(row.get("detail") or "")
+        if '"server": "trail-catalog"' in detail or '"server":"trail-catalog"' in detail:
+            if "ready" in detail.lower():
+                return True, "mcp_ready_get_mcp_tools"
+    for row in tool_calls:
+        if str(row.get("name") or "").lower() != "mcp":
+            continue
+        if str(row.get("status") or "").lower() != "completed":
+            continue
+        detail = str(row.get("detail") or "")
+        if "trail-catalog" in detail or "trail_catalog_stats" in detail:
+            return True, "mcp_completed"
+    return False, "no_mcp_calls"
+
+
 def extract_mcp_catalog_calls(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Parse SSE tool_call events into structured trail-catalog MCP invocations.
