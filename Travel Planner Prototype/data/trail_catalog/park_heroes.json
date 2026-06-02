@@ -1,0 +1,448 @@
+{
+  "catalog_version": 1,
+  "updated_at_utc": "2026-06-02T21:54:16Z",
+  "notes": "Populated by scripts/enrich_park_heroes_alltrails.py (AllTrails park og:image via Chrome CDP). Runtime fallback: NPS /parks?fields=images when hero_image_url is missing.",
+  "parks": {
+    "aako": {
+      "park_code": "aako",
+      "park_name": "A A Kordiak Park",
+      "source_url": "https://www.alltrails.com/parks/us/minnesota/a-a-kordiak-park",
+      "fetched_at_utc": "2026-06-02T21:46:35Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10139199/parks-us-minnesota-a-a-kordiak-park-10139199-20190605003159000000000-1200x630-3-41629213725.jpg"
+    },
+    "acad": {
+      "park_code": "acad",
+      "park_name": "Acadia National Park",
+      "source_url": "https://www.alltrails.com/parks/us/maine/acadia-national-park",
+      "fetched_at_utc": "2026-06-02T21:46:44Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106782/parks-us-maine-acadia-national-park-10106782-20201216193219000000000-1200x630-3-41608147349.jpg"
+    },
+    "ajjoco": {
+      "park_code": "ajjoco",
+      "park_name": "A J Jolly County Park",
+      "source_url": "https://www.alltrails.com/parks/us/kentucky/a-j-jolly-county-park",
+      "fetched_at_utc": "2026-06-02T21:46:53Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10124960/parks-us-kentucky-a-j-jolly-county-park-10124960-20190605002954000000000-1200x630-3-41617732062.jpg"
+    },
+    "arch": {
+      "park_code": "arch",
+      "park_name": "Arches National Park",
+      "source_url": "https://www.alltrails.com/parks/us/utah/arches-national-park",
+      "fetched_at_utc": "2026-06-02T21:47:03Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106784/parks-us-utah-arches-national-park-10106784-20201216212047000000000-1200x630-3-41608158872.jpg"
+    },
+    "badl": {
+      "park_code": "badl",
+      "park_name": "Badlands National Park",
+      "source_url": "https://www.alltrails.com/parks/us/south-dakota/badlands-national-park",
+      "fetched_at_utc": "2026-06-02T21:47:12Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106785/parks-us-south-dakota-badlands-national-park-10106785-20210102080001000000000-1200x630-3-41609585416.jpg"
+    },
+    "bibe": {
+      "park_code": "bibe",
+      "park_name": "Big Bend National Park",
+      "source_url": "https://www.alltrails.com/parks/us/texas/big-bend-national-park",
+      "fetched_at_utc": "2026-06-02T21:47:27Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106786/parks-us-texas-big-bend-national-park-10106786-20201213080003000000000-1200x630-3-41607994714.jpg"
+    },
+    "blca": {
+      "park_code": "blca",
+      "park_name": "Black Canyon Of The Gunnison National Park",
+      "source_url": "https://www.alltrails.com/parks/us/colorado/black-canyon-of-the-gunnison-national-park",
+      "fetched_at_utc": "2026-06-02T21:47:59Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10151915/parks-us-colorado-black-canyon-of-the-gunnison-national-park-10151915-20201203080617000000000-1200x630-3-41606993260.jpg"
+    },
+    "blripa4": {
+      "park_code": "blripa4",
+      "park_name": "Blue Ridge Parkway 4",
+      "source_url": "https://www.alltrails.com/parks/us/north-carolina/blue-ridge-parkway--4",
+      "fetched_at_utc": "2026-06-02T21:48:05Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10193698/parks-us-north-carolina-blue-ridge-parkway--4-10193698-20220623174324000000-1200x630-3-41656006211.jpg"
+    },
+    "brca": {
+      "park_code": "brca",
+      "park_name": "Bryce Canyon National Park",
+      "source_url": "https://www.alltrails.com/parks/us/utah/bryce-canyon-national-park",
+      "fetched_at_utc": "2026-06-02T21:48:12Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106789/parks-us-utah-bryce-canyon-national-park-10106789-20201216224457000000000-1200x630-3-41608159263.jpg"
+    },
+    "cany": {
+      "park_code": "cany",
+      "park_name": "Canyonlands National Park",
+      "source_url": "https://www.alltrails.com/parks/us/utah/canyonlands-national-park",
+      "fetched_at_utc": "2026-06-02T21:48:21Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106790/parks-us-utah-canyonlands-national-park-10106790-20201211155434000000000-1200x630-3-41607702344.jpg"
+    },
+    "care": {
+      "park_code": "care",
+      "park_name": "Capitol Reef National Park",
+      "source_url": "https://www.alltrails.com/parks/us/utah/capitol-reef-national-park",
+      "fetched_at_utc": "2026-06-02T21:48:29Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106791/parks-us-utah-capitol-reef-national-park-10106791-20201216204944000000000-1200x630-3-41608151832.jpg"
+    },
+    "chis": {
+      "park_code": "chis",
+      "park_name": "Channel Islands National Park",
+      "source_url": "https://www.alltrails.com/parks/us/california/channel-islands-national-park",
+      "fetched_at_utc": "2026-06-02T21:48:36Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106793/parks-us-california-channel-islands-national-park-10106793-20201206080006000000000-1200x630-3-41607398950.jpg"
+    },
+    "cong": {
+      "park_code": "cong",
+      "park_name": "Congaree National Park",
+      "source_url": "https://www.alltrails.com/parks/us/south-carolina/congaree-national-park",
+      "fetched_at_utc": "2026-06-02T21:48:45Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106794/parks-us-south-carolina-congaree-national-park-10106794-20201213080004000000000-1200x630-3-41608059524.jpg"
+    },
+    "crla": {
+      "park_code": "crla",
+      "park_name": "Crater Lake National Park",
+      "source_url": "https://www.alltrails.com/parks/us/oregon/crater-lake-national-park",
+      "fetched_at_utc": "2026-06-02T21:49:05Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106795/parks-us-oregon-crater-lake-national-park-10106795-20201210080023000000000-1200x630-3-41607647882.jpg"
+    },
+    "cuva": {
+      "park_code": "cuva",
+      "park_name": "Cuyahoga Valley National Park",
+      "source_url": "https://www.alltrails.com/parks/us/ohio/cuyahoga-valley-national-park",
+      "fetched_at_utc": "2026-06-02T21:49:12Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106796/parks-us-ohio-cuyahoga-valley-national-park-10106796-20201208232154000000000-1200x630-3-41607554784.jpg"
+    },
+    "dena": {
+      "park_code": "dena",
+      "park_name": "Denali National Park",
+      "source_url": "https://www.alltrails.com/parks/us/alaska/denali-national-park",
+      "fetched_at_utc": "2026-06-02T21:49:35Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10151718/parks-us-alaska-denali-national-park-10151718-20201203011615000000000-1200x630-3-41606993270.jpg"
+    },
+    "deva": {
+      "park_code": "deva",
+      "park_name": "Death Valley National Park",
+      "source_url": "https://www.alltrails.com/parks/us/california/death-valley-national-park",
+      "fetched_at_utc": "2026-06-02T21:49:50Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106797/parks-us-california-death-valley-national-park-10106797-20201209173847000000000-1200x630-3-41607535641.jpg"
+    },
+    "ever": {
+      "park_code": "ever",
+      "park_name": "Everglades National Park",
+      "source_url": "https://www.alltrails.com/parks/us/florida/everglades-national-park",
+      "fetched_at_utc": "2026-06-02T21:49:59Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106800/parks-us-florida-everglades-national-park-10106800-20201215174442000000000-1200x630-3-41608057802.jpg"
+    },
+    "glac": {
+      "park_code": "glac",
+      "park_name": "Glacier National Park",
+      "source_url": "https://www.alltrails.com/parks/us/montana/glacier-national-park",
+      "fetched_at_utc": "2026-06-02T21:50:09Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106802/parks-us-montana-glacier-national-park-10106802-20201203080014000000000-1200x630-3-41606993262.jpg"
+    },
+    "grba": {
+      "park_code": "grba",
+      "park_name": "Great Basin National Park",
+      "source_url": "https://www.alltrails.com/parks/us/nevada/great-basin-national-park",
+      "fetched_at_utc": "2026-06-02T21:50:23Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106806/parks-us-nevada-great-basin-national-park-10106806-20201208035910000000000-1200x630-3-41607399984.jpg"
+    },
+    "grca": {
+      "park_code": "grca",
+      "park_name": "Grand Canyon National Park",
+      "source_url": "https://www.alltrails.com/parks/us/arizona/grand-canyon-national-park",
+      "fetched_at_utc": "2026-06-02T21:50:33Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106804/parks-us-arizona-grand-canyon-national-park-10106804-20201216024019000000000-1200x630-3-41608086852.jpg"
+    },
+    "grsa": {
+      "park_code": "grsa",
+      "park_name": "Great Sand Dunes National Park And Preserve",
+      "source_url": "https://www.alltrails.com/parks/us/colorado/great-sand-dunes-national-park-and-preserve",
+      "fetched_at_utc": "2026-06-02T21:50:40Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10167801/parks-us-colorado-great-sand-dunes-national-park-and-preserve-10167801-20201214194604000000000-1200x630-3-41608000290.jpg"
+    },
+    "grsm": {
+      "park_code": "grsm",
+      "park_name": "Great Smoky Mountains National Park",
+      "source_url": "https://www.alltrails.com/parks/us/tennessee/great-smoky-mountains-national-park",
+      "fetched_at_utc": "2026-06-02T21:50:47Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106808/parks-us-tennessee-great-smoky-mountains-national-park-10106808-20201213045515000000000-1200x630-3-41608054947.jpg"
+    },
+    "grte": {
+      "park_code": "grte",
+      "park_name": "Grand Teton National Park",
+      "source_url": "https://www.alltrails.com/parks/us/wyoming/grand-teton-national-park",
+      "fetched_at_utc": "2026-06-02T21:50:54Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106805/parks-us-wyoming-grand-teton-national-park-10106805-20201207080011000000000-1200x630-3-41607399899.jpg"
+    },
+    "gumo": {
+      "park_code": "gumo",
+      "park_name": "Guadalupe Mountains National Park",
+      "source_url": "https://www.alltrails.com/parks/us/texas/guadalupe-mountains-national-park",
+      "fetched_at_utc": "2026-06-02T21:51:02Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106809/parks-us-texas-guadalupe-mountains-national-park-10106809-20201216021933000000000-1200x630-3-41608085553.jpg"
+    },
+    "hosp": {
+      "park_code": "hosp",
+      "park_name": "Hot Springs National Park",
+      "source_url": "https://www.alltrails.com/parks/us/arkansas/hot-springs-national-park",
+      "fetched_at_utc": "2026-06-02T21:51:10Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106812/parks-us-arkansas-hot-springs-national-park-10106812-20201211001816000000000-1200x630-3-41607646089.jpg"
+    },
+    "indu": {
+      "park_code": "indu",
+      "park_name": "Indiana Dunes National Park",
+      "source_url": "https://www.alltrails.com/parks/us/indiana/indiana-dunes-national-park",
+      "fetched_at_utc": "2026-06-02T21:51:18Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10167489/parks-us-indiana-indiana-dunes-national-park-10167489-20201207080333000000000-1200x630-3-41607400538.jpg"
+    },
+    "jotr": {
+      "park_code": "jotr",
+      "park_name": "Joshua Tree National Park",
+      "source_url": "https://www.alltrails.com/parks/us/california/joshua-tree-national-park",
+      "fetched_at_utc": "2026-06-02T21:51:25Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106814/parks-us-california-joshua-tree-national-park-10106814-20201214184041000000000-1200x630-3-41607974698.jpg"
+    },
+    "kefj": {
+      "park_code": "kefj",
+      "park_name": "Kenai Fjords National Park",
+      "source_url": "https://www.alltrails.com/parks/us/alaska/kenai-fjords-national-park",
+      "fetched_at_utc": "2026-06-02T21:51:35Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106816/parks-us-alaska-kenai-fjords-national-park-10106816-20201216022812000000000-1200x630-3-41608086058.jpg"
+    },
+    "lavo": {
+      "park_code": "lavo",
+      "park_name": "Lassen Volcanic National Park",
+      "source_url": "https://www.alltrails.com/parks/us/california/lassen-volcanic-national-park",
+      "fetched_at_utc": "2026-06-02T21:51:42Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106820/parks-us-california-lassen-volcanic-national-park-10106820-20201209080009000000000-1200x630-3-41607553103.jpg"
+    },
+    "maca": {
+      "park_code": "maca",
+      "park_name": "Mammoth Cave National Park",
+      "source_url": "https://www.alltrails.com/parks/us/kentucky/mammoth-cave-national-park",
+      "fetched_at_utc": "2026-06-02T21:51:49Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106821/parks-us-kentucky-mammoth-cave-national-park-10106821-20201208035239000000000-1200x630-3-41607445050.jpg"
+    },
+    "meve": {
+      "park_code": "meve",
+      "park_name": "Mesa Verde National Park",
+      "source_url": "https://www.alltrails.com/parks/us/colorado/mesa-verde-national-park",
+      "fetched_at_utc": "2026-06-02T21:51:56Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106822/parks-us-colorado-mesa-verde-national-park-10106822-20201214220309000000000-1200x630-3-41607983507.jpg"
+    },
+    "mora": {
+      "park_code": "mora",
+      "park_name": "Mount Rainier National Park",
+      "source_url": "https://www.alltrails.com/parks/us/washington/mount-rainier-national-park",
+      "fetched_at_utc": "2026-06-02T21:52:03Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106823/parks-us-washington-mount-rainier-national-park-10106823-20201216080007000000000-1200x630-3-41608116613.jpg"
+    },
+    "neri": {
+      "park_code": "neri",
+      "park_name": "New River Gorge National Park And Preserve",
+      "source_url": "https://www.alltrails.com/parks/us/west-virginia/new-river-gorge-national-park-and-preserve",
+      "fetched_at_utc": "2026-06-02T21:52:13Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10184108/parks-us-west-virginia-new-river-gorge-national-park-and-preserve-10184108-20210325175451000000000-1200x630-3-41616694924.jpg"
+    },
+    "noca": {
+      "park_code": "noca",
+      "park_name": "North Cascades National Park",
+      "source_url": "https://www.alltrails.com/parks/us/washington/north-cascades-national-park",
+      "fetched_at_utc": "2026-06-02T21:52:21Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106824/parks-us-washington-north-cascades-national-park-10106824-20201207080013000000000-1200x630-3-41607403171.jpg"
+    },
+    "olym": {
+      "park_code": "olym",
+      "park_name": "Olympic National Park",
+      "source_url": "https://www.alltrails.com/parks/us/washington/olympic-national-park",
+      "fetched_at_utc": "2026-06-02T21:52:28Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106825/parks-us-washington-olympic-national-park-10106825-20201213080009000000000-1200x630-3-41607967873.jpg"
+    },
+    "pefo": {
+      "park_code": "pefo",
+      "park_name": "Petrified Forest National Park",
+      "source_url": "https://www.alltrails.com/parks/us/arizona/petrified-forest-national-park",
+      "fetched_at_utc": "2026-06-02T21:52:35Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106826/parks-us-arizona-petrified-forest-national-park-10106826-20201214223431000000000-1200x630-3-41607985317.jpg"
+    },
+    "pinn": {
+      "park_code": "pinn",
+      "park_name": "Pinnacles National Park",
+      "source_url": "https://www.alltrails.com/parks/us/california/pinnacles-national-park",
+      "fetched_at_utc": "2026-06-02T21:52:42Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10159423/parks-us-california-pinnacles-national-park-10159423-20201213080301000000000-1200x630-3-41607985820.jpg"
+    },
+    "redw": {
+      "park_code": "redw",
+      "park_name": "Redwood National Park",
+      "source_url": "https://www.alltrails.com/parks/us/california/redwood-national-park",
+      "fetched_at_utc": "2026-06-02T21:52:50Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10167966/parks-us-california-redwood-national-park-10167966-20201203080833000000000-1200x630-3-41606993263.jpg"
+    },
+    "romo": {
+      "park_code": "romo",
+      "park_name": "Rocky Mountain National Park",
+      "source_url": "https://www.alltrails.com/parks/us/colorado/rocky-mountain-national-park",
+      "fetched_at_utc": "2026-06-02T21:53:03Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106828/parks-us-colorado-rocky-mountain-national-park-10106828-20201216175148000000000-1200x630-3-41608142445.jpg"
+    },
+    "sagu": {
+      "park_code": "sagu",
+      "park_name": "Saguaro National Park",
+      "source_url": "https://www.alltrails.com/parks/us/arizona/saguaro-national-park",
+      "fetched_at_utc": "2026-06-02T21:53:11Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106829/parks-us-arizona-saguaro-national-park-10106829-20201213080010000000000-1200x630-3-41607987230.jpg"
+    },
+    "seki": {
+      "park_code": "seki",
+      "park_name": "Sequoia National Park",
+      "source_url": "https://www.alltrails.com/parks/us/california/sequoia-national-park",
+      "fetched_at_utc": "2026-06-02T21:53:19Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106830/parks-us-california-sequoia-national-park-10106830-20201216080008000000000-1200x630-3-41608157264.jpg"
+    },
+    "shen": {
+      "park_code": "shen",
+      "park_name": "Shenandoah National Park",
+      "source_url": "https://www.alltrails.com/parks/us/virginia/shenandoah-national-park",
+      "fetched_at_utc": "2026-06-02T21:53:27Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106831/parks-us-virginia-shenandoah-national-park-10106831-20201216222601000000000-1200x630-3-41608157696.jpg"
+    },
+    "thro": {
+      "park_code": "thro",
+      "park_name": "Theodore Roosevelt National Park",
+      "source_url": "https://www.alltrails.com/parks/us/north-dakota/theodore-roosevelt-national-park",
+      "fetched_at_utc": "2026-06-02T21:53:35Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106832/parks-us-north-dakota-theodore-roosevelt-national-park-10106832-20210122080015000000000-1200x630-3-41611362738.jpg"
+    },
+    "whsa": {
+      "park_code": "whsa",
+      "park_name": "White Sands National Park",
+      "source_url": "https://www.alltrails.com/parks/us/new-mexico/white-sands-national-park",
+      "fetched_at_utc": "2026-06-02T21:53:42Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10172750/parks-us-new-mexico-white-sands-national-park-10172750-20210209080503000000000-1200x630-3-41612991889.jpg"
+    },
+    "wica": {
+      "park_code": "wica",
+      "park_name": "Wind Cave National Park",
+      "source_url": "https://www.alltrails.com/parks/us/south-dakota/wind-cave-national-park",
+      "fetched_at_utc": "2026-06-02T21:53:49Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106835/parks-us-south-dakota-wind-cave-national-park-10106835-20201215235228000000000-1200x630-3-41608077222.jpg"
+    },
+    "yell": {
+      "park_code": "yell",
+      "park_name": "Yellowstone National Park",
+      "source_url": "https://www.alltrails.com/parks/us/wyoming/yellowstone-national-park",
+      "fetched_at_utc": "2026-06-02T21:53:56Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106837/parks-us-wyoming-yellowstone-national-park-10106837-20201203080029000000000-1200x630-3-41606993268.jpg"
+    },
+    "yose": {
+      "park_code": "yose",
+      "park_name": "Yosemite National Park",
+      "source_url": "https://www.alltrails.com/parks/us/california/yosemite-national-park",
+      "fetched_at_utc": "2026-06-02T21:54:05Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106838/parks-us-california-yosemite-national-park-10106838-20201213080011000000000-1200x630-3-41608087826.jpg"
+    },
+    "zion": {
+      "park_code": "zion",
+      "park_name": "Zion National Park",
+      "source_url": "https://www.alltrails.com/parks/us/utah/zion-national-park",
+      "fetched_at_utc": "2026-06-02T21:54:16Z",
+      "method": "alltrails_og_cdp",
+      "error": null,
+      "hero_image_url": "https://cdn-assets.alltrails.com/static-map/production/area/10106839/parks-us-utah-zion-national-park-10106839-20201215155622000000000-1200x630-3-41608047857.jpg"
+    }
+  }
+}
