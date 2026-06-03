@@ -1,5 +1,7 @@
 """Park-aware stock hero queries for in-park hike cards."""
 
+from unittest.mock import patch
+
 from src.wanderly.stock_photo_heroes import (
     _unsplash_query_candidates,
     build_stock_search_query,
@@ -51,13 +53,14 @@ def test_unsplash_candidates_park_first():
     assert any("hiking" in c.lower() for c in cands[:6])
 
 
-def test_hero_urls_from_trail_lookups():
-    from src.wanderly.hero_enrichment import _hero_urls_from_trail_lookups
+def test_hero_park_urls_outdoor_card():
+    from src.wanderly.hero_enrichment import _hero_fallback_urls
 
     dest = {
-        "trail_lookups": {
-            "leg-1": {"image_url": "https://cdn.alltrails.com/example.jpg"},
-        },
+        "grounding": {"park_code": "brca", "status": "catalog", "trail_id": "x"},
+        "id": "trail:x",
+        "name": "Under-the-Rim",
     }
-    urls = _hero_urls_from_trail_lookups(dest)
-    assert urls == ["https://cdn.alltrails.com/example.jpg"]
+    with patch("src.wanderly.park_hero_catalog.offline_park_hero_url", return_value="https://cdn.example.com/brca.jpg"):
+        urls = _hero_fallback_urls(dest, gallery_max=3)
+    assert urls == ["https://cdn.example.com/brca.jpg"]

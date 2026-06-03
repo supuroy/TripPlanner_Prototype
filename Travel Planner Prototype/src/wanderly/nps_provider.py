@@ -374,6 +374,13 @@ def _parse_longitude(raw: Any) -> float | None:
     return v if -180.0 <= v <= 180.0 else None
 
 
+def _string_list(raw: Any, *, limit: int = 10) -> list[str] | None:
+    if not isinstance(raw, list):
+        return None
+    out = [str(x).strip() for x in raw if str(x).strip()][:limit]
+    return out or None
+
+
 def normalize_campground(row: dict[str, Any]) -> dict[str, Any]:
     name = str(row.get("name") or "").strip()
     if not name:
@@ -413,11 +420,58 @@ def normalize_campground(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _string_list(raw: Any, *, limit: int = 10) -> list[str] | None:
-    if not isinstance(raw, list):
+def normalize_park_image(row: dict[str, Any]) -> dict[str, Any] | None:
+    """One NPS park photo from ``/parks?fields=images``."""
+    url = str(row.get("url") or "").strip()
+    if not url.startswith("http"):
         return None
-    out = [str(x).strip() for x in raw if str(x).strip()][:limit]
-    return out or None
+    title = str(row.get("title") or row.get("altText") or "").strip()
+    credit = str(row.get("credit") or "").strip()
+    out: dict[str, Any] = {"url": url}
+    if title:
+        out["title"] = title[:200]
+    if credit:
+        out["credit"] = credit[:200]
+    return out
+
+
+def fetch_nps_park_hero_urls(
+    park_code: str,
+    *,
+    max_images: int = 3,
+    use_cache: bool = True,
+) -> list[str]:
+    """
+    Official NPS park photos (``fields=images``). Cached via ``_get`` like alerts/fees.
+    """
+    pc = (park_code or "").strip().lower()
+    if not pc or not nps_configured():
+        return []
+    rows = _get(
+        "parks",
+        params={"parkCode": pc, "fields": "images", "limit": 1},
+        use_cache=use_cache,
+    )
+    if not rows:
+        return []
+    row = rows[0]
+    images = row.get("images")
+    if not isinstance(images, list):
+        return []
+    urls: list[str] = []
+    for img in images:
+        if len(urls) >= max(1, max_images):
+            break
+        if not isinstance(img, dict):
+            continue
+        norm = normalize_park_image(img)
+        if norm and norm.get("url"):
+            u = str(norm["url"]).strip()
+            if u.startswith("https:") and u not in urls:
+                urls.append(u)
+    if urls:
+        log_nps_enrich(f"park_hero_images park={pc!r} count={len(urls)}")
+    return urls
 
 
 def normalize_park_fees(row: dict[str, Any]) -> dict[str, Any]:

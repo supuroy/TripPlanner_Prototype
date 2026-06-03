@@ -2,6 +2,7 @@ import TripProvider, { useTrip } from "./components/TripStore";
 import { CommandBar } from "./components/CommandBar";
 import { ProfilePanel } from "./components/ProfilePanel";
 import { DestinationCanvas } from "./components/DestinationCanvas";
+import { WorkspaceStreamingOverlayLayer } from "./components/WorkspaceStreamingOverlayLayer";
 import { AgentResponses } from "./components/AgentResponses";
 import { SavedTripsMenu } from "./components/SavedTripsMenu";
 import {
@@ -438,6 +439,7 @@ function Workspace() {
 
       {/* Main + command: flex fills viewport so agent panel sits flush above the input (no dead band). */}
       <div className="flex min-h-0 flex-1 flex-col">
+        <WorkspaceStreamingOverlayLayer />
         <div className="min-h-0 flex-1 overflow-hidden">
           <AnimatePresence mode="wait">
             {!hasStarted ? (

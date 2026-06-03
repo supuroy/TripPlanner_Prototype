@@ -55,7 +55,6 @@ import {
 import { createCardStreamFromSseHandler } from "../lib/cardStreamFromSse";
 import { streamEventToCaption } from "../lib/streamCaption";
 import { useCardStreamingOverlay } from "../hooks/useCardStreamingOverlay";
-import { useWorkspaceStreamingOverlay } from "../hooks/useWorkspaceStreamingOverlay";
 import { StreamingOverlay } from "./StreamingOverlay";
 import { ConversationPanel } from "./ConversationPanel";
 import {
@@ -1744,7 +1743,6 @@ export function DestinationCanvas() {
     phase,
     refineUnlockCardNavigation,
   } = useTrip();
-  const { overlay: workspaceOverlay } = useWorkspaceStreamingOverlay();
   const [comparisonStartIndex, setComparisonStartIndex] = useState(0);
 
   /**
@@ -1913,14 +1911,6 @@ export function DestinationCanvas() {
       ) : !isCanvasCollapsed ? (
         /* ── Horizontal Carousel view — card width scales with viewport (narrow phones). ── */
         <div className="relative min-h-[280px]">
-          <StreamingOverlay
-            data-testid="wanderly-workspace-streaming-overlay"
-            isVisible={workspaceOverlay.isVisible}
-            title={workspaceOverlay.title}
-            subtitle={workspaceOverlay.subtitle}
-            streamText={workspaceOverlay.streamText}
-            isStreaming={workspaceOverlay.isStreaming}
-          />
           <div className="relative -mx-3 px-3 sm:-mx-6 sm:px-6">
             <div className="overflow-x-auto overflow-y-visible pb-3 scrollbar-thin sm:pb-4">
               <div className="flex gap-3 sm:gap-4" style={{ minWidth: "min-content" }}>

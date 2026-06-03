@@ -160,6 +160,19 @@ def build_stock_search_query_from_dest(
         name=name,
         hook=str(dest.get("hook") or ""),
     )
+    if not park:
+        g = dest.get("grounding")
+        if isinstance(g, dict):
+            pc = str(g.get("park_code") or "").strip().lower()
+            if pc:
+                try:
+                    from src.wanderly.park_hero_catalog import manifest_row_for_park_code
+
+                    row = manifest_row_for_park_code(pc)
+                    if row:
+                        park = str(row.get("park_name") or "").strip() or park
+                except Exception:
+                    pass
     return build_stock_search_query(name, country, search_hint, park_phrase=park)
 
 

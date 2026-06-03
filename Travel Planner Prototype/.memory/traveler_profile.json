@@ -7,14 +7,15 @@
       "profile_name": "Default",
       "is_default": true,
       "profile": {
-        "traveler_summary": "Mid-March",
+        "traveler_summary": "Mid September \u00b7 Dates TBD",
         "group_size": 2,
         "group_type": "couple with pet",
         "trip_type": "leisure",
-        "traveler_origin": "Seattle, WA",
-        "budget_max_usd": 58.0,
+        "traveler_origin": "Seattle (SEA)",
+        "budget_max_usd": null,
         "destination_preferences": [
-          "Warm beach + food & culture"
+          "Moderate",
+          "waterfall-focused hiking (under 7 miles)"
         ],
         "preferred_climate": "warm",
         "preferred_activities": [
@@ -22,12 +23,12 @@
           "scuba diving",
           "water activities"
         ],
-        "pace_preference": "About a week",
+        "pace_preference": "2+ weeks",
         "accommodation_style": "somewhat luxury",
         "travel_time_tolerance": "within 12 hours of fly time",
         "dietary_or_accessibility_notes": [],
         "assumptions_used": [],
-        "editable_notes": "Couple"
+        "editable_notes": "2 travelers; Trip length: 4 days / 3 nights; Trip length: 4 days / 3 nights"
       }
     }
   ]

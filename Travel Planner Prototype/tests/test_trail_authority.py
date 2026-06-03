@@ -26,6 +26,22 @@ def test_enrich_stamps_alltrails_search_context() -> None:
     assert ctx.get("trail_name")
 
 
+def test_enrich_catalog_grounding_sets_parent_url() -> None:
+    url = "https://www.alltrails.com/trail/us/california/bullfrog-lakes-via-farewell-gap"
+    dest = enrich_destination_alltrails_authority(
+        {
+            "id": "seki:bullfrog-lakes",
+            "name": "Bullfrog Lakes via Farewell Gap",
+            "country": "United States",
+            "grounding": {"status": "catalog", "source_url": url, "trail_id": "seki:bullfrog-lakes"},
+        }
+    )
+    ctx = dest.get("alltrails_search_context")
+    assert isinstance(ctx, dict)
+    assert ctx.get("parent_alltrails_url") == url
+    assert ctx.get("verified") is True
+
+
 def test_point_to_point_return_warning() -> None:
     rows = [
         {

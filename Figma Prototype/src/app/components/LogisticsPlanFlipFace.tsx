@@ -37,8 +37,8 @@ import { flightWithSelectedRank, resolveDisplayedFlight } from "../lib/flightRan
 import { syncUi } from "../../api/wanderly";
 import {
   commercialFlightSegmentsFromDest,
+  effectiveTransportPrimaryMode,
   transportPlanSummary,
-  transportFromDest,
   tripWideStaysFromDest,
   tripWideCarGroundHint,
 } from "../lib/bookingFlightPlan";
@@ -59,6 +59,7 @@ import {
   resolveTrailStats,
 } from "../lib/formatHikingLogistics";
 import { ItineraryQaBanner } from "./ItineraryQaBanner";
+import { AllTrailsOutdoorLinkCard } from "./AllTrailsOutdoorLinkCard";
 import { NpsOutdoorPanel } from "./NpsOutdoorPanel";
 
 function formatTransportMode(mode: string | undefined): string {
@@ -869,8 +870,7 @@ export function LogisticsPlanFlipFace({ dest, profile }: { dest: DestCard; profi
   const whenPill = profile.find((p) => p.key === "when")?.value?.trim() || "";
   const whenDisplay = deriveWhenRangeFromItinerary(itinerary) || whenPill;
   const tripDaysLabel = cardTripDaysLabel(itinerary);
-  const tp = transportFromDest(dest);
-  const modeLabel = formatTransportMode(tp?.primary_mode);
+  const modeLabel = formatTransportMode(effectiveTransportPrimaryMode(dest));
   const summary = transportPlanSummary(dest);
 
   if (!itinerary.length) {
@@ -921,6 +921,8 @@ export function LogisticsPlanFlipFace({ dest, profile }: { dest: DestCard; profi
         <TripWideBookingPrepBlock dest={dest} profile={profile} />
 
         <ItineraryQaBanner qa={dest.itinerary_qa} />
+
+        <AllTrailsOutdoorLinkCard dest={dest} profile={profile} />
 
         <NpsOutdoorPanel dest={dest} profile={profile} />
 

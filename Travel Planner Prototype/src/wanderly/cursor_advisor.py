@@ -27,7 +27,7 @@ from src.wanderly.llm_telemetry import (
 )
 from src.wanderly.refinement_cursor import refinement_model_id
 from src.wanderly.schemas import coerce_profile_pill
-from src.wanderly.json_llm_repair import repair_llm_json_blob
+from src.wanderly.json_llm_repair import extract_first_json_object
 from src.wanderly.itinerary_debug_log import log_itinerary_build
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
 
@@ -56,38 +56,7 @@ def structured_followup_model_id() -> str | None:
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
-    """
-    Parse the first complete JSON object in ``text``.
-
-    Models sometimes emit two objects back-to-back; greedy ``{``..``}`` would fail or merge badly.
-    """
-    t = repair_llm_json_blob((text or "").strip())
-    if not t:
-        return None
-    dec = json.JSONDecoder()
-    try:
-        out, _ = dec.raw_decode(t)
-        return out if isinstance(out, dict) else None
-    except json.JSONDecodeError:
-        pass
-    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", t, re.IGNORECASE)
-    if m:
-        inner = m.group(1).strip()
-        try:
-            out, _ = dec.raw_decode(inner)
-            return out if isinstance(out, dict) else None
-        except json.JSONDecodeError:
-            pass
-    for i, ch in enumerate(t):
-        if ch != "{":
-            continue
-        try:
-            out, _end = dec.raw_decode(t, i)
-            if isinstance(out, dict):
-                return out
-        except json.JSONDecodeError:
-            continue
-    return None
+    return extract_first_json_object(text)
 
 
 _PROFILE_LISTENER_PROMPT = """

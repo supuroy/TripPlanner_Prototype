@@ -70,6 +70,7 @@ export function useStreamingOverlayState(defaultSubtitle: string) {
         return opts.preserveLog ? prev : "";
       });
       markBusy();
+      setDisplayVisible(true);
     },
     [defaultSubtitle, markBusy],
   );

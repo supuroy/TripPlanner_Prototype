@@ -35,7 +35,7 @@ from src.wanderly.inline_itinerary import (
     partition_inline_vs_lazy,
     refine_inline_itinerary_instructions,
 )
-from src.wanderly.json_llm_repair import repair_llm_json_blob
+from src.wanderly.json_llm_repair import extract_first_json_object
 from src.wanderly.outdoor_adventure import (
     infer_trip_style_from_text,
     is_backpacking_or_multiday_hike,
@@ -203,6 +203,7 @@ def _apply_inline_itinerary_delivery(
 
 _JSON_INSTRUCTIONS = """
 You are Wanderly's planner. Reply with ONE JSON object only (no markdown fences, no prose outside JSON).
+Output exactly one object — never repeat or duplicate the JSON after the closing ``}``.
 Shape:
 {
   "assistant_markdown": "markdown summary for the traveler",
@@ -272,6 +273,7 @@ def _smoke_planner_instructions(
 _REFINE_INSTRUCTIONS = """
 You are Wanderly. The user is refining an existing shortlist. Reply ONLY with JSON
 using the SAME shape as before (assistant_markdown, profile_pills, destinations).
+Output exactly one object — never repeat or duplicate the JSON after the closing ``}``.
 
 Rules:
 - workspace_destinations in the context JSON is an **abbreviated** view of the live shortlist
@@ -314,27 +316,7 @@ Structured context (JSON) follows:
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
-    t = (text or "").strip()
-    try:
-        return json.loads(repair_llm_json_blob(t))
-    except json.JSONDecodeError:
-        pass
-    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", t, re.IGNORECASE)
-    if m:
-        inner = repair_llm_json_blob(m.group(1).strip())
-        try:
-            return json.loads(inner)
-        except json.JSONDecodeError:
-            pass
-    start = t.find("{")
-    end = t.rfind("}")
-    if start >= 0 and end > start:
-        candidate = repair_llm_json_blob(t[start : end + 1])
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            return None
-    return None
+    return extract_first_json_object(text)
 
 
 _AIRPORT_LABEL: dict[str, str] = {
@@ -1081,28 +1063,47 @@ def _run_smoke_with_trip_intent(
     }
     set_trip_intent(session_id, intent_payload)
 
-    if resolution.catalog_eligible and resolution.primary_park_code:
-        from src.wanderly.catalog_smoke_turn import build_catalog_workspace
+    if resolution.catalog_eligible:
+        if resolution.catalog_lane == "intent":
+            from src.wanderly.catalog_smoke_turn import build_intent_catalog_workspace
 
-        safe_emit(
-            {
-                "type": "phase",
-                "message": f"Outdoor catalog lane — {resolution.primary_park_name or resolution.primary_park_code}",
-            }
-        )
-        dto = build_catalog_workspace(
-            user_message=um,
-            session_id=session_id,
-            resolution=resolution,
-            emit=emit,
-        )
-        return _commit_smoke_workspace(
-            session_id,
-            um,
-            dto,
-            parse_ok=True,
-            trip_intent_payload=intent_payload,
-        )
+            safe_emit(
+                {
+                    "type": "phase",
+                    "message": "Outdoor catalog lane — intent search (region/feature/state)",
+                }
+            )
+            dto = build_intent_catalog_workspace(
+                user_message=um,
+                session_id=session_id,
+                resolution=resolution,
+                emit=emit,
+            )
+        elif resolution.primary_park_code:
+            from src.wanderly.catalog_smoke_turn import build_catalog_workspace
+
+            safe_emit(
+                {
+                    "type": "phase",
+                    "message": f"Outdoor catalog lane — {resolution.primary_park_name or resolution.primary_park_code}",
+                }
+            )
+            dto = build_catalog_workspace(
+                user_message=um,
+                session_id=session_id,
+                resolution=resolution,
+                emit=emit,
+            )
+        else:
+            dto = None
+        if dto is not None:
+            return _commit_smoke_workspace(
+                session_id,
+                um,
+                dto,
+                parse_ok=True,
+                trip_intent_payload=intent_payload,
+            )
 
     safe_emit({"type": "phase", "message": "Building destination shortlist…"})
     load_env_from_roots()

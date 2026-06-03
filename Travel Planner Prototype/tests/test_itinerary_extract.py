@@ -7,6 +7,43 @@ import pytest
 from src.wanderly.itinerary_lazy import _extract_itinerary_payload, _normalize_itinerary_rows
 
 
+def test_extract_trunc_repair_kyoto_style_cutoff() -> None:
+    """Regression: Kyoto logs showed wrapper_present=0 and DROPPED_ALL on day-1 items strings."""
+    raw = (
+        '{"itinerary":[{"day":1,"label":"Inbound sakura week","base":"Central Kyoto",'
+        '"items":["Fly Seattle to Kansai","Train to Kyoto hotel","Gentle Kamogawa walk",'
+        '"Izakaya near Kawaramachi","Rest after the long haul"],'
+        '"day_transport":{"mode":"train","note":"Haruka or JR rapid; IC card for city legs."},'
+        '"day_logistics":{"flight":{"segments":[{"from_search_label":"Seattle, Washington, United States",'
+        '"to_search_label":"Osaka, Kansai, Japan","role":"inbound"}]},"lodging":{"destination_search_label":"Kyoto, K'
+    )
+    rows, _bg, _bh, _ncf, tp, _hooks, wrap = _extract_itinerary_payload(raw)
+    assert len(rows) >= 1
+    assert isinstance(rows[0], dict)
+    assert rows[0].get("day") == 1
+    assert _normalize_itinerary_rows(rows, max_days=6)
+    assert wrap is not None or tp is not None or len(rows) >= 1
+
+
+def test_extract_prefers_day_rows_over_nested_items_string_array() -> None:
+    """Regression: Kyoto rebuilds parsed day-1 ``items`` strings as the itinerary (EMPTY / DROPPED_ALL)."""
+    items_only = '["Fly Seattle to Kansai", "Train into Kyoto", "Walk", "Dinner", "Sleep"]'
+    full = (
+        '{"itinerary": ['
+        '{"day": 1, "label": "Inbound to Kyoto", "items": ["Fly Seattle to Kansai", "Train into Kyoto"]},'
+        '{"day": 2, "label": "Temples", "items": ["Kiyomizu", "Higashiyama"]}'
+        '], "transport_plan": {"primary_mode": "mixed", "summary": "Rail + air", '
+        '"commercial_flight_segments": []}}'
+    )
+    raw = f"fragment with {items_only} then valid {full}"
+    rows, _bg, _bh, _ncf, tp, _hooks, wrap = _extract_itinerary_payload(raw)
+    assert len(rows) == 2
+    assert isinstance(rows[0], dict)
+    assert rows[0].get("day") == 1
+    assert wrap is not None
+    assert tp is not None
+
+
 def test_extract_preamble_before_object() -> None:
     raw = 'Sure — here you go.\n\n{"itinerary": [{"day": 1, "label": "Arrive", "items": ["a", "b"]}], "budget_guidance": {}}'
     rows, bg, bh, ncf, _tp, _hooks, _wrap = _extract_itinerary_payload(raw)
@@ -107,6 +144,67 @@ def test_ensure_transport_plan_infers_ground_from_itinerary() -> None:
     assert tp.get("primary_mode") == "ground_only"
     assert ncf is False
     assert hints is None
+
+
+def test_ensure_transport_plan_reconciles_day_logistics_flights() -> None:
+    """Regression: Bangkok card had day_logistics flights but ground_only transport_plan."""
+    from src.wanderly.itinerary_lazy import ensure_transport_plan_after_extract
+
+    rows = [
+        {
+            "day": 1,
+            "label": "Arrival",
+            "items": ["Check in"],
+            "day_transport": {"mode": "taxi", "note": "Airport link"},
+            "day_logistics": {
+                "flight": {
+                    "segments": [
+                        {
+                            "from_search_label": "Seattle, WA, United States",
+                            "to_search_label": "Bangkok, Bangkok Province, Thailand",
+                            "role": "inbound",
+                        }
+                    ]
+                }
+            },
+        },
+        {
+            "day": 10,
+            "label": "Departure",
+            "items": ["Fly home"],
+            "day_logistics": {
+                "flight": {
+                    "segments": [
+                        {
+                            "from_search_label": "Bangkok, Bangkok Province, Thailand",
+                            "to_search_label": "Seattle, WA, United States",
+                            "role": "return",
+                        }
+                    ]
+                }
+            },
+        },
+    ]
+    tp, ncf, hints = ensure_transport_plan_after_extract(
+        transport_plan={
+            "primary_mode": "ground_only",
+            "summary": "Ground-based travel (inferred from itinerary; model omitted transport_plan).",
+            "commercial_flight_segments": [],
+        },
+        needs_commercial_flight=False,
+        booking_search_hints=None,
+        budget_guidance=None,
+        itinerary_rows=rows,
+        destination={"name": "Bangkok", "country": "Thailand"},
+        profile_pills=[{"key": "from", "value": "Seattle, WA"}],
+        raw_wrapper=None,
+    )
+    assert tp is not None
+    assert tp.get("primary_mode") in ("commercial_air", "mixed")
+    assert len(tp.get("commercial_flight_segments") or []) == 2
+    assert ncf is True
+    assert hints is not None
+    assert hints.get("flight_to_label")
 
 
 def test_refine_mixed_empty_coerces_with_movement_blob() -> None:

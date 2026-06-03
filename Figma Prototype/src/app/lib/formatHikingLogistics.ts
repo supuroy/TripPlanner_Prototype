@@ -1,3 +1,4 @@
+import type { DestCard } from "../components/TripStore";
 import type { DayLogisticsCampNight, DayLogisticsSurfaceLeg, DayLogisticsTrailSegment } from "../../types/workspace";
 
 export type TrailStatsSource = Pick<
@@ -29,8 +30,36 @@ export function resolveTrailStats(
 export function extractAllTrailsUrlFromNotes(notes?: string): string | undefined {
   const raw = (notes || "").trim();
   if (!raw) return undefined;
-  const m = raw.match(/https:\/\/www\.alltrails\.com\/trail\/[^\s)]+/i);
+  const m = raw.match(/https:\/\/www\.alltrails\.com\/(?:trail|explore\/trail)\/[^\s)]+/i);
   return m?.[0]?.replace(/[.,;]+$/, "");
+}
+
+/** Best AllTrails trail page URL for the logistics flip face (catalog, verified, or legacy hint). */
+export function resolveAllTrailsUrlForDest(dest: DestCard): string | undefined {
+  const atc = dest.alltrails_search_context;
+  const parent = atc?.parent_alltrails_url?.trim();
+  if (parent) return parent;
+  const hint = (atc as { unverified_url_hint?: string } | undefined)?.unverified_url_hint?.trim();
+  if (hint && hint.includes("alltrails.com")) return hint;
+  const g = dest.grounding;
+  const catalogUrl = g?.status === "catalog" ? String(g.source_url || "").trim() : "";
+  if (catalogUrl && catalogUrl.includes("alltrails.com")) return catalogUrl;
+  for (const day of dest.itinerary ?? []) {
+    const fromNotes = extractAllTrailsUrlFromNotes(day.day_logistics?.trail_segment?.notes);
+    if (fromNotes) return fromNotes;
+    const segUrl = (day.day_logistics?.trail_segment as { alltrails_url?: string } | undefined)?.alltrails_url;
+    if (typeof segUrl === "string" && segUrl.includes("alltrails.com")) return segUrl.trim();
+  }
+  return undefined;
+}
+
+export function allTrailsLinkLabelForDest(dest: DestCard): string {
+  const name =
+    dest.alltrails_search_context?.trail_name?.trim() ||
+    dest.grounding?.trail_id?.replace(/^[^:]+:/, "").replace(/-/g, " ") ||
+    dest.name?.trim() ||
+    "Trail";
+  return name.length > 48 ? `${name.slice(0, 45)}…` : name;
 }
 
 export function formatTrailStatsLine(stats: TrailStatsSource): string | null {

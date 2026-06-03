@@ -13,8 +13,10 @@ from src.integrations.cursor_agent_client import (
     run_prompt_collect_assistant_text,
 )
 from src.wanderly.flight_listing_llm import parse_llm_json_object
-from src.wanderly.session_store import cursor_run_persist_kwargs
+from src.wanderly.llm_telemetry import ACTIVITY_ITINERARY_BUILDER, telemetry_meta
+from src.wanderly.session_store import cursor_run_persist_kwargs, cursor_run_persist_kwargs_for_lane
 from src.wanderly.trail_catalog.store import clean_trail_name, entry_by_trail_id
+from src.wanderly.trail_catalog_trace import dump_trail_catalog_debug, log_trail_catalog
 from src.wanderly.trail_catalog.validate import validate_itinerary_against_catalog, validate_trail_ids
 
 _SELECT_PROMPT = """
@@ -94,20 +96,62 @@ def _call_llm_json(
     payload: dict[str, Any],
     session_id: str,
     trace_path: str,
+    sub_activity: str,
+    cursor_lane: str | None = None,
 ) -> dict[str, Any] | None:
     load_env_from_roots()
     key = get_api_key()
     prompt = system + "\n\n---\n\n" + json.dumps(payload, ensure_ascii=True, indent=2)
     light = _light_model()
-    with basic_client(key) as client:
-        raw = run_prompt_collect_assistant_text(
-            client,
-            prompt,
-            model_id_override=light,
-            persistent_instruction_prefix=system + "\n\n---\n\n",
-            **cursor_run_persist_kwargs(session_id, light, trace_path=trace_path),
-        )
-    return parse_llm_json_object(raw)
+    lane = (cursor_lane or "").strip()
+    log_trail_catalog(
+        f"llm_json_start sub={sub_activity!r} trace={trace_path!r} "
+        f"prompt_chars={len(prompt)} sid={(session_id or '')[:12]!r} lane={lane or '(default)'!r}"
+    )
+    t0 = __import__("time").perf_counter()
+    raw = ""
+    err: str | None = None
+    parsed: dict[str, Any] | None = None
+    persist_kwargs = (
+        cursor_run_persist_kwargs_for_lane(session_id, lane, trace_path=trace_path)
+        if lane
+        else cursor_run_persist_kwargs(session_id, light, trace_path=trace_path)
+    )
+    try:
+        with basic_client(key) as client:
+            raw = run_prompt_collect_assistant_text(
+                client,
+                prompt,
+                model_id_override=light,
+                persistent_instruction_prefix=system + "\n\n---\n\n",
+                llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                llm_telemetry_sub_activity=sub_activity,
+                llm_telemetry_meta=telemetry_meta(session_id=session_id),
+                **persist_kwargs,
+            )
+        parsed = parse_llm_json_object(raw)
+    except Exception as exc:
+        err = f"{type(exc).__name__}: {exc}"
+    elapsed_ms = round((__import__("time").perf_counter() - t0) * 1000.0, 1)
+    dump_trail_catalog_debug(
+        f"llm_{sub_activity}_{(session_id or 'anon')[:8]}",
+        {
+            "session_id": session_id,
+            "sub_activity": sub_activity,
+            "trace_path": trace_path,
+            "elapsed_ms": elapsed_ms,
+            "raw_chars": len(raw or ""),
+            "parse_ok": parsed is not None,
+            "error": err,
+            "raw_preview": (raw or "")[:1200],
+            "parsed_keys": sorted(parsed.keys()) if isinstance(parsed, dict) else [],
+        },
+    )
+    log_trail_catalog(
+        f"llm_json_end sub={sub_activity!r} parse_ok={parsed is not None} "
+        f"raw_chars={len(raw or '')} elapsed_ms={elapsed_ms} err={err or ''}"
+    )
+    return parsed
 
 
 def llm_select_trails(
@@ -133,6 +177,7 @@ def llm_select_trails(
             payload=payload,
             session_id=session_id,
             trace_path=f"grounded_trail.select.a{attempt}.json",
+            sub_activity="catalog_trail_pick",
         )
         if not parsed:
             continue
@@ -178,6 +223,9 @@ def destination_card_from_trail(
     }
     if pc:
         grounding["park_code"] = pc
+    canonical = entry.get("canonical_trail_id")
+    if canonical:
+        grounding["canonical_trail_id"] = canonical
     return {
         "id": tid,
         "name": name,
@@ -200,6 +248,7 @@ def llm_build_itinerary(
     days: int,
     nights: int,
     session_id: str = "grounded-prototype",
+    destination_id: str | None = None,
 ) -> dict[str, Any] | None:
     payload = {
         "days": days,
@@ -219,11 +268,20 @@ def llm_build_itinerary(
         },
     }
     system = _ITINERARY_PROMPT.replace("Exactly N days", f"Exactly {days} days")
+    cursor_lane: str | None = None
+    did = str(destination_id or destination.get("id") or "").strip()
+    sid = (session_id or "").strip()
+    if sid and did:
+        from src.wanderly.itinerary_lazy import _cursor_lane_for_itinerary_build
+
+        cursor_lane = _cursor_lane_for_itinerary_build(sid, did, _light_model())
     return _call_llm_json(
         system=system,
         payload=payload,
-        session_id=f"{session_id}-{selected_trail.get('trail_id')}",
+        session_id=session_id,
         trace_path="grounded_trail.itinerary.json",
+        sub_activity="catalog_trail_itinerary",
+        cursor_lane=cursor_lane,
     )
 
 

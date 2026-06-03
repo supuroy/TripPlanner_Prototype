@@ -121,9 +121,40 @@ def _hero_image_provider() -> str:
     return "wikimedia"
 
 
-def _hero_fallback_urls(d: dict[str, Any]) -> list[str]:
-    """No Apify / per-leg AllTrails hero fallback (removed)."""
-    return []
+def _is_outdoor_park_card(d: dict[str, Any]) -> bool:
+    g = d.get("grounding")
+    if isinstance(g, dict):
+        if str(g.get("status") or "").strip().lower() == "catalog":
+            return True
+        if str(g.get("park_code") or "").strip():
+            return True
+        if str(g.get("trail_id") or "").strip():
+            return True
+    from src.wanderly.park_hero_catalog import park_code_from_destination
+
+    return park_code_from_destination(d) is not None
+
+
+def _hero_park_urls(d: dict[str, Any], *, gallery_max: int) -> tuple[list[str], str]:
+    """Offline AllTrails park hero, then live NPS park photos."""
+    from src.wanderly.park_hero_catalog import park_hero_urls_for_destination
+
+    urls, source = park_hero_urls_for_destination(d, gallery_max=gallery_max)
+    if urls:
+        nu = [_normalize_photo_url(u) for u in urls]
+        urls = [u for u in nu if u]
+    return urls, source
+
+
+def _hero_fallback_urls(d: dict[str, Any], *, gallery_max: int = 3) -> list[str]:
+    if not _is_outdoor_park_card(d):
+        return []
+    urls, source = _hero_park_urls(d, gallery_max=gallery_max)
+    if urls:
+        log_hero_image(
+            f"park_hero id={str(d.get('id') or '')!r} park={source} urls={len(urls)}"
+        )
+    return urls
 
 
 def _stock_worker_idx(
@@ -143,6 +174,13 @@ def _stock_worker_idx(
         hook=str(d.get("hook") or ""),
     )
     q = build_stock_search_query_from_dest(d, hint)
+    if _is_outdoor_park_card(d):
+        park_urls, park_src = _hero_park_urls(d, gallery_max=gallery_max)
+        if park_urls:
+            log_hero_image(
+                f"park_hero_primary idx={idx} id={did!r} source={park_src} urls={len(park_urls)}"
+            )
+            return idx, park_urls
     log_hero_image(
         f"stock start idx={idx} id={did!r} name={name!r} country={country!r} "
         f"park={park!r} query={q!r}",
@@ -212,10 +250,10 @@ def _enrich_with_stock_parallel(
             did = str(row.get("id") or "").strip()
             urls = list(results_by_idx.get(i, []))
             if not urls:
-                urls = _hero_fallback_urls(row)
+                urls = _hero_fallback_urls(row, gallery_max=gallery_max)
                 if urls:
                     log_hero_image(
-                        f"merge idx={i} id={did!r} name={row.get('name')!r} — hero from trail/AllTrails fallback",
+                        f"merge idx={i} id={did!r} name={row.get('name')!r} — hero from park catalog/NPS",
                     )
             if not urls:
                 log_hero_image(
@@ -236,9 +274,9 @@ def _enrich_with_stock_parallel(
             country = str(row.get("country") or "")
             urls = list(results_by_idx.get(i, []))
             if not urls:
-                urls = _hero_fallback_urls(row)
+                urls = _hero_fallback_urls(row, gallery_max=gallery_max)
                 if urls:
-                    log_hero_image(f"merge idx={i} id={did!r} — hero from trail/AllTrails before Wikimedia")
+                    log_hero_image(f"merge idx={i} id={did!r} — hero from park catalog/NPS before Wikimedia")
             if not urls:
                 hint = hints.get(did) if did else None
                 urls = resolve_hero_image_urls(
@@ -271,7 +309,9 @@ def _enrich_with_wikimedia_sequential(
             country = str(row.get("country") or "")
             hint = hints.get(did) if did else None
             log_hero_image(f"wikimedia idx={i} id={did!r} name={name!r}")
-            urls = resolve_hero_image_urls(
+            urls = list(_hero_fallback_urls(row, gallery_max=gallery_max))
+            if not urls:
+                urls = resolve_hero_image_urls(
                 name,
                 country,
                 search_hint=hint,

@@ -15,17 +15,22 @@ from src.wanderly.smoke_service import (
     _merge_profile_with_inference,
     _minimal_dest_card,
 )
+from src.wanderly.trail_catalog.intent_pick import (
+    pick_trails_for_intent,
+    resolve_trail_entry_for_card,
+)
 from src.wanderly.trail_catalog.pipeline import (
     destination_card_from_trail,
     full_catalog_entry,
-    llm_build_itinerary,
     llm_select_trails,
 )
 from src.wanderly.trail_catalog.store import (
     heuristic_pick_trails,
+    load_park_catalog,
     load_park_trails_compact,
     prefilter_backpacking_candidates,
 )
+from src.wanderly.trail_catalog_trace import dump_trail_catalog_debug, log_trail_catalog
 from src.wanderly.trip_intent_resolve import TripIntentResolution
 from src.wanderly.trip_intent_trace import dump_trip_intent_debug, log_trip_intent
 
@@ -121,6 +126,144 @@ def _catalog_card_shell(
     return shell
 
 
+def _build_cards_from_picks(
+    *,
+    picks: list[dict[str, Any]],
+    park_code: str | None,
+    pick_meta: dict[str, Any] | None = None,
+    session_id: str = "",
+) -> list[dict[str, Any]]:
+    """Build catalog-grounded destination cards; itineraries load via lazy ``catalog_itinerary``."""
+    destinations: list[dict[str, Any]] = []
+    for pick in picks:
+        tid = str(pick.get("trail_id") or "")
+        full = resolve_trail_entry_for_card(pick)
+        if park_code and not full.get("park_code"):
+            pc = park_code
+        else:
+            pc = str(full.get("park_code") or park_code or "").strip().lower() or None
+        if park_code and pc == park_code:
+            try:
+                doc_entry = full_catalog_entry(load_park_catalog(pc), tid)
+            except (FileNotFoundError, ValueError):
+                doc_entry = None
+            if doc_entry:
+                full = doc_entry
+        elif pc and tid:
+            try:
+                doc_entry = full_catalog_entry(load_park_catalog(pc), tid)
+            except (FileNotFoundError, ValueError):
+                doc_entry = None
+            if doc_entry:
+                full = doc_entry
+        reason = str(pick.get("reason") or "").strip()
+        destinations.append(
+            _catalog_card_shell(
+                full,
+                reason=reason,
+                park_code=pc or "",
+                itinerary_rows=None,
+                outdoor_adventure=None,
+            )
+        )
+    dump_trail_catalog_debug(
+        f"catalog_cards_{(session_id or 'anon')[:12]}",
+        {
+            "session_id": session_id,
+            "pick_meta": pick_meta,
+            "destination_ids": [str(d.get("id")) for d in destinations],
+        },
+    )
+    return destinations
+
+
+def build_intent_catalog_workspace(
+    *,
+    user_message: str,
+    session_id: str,
+    resolution: TripIntentResolution,
+    emit: Callable[[dict[str, Any]], None] | None = None,
+    pick_count: int = 3,
+) -> WanderlyWorkspaceDTO:
+    """Catalog lane driven by unified intent search (region/feature/state), not a single park file."""
+
+    def safe_emit(obj: dict[str, Any]) -> None:
+        if emit:
+            emit(obj)
+
+    safe_emit({"type": "phase", "message": "Searching trail catalog for your request…"})
+    profile = _profile_for_catalog(user_message, resolution)
+    k = max(1, min(pick_count, 4))
+
+    picks, pick_meta = pick_trails_for_intent(
+        user_message=user_message,
+        profile=profile,
+        resolution=resolution,
+        session_id=session_id,
+        k=k,
+    )
+    if not picks:
+        raise ValueError("intent catalog search returned no trail picks")
+
+    safe_emit(
+        {
+            "type": "phase",
+            "message": f"Shortlisting {len(picks)} catalog-grounded trail option(s)…",
+        }
+    )
+    destinations = _build_cards_from_picks(
+        picks=picks,
+        park_code=None,
+        pick_meta=pick_meta,
+        session_id=session_id,
+    )
+
+    scope_label = "your search area"
+    if resolution.intent_scope:
+        states = resolution.intent_scope.get("state_slugs") or []
+        features = resolution.intent_scope.get("feature_slugs") or []
+        if states:
+            scope_label = ", ".join(str(s) for s in states[:2])
+        elif features:
+            scope_label = ", ".join(str(f) for f in features[:2])
+    names = ", ".join(str(d.get("name") or "") for d in destinations[:3])
+    md = (
+        f"Here are **{len(destinations)} catalog-grounded trail options** for **{scope_label}**. "
+        f"Each card is one named route ({names}). "
+        f"Picked via **{pick_meta.get('pick_method', 'catalog')}** from offline catalog search. "
+        "Day-by-day plans build in the background for each trail."
+    )
+    dto = WanderlyWorkspaceDTO(
+        assistant_markdown=md,
+        profile_pills=_default_profile_pills(user_message, resolution),
+        destinations=destinations,
+        agent_status_hint="Catalog intent search (offline)",
+    )
+    dto = _merge_profile_with_inference(dto, user_message)
+    log_itinerary_build(
+        f"path=wanderly.catalog_intent lane=intent cards={len(destinations)} "
+        f"method={pick_meta.get('pick_method')} sid={(session_id or '')[:12]!r}"
+    )
+    log_trail_catalog(
+        f"intent_workspace cards={len(destinations)} method={pick_meta.get('pick_method')} "
+        f"sid={(session_id or '')[:12]!r}"
+    )
+    log_trip_intent(
+        f"catalog_intent_turn cards={len(destinations)} method={pick_meta.get('pick_method')} "
+        f"sid={(session_id or '')[:12]!r}"
+    )
+    dump_trip_intent_debug(
+        "catalog_intent_turn",
+        {
+            "session_id": session_id,
+            "resolution": resolution.model_dump(),
+            "pick_meta": pick_meta,
+            "destination_ids": [str(d.get("id")) for d in destinations],
+        },
+    )
+    return dto
+
+
 def build_catalog_workspace(
     *,
     user_message: str,
@@ -128,7 +271,6 @@ def build_catalog_workspace(
     resolution: TripIntentResolution,
     emit: Callable[[dict[str, Any]], None] | None = None,
     pick_count: int = 3,
-    build_itineraries: bool = True,
 ) -> WanderlyWorkspaceDTO:
     park_code = (resolution.primary_park_code or "").strip().lower()
     if not park_code:
@@ -159,53 +301,20 @@ def build_catalog_workspace(
         for p in picks:
             p.setdefault("reason", "Heuristic catalog pick (trail picker unavailable).")
 
-    destinations: list[dict[str, Any]] = []
-    for i, pick in enumerate(picks, 1):
-        tid = str(pick.get("trail_id") or "")
-        full = full_catalog_entry(doc, tid) or pick
-        reason = str(pick.get("reason") or "").strip()
-        itin_rows: list[dict[str, Any]] | None = None
-        outdoor_adv: dict[str, Any] | None = None
-        if build_itineraries:
-            safe_emit(
-                {
-                    "type": "phase",
-                    "message": f"Building day plan {i}/{len(picks)}: {full.get('name', tid)}…",
-                }
-            )
-            dest_stub = destination_card_from_trail(full, reason=reason, park_code=park_code)
-            built = llm_build_itinerary(
-                selected_trail=full,
-                destination=dest_stub,
-                user_message=user_message,
-                profile=profile,
-                days=days,
-                nights=nights,
-                session_id=session_id,
-            )
-            if isinstance(built, dict):
-                raw_it = built.get("itinerary")
-                if isinstance(raw_it, list) and raw_it:
-                    itin_rows = [x for x in raw_it if isinstance(x, dict)]
-                oa = built.get("outdoor_adventure")
-                if isinstance(oa, dict):
-                    outdoor_adv = oa
-        destinations.append(
-            _catalog_card_shell(
-                full,
-                reason=reason,
-                park_code=park_code,
-                itinerary_rows=itin_rows,
-                outdoor_adventure=outdoor_adv,
-            )
-        )
+    destinations = _build_cards_from_picks(
+        picks=picks,
+        park_code=park_code,
+        pick_meta={"pick_method": "park_lane", "park_code": park_code},
+        session_id=session_id,
+    )
 
     park_label = resolution.primary_park_name or park_code.upper()
     names = ", ".join(str(d.get("name") or "") for d in destinations[:3])
     md = (
         f"Here are **{len(destinations)} catalog-grounded backpacking options** in **{park_label}**. "
         f"Each card is one named trail route ({names}). "
-        "Compare mileage and difficulty, then refine dates or swap trails."
+        "Compare mileage and difficulty, then refine dates or swap trails. "
+        "Day-by-day plans build in the background for each trail."
     )
     dto = WanderlyWorkspaceDTO(
         assistant_markdown=md,
@@ -218,9 +327,12 @@ def build_catalog_workspace(
         f"path=wanderly.catalog_smoke_turn park={park_code!r} cards={len(destinations)} "
         f"sid={(session_id or '')[:12]!r}"
     )
+    log_trail_catalog(
+        f"park_workspace park={park_code!r} cards={len(destinations)} sid={(session_id or '')[:12]!r}"
+    )
     log_trip_intent(
         f"catalog_smoke_turn park={park_code!r} cards={len(destinations)} "
-        f"inline_itins={sum(1 for d in destinations if (d.get('itinerary') or []))} "
+        f"lazy_dirty={sum(1 for d in destinations if d.get('itinerary_dirty'))} "
         f"sid={(session_id or '')[:12]!r}"
     )
     dump_trip_intent_debug(
@@ -230,8 +342,9 @@ def build_catalog_workspace(
             "park_code": park_code,
             "resolution": resolution.model_dump(),
             "destination_ids": [str(d.get("id")) for d in destinations],
-            "itinerary_days": {
-                str(d.get("id")): len(d.get("itinerary") or [])
+            "lazy_itinerary": True,
+            "grounding": {
+                str(d.get("id")): d.get("grounding")
                 for d in destinations
                 if isinstance(d, dict)
             },

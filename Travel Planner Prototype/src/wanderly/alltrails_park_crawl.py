@@ -292,12 +292,18 @@ def _pick_cdp_page(
     return context.new_page()
 
 
+def _is_navigable_blank_tab(url: str) -> bool:
+    u = (url or "").strip().lower()
+    return u in ("about:blank", "about:newtab")
+
+
 def connect_cdp_browser(
     playwright: Any,
     connect_cdp_url: str,
     *,
     target_url: str,
     use_current_tab: bool,
+    allow_blank_tab: bool = False,
 ) -> tuple[Any, Any]:
     """Return ``(browser, page)`` for an AllTrails-capable tab."""
     print(f"[playwright] connecting over CDP {connect_cdp_url!r}", flush=True)
@@ -305,10 +311,13 @@ def connect_cdp_browser(
     page = _pick_cdp_page(browser, target_url=target_url, use_current_tab=use_current_tab)
     print(f"[playwright] CDP tab: {(page.url or '')!r}", flush=True)
     if _is_internal_debug_tab(page.url or ""):
-        raise RuntimeError(
-            f"CDP selected a debug tab ({page.url!r}), not AllTrails. "
-            f"Open {target_url} in Chrome (port 9222), then re-run."
-        )
+        if allow_blank_tab and _is_navigable_blank_tab(page.url or ""):
+            pass
+        else:
+            raise RuntimeError(
+                f"CDP selected a debug tab ({page.url!r}), not AllTrails. "
+                f"Open {target_url} in Chrome (port 9222), then re-run."
+            )
     return browser, page
 
 

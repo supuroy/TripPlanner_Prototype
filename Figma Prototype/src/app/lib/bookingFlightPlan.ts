@@ -13,16 +13,71 @@ export function transportFromDest(dest: DestCard): WanderlyTransportPlan | undef
   return dest.booking_hooks?.transport ?? dest.transport_plan;
 }
 
+function dayLogisticsHasCommercialFlights(dest: DestCard): boolean {
+  for (const day of dest.itinerary ?? []) {
+    const segs = day.day_logistics?.flight?.segments;
+    if (!Array.isArray(segs)) continue;
+    if (segs.some((s) => s && typeof s === "object" && String(s.from_search_label || "").trim() && String(s.to_search_label || "").trim())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Trip-wide mode label — prefer ``transport_plan`` but honor day-by-day airline legs when mismatched. */
+export function effectiveTransportPrimaryMode(dest: DestCard): string | undefined {
+  const tp = transportFromDest(dest);
+  const mode = String(tp?.primary_mode || "").trim().toLowerCase();
+  if (mode === "ground_only" && dayLogisticsHasCommercialFlights(dest)) {
+    const hasSurface = (dest.itinerary ?? []).some(
+      (d) => Array.isArray(d.day_logistics?.surface_legs) && d.day_logistics!.surface_legs!.length > 0,
+    );
+    return hasSurface ? "mixed" : "commercial_air";
+  }
+  return tp?.primary_mode;
+}
+
 export function transportPlanSummary(dest: DestCard): string | null {
   const s = transportFromDest(dest)?.summary?.trim();
   return s || null;
 }
 
 export function isGroundOnlyTransport(dest: DestCard): boolean {
+  if (dayLogisticsHasCommercialFlights(dest)) return false;
   const mode = String(transportFromDest(dest)?.primary_mode || "")
     .trim()
     .toLowerCase();
   return mode === "ground_only";
+}
+
+function plannedSegmentsFromDayLogistics(
+  dest: DestCard,
+  fromProfile: string,
+): PlannedFlightSegment[] {
+  const out: PlannedFlightSegment[] = [];
+  const seen = new Set<string>();
+  const days = [...(dest.itinerary ?? [])].sort((a, b) => (a.day ?? 0) - (b.day ?? 0));
+  for (const day of days) {
+    const segs = day.day_logistics?.flight?.segments;
+    if (!Array.isArray(segs)) continue;
+    for (const x of segs) {
+      if (!x || typeof x !== "object") continue;
+      const fr = String(x.from_search_label || "").trim() || (out.length === 0 ? fromProfile : "");
+      const to = String(x.to_search_label || "").trim();
+      if (!fr && !to) continue;
+      const key = `${fr}|${to}|${x.role || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        segmentIndex: out.length,
+        fromLabel: fr || "Home",
+        toLabel: to || dest.name || "Destination",
+        role: x.role,
+        dayOffset: typeof day.day === "number" ? day.day - 1 : null,
+      });
+    }
+  }
+  return out;
 }
 
 export function commercialFlightSegmentsFromDest(
@@ -31,28 +86,30 @@ export function commercialFlightSegmentsFromDest(
 ): PlannedFlightSegment[] {
   const tp = transportFromDest(dest);
   const raw = tp?.commercial_flight_segments;
-  if (!Array.isArray(raw) || raw.length === 0) return [];
   const fromProfile = profile.find((p) => p.key === "from")?.value?.trim() || "";
-  const out: PlannedFlightSegment[] = [];
-  for (const x of raw) {
-    const fr = (x.from_search_label || "").trim() || (out.length === 0 ? fromProfile : "");
-    const to = (x.to_search_label || "").trim();
-    if (!fr && !to) continue;
-    const dayOff =
-      typeof x.day_offset === "number"
-        ? x.day_offset
-        : typeof x.day_hint === "number"
-          ? x.day_hint
-          : null;
-    out.push({
-      segmentIndex: out.length,
-      fromLabel: fr || "Home",
-      toLabel: to || dest.name || "Destination",
-      role: x.role,
-      dayOffset: dayOff,
-    });
+  if (Array.isArray(raw) && raw.length > 0) {
+    const out: PlannedFlightSegment[] = [];
+    for (const x of raw) {
+      const fr = (x.from_search_label || "").trim() || (out.length === 0 ? fromProfile : "");
+      const to = (x.to_search_label || "").trim();
+      if (!fr && !to) continue;
+      const dayOff =
+        typeof x.day_offset === "number"
+          ? x.day_offset
+          : typeof x.day_hint === "number"
+            ? x.day_hint
+            : null;
+      out.push({
+        segmentIndex: out.length,
+        fromLabel: fr || "Home",
+        toLabel: to || dest.name || "Destination",
+        role: x.role,
+        dayOffset: dayOff,
+      });
+    }
+    return out;
   }
-  return out;
+  return plannedSegmentsFromDayLogistics(dest, fromProfile);
 }
 
 export function hasStructuredFlightSegments(dest: DestCard, profile: ProfilePill[]): boolean {

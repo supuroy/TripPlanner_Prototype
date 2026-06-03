@@ -11,6 +11,12 @@ pip install mcp
 
 ## Local test (Cursor IDE)
 
+**Monorepo root workspace:** use repo `.cursor/mcp.json` (`python` + `Travel Planner Prototype/mcp/...`).
+
+**App folder workspace:** use `Travel Planner Prototype/.cursor/mcp.json`.
+
+Do **not** use `bash` / `run_trail_catalog_mcp_stdio.sh` on Windows — that launcher is for the Linux Cloud Agent VM only.
+
 1. **Cursor Settings → MCP** → add server (or merge into your MCP config):
 
 ```json

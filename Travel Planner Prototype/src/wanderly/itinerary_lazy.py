@@ -448,10 +448,163 @@ def _movement_context_blob(
         if isinstance(dt, dict):
             parts.append(str(dt.get("mode", "")))
             parts.append(str(dt.get("note", "")))
+        dl = r.get("day_logistics")
+        if isinstance(dl, dict):
+            fl = dl.get("flight")
+            if isinstance(fl, dict):
+                for seg in fl.get("segments") or []:
+                    if isinstance(seg, dict):
+                        parts.append(str(seg.get("from_search_label") or ""))
+                        parts.append(str(seg.get("to_search_label") or ""))
+                        parts.append(str(seg.get("role") or ""))
+            for leg in dl.get("surface_legs") or []:
+                if isinstance(leg, dict):
+                    parts.append(str(leg.get("from_label") or ""))
+                    parts.append(str(leg.get("to_label") or ""))
+                    parts.append(str(leg.get("kind") or ""))
     return " ".join(parts).upper()
 
 
+def _collect_commercial_flight_segments_from_day_logistics(
+    itinerary_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Structured airline legs from ``day_logistics.flight.segments`` (lazy itinerary contract)."""
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    rows = sorted(
+        [r for r in itinerary_rows if isinstance(r, dict)],
+        key=lambda x: int(x.get("day") or 0),
+    )
+    for r in rows:
+        dl = r.get("day_logistics")
+        if not isinstance(dl, dict):
+            continue
+        fl = dl.get("flight")
+        if not isinstance(fl, dict):
+            continue
+        segs = fl.get("segments")
+        if not isinstance(segs, list):
+            continue
+        for seg in segs:
+            if not isinstance(seg, dict):
+                continue
+            fr = str(seg.get("from_search_label") or "").strip()
+            to = str(seg.get("to_search_label") or "").strip()
+            if not fr or not to:
+                continue
+            role = str(seg.get("role") or "").strip().lower()[:24]
+            key = (fr.lower(), to.lower(), role)
+            if key in seen:
+                continue
+            seen.add(key)
+            row: dict[str, Any] = {"from_search_label": fr, "to_search_label": to}
+            if role:
+                row["role"] = role
+            out.append(row)
+    return out
+
+
+def _itinerary_has_surface_legs(itinerary_rows: list[dict[str, Any]]) -> bool:
+    for r in itinerary_rows:
+        if not isinstance(r, dict):
+            continue
+        dl = r.get("day_logistics")
+        if not isinstance(dl, dict):
+            continue
+        legs = dl.get("surface_legs")
+        if isinstance(legs, list) and any(isinstance(x, dict) for x in legs):
+            return True
+        dt = r.get("day_transport")
+        if isinstance(dt, dict):
+            mode = str(dt.get("mode") or "").strip().lower()
+            if mode and mode not in ("commercial_flight", "flight", "air"):
+                return True
+    return False
+
+
+def _booking_hints_from_flight_segments(
+    segments: list[dict[str, Any]],
+    destination: dict[str, Any],
+) -> dict[str, str] | None:
+    if not segments:
+        return None
+    inbound_to: str | None = None
+    return_from: str | None = None
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        role = str(seg.get("role") or "").strip().lower()
+        to = str(seg.get("to_search_label") or "").strip()
+        fr = str(seg.get("from_search_label") or "").strip()
+        if role == "inbound" and to:
+            inbound_to = to
+        if role == "return" and fr:
+            return_from = fr
+    if not inbound_to:
+        inbound_to = str(segments[0].get("to_search_label") or "").strip() or None
+    if not return_from and len(segments) > 1:
+        return_from = str(segments[-1].get("from_search_label") or "").strip() or None
+    out: dict[str, str] = {}
+    if inbound_to:
+        out["flight_to_label"] = inbound_to[:120]
+    if return_from:
+        out["flight_return_from_label"] = return_from[:120]
+    elif inbound_to:
+        dest_name = str(destination.get("name") or "").strip()
+        if dest_name:
+            out["flight_return_from_label"] = dest_name[:120]
+    return out or None
+
+
+def _reconcile_transport_plan_with_day_logistics(
+    *,
+    transport_plan: dict[str, Any] | None,
+    needs_commercial_flight: bool | None,
+    booking_search_hints: dict[str, str] | None,
+    itinerary_rows: list[dict[str, Any]],
+    destination: dict[str, Any],
+) -> tuple[dict[str, Any] | None, bool | None, dict[str, str] | None]:
+    """
+    When day-by-day ``day_logistics.flight`` lists airline legs but ``transport_plan`` says
+    ground-only (or has empty ``commercial_flight_segments``), align the trip-wide plan.
+    """
+    dl_segs = _collect_commercial_flight_segments_from_day_logistics(itinerary_rows)
+    if not dl_segs:
+        return transport_plan, needs_commercial_flight, booking_search_hints
+
+    tp = dict(transport_plan) if isinstance(transport_plan, dict) else {}
+    mode = str(tp.get("primary_mode") or "").strip().lower()
+    existing = tp.get("commercial_flight_segments")
+    n_existing = len([x for x in existing if isinstance(x, dict)]) if isinstance(existing, list) else 0
+    ncf = needs_commercial_flight
+    hints = dict(booking_search_hints) if isinstance(booking_search_hints, dict) and booking_search_hints else None
+
+    needs_upgrade = (
+        mode == "ground_only"
+        or ncf is False
+        or n_existing == 0
+        or n_existing < len(dl_segs)
+    )
+    if not needs_upgrade:
+        return transport_plan, needs_commercial_flight, booking_search_hints
+
+    has_surface = _itinerary_has_surface_legs(itinerary_rows)
+    tp["commercial_flight_segments"] = dl_segs
+    tp["primary_mode"] = "mixed" if has_surface else "commercial_air"
+    if not str(tp.get("summary") or "").strip() or mode == "ground_only":
+        tp["summary"] = (
+            "Commercial flights aligned with day-by-day itinerary"
+            + (" (plus local surface travel)." if has_surface else ".")
+        )[:500]
+    ncf = True
+    if not hints:
+        hints = _booking_hints_from_flight_segments(dl_segs, destination)
+    return tp, ncf, hints
+
+
 def _day_transport_implies_air(itinerary_rows: list[dict[str, Any]]) -> bool:
+    if _collect_commercial_flight_segments_from_day_logistics(itinerary_rows):
+        return True
     for r in itinerary_rows:
         if not isinstance(r, dict):
             continue
@@ -563,6 +716,17 @@ def ensure_transport_plan_after_extract(
             ncf = True
         elif mode == "mixed":
             ncf = n_seg > 0
+
+    tp, ncf, hints = _reconcile_transport_plan_with_day_logistics(
+        transport_plan=tp,
+        needs_commercial_flight=ncf,
+        booking_search_hints=hints,
+        itinerary_rows=itinerary_rows,
+        destination=destination,
+    )
+
+    if isinstance(tp, dict) and str(tp.get("primary_mode") or "").strip().lower() == "ground_only":
+        hints = None
 
     return tp, ncf, hints
 

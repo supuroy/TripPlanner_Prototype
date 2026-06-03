@@ -23,6 +23,7 @@ from src.wanderly.trail_catalog.store import (
     entry_by_trail_id,
     load_park_catalog,
     park_catalog_path,
+    resolve_catalog_trail_entry,
 )
 from src.wanderly.trail_catalog.validate import validate_itinerary_against_catalog
 from src.wanderly.trip_intent_trace import dump_trip_intent_debug, log_trip_intent
@@ -59,6 +60,13 @@ def resolve_park_code_for_destination(
                 primary = str(res.get("primary_park_code") or "").strip().lower()
                 if primary and park_catalog_path(primary).is_file():
                     return primary
+    tid = str(g.get("trail_id") or destination.get("id") or "").strip()
+    url = str(g.get("source_url") or "").strip()
+    resolved = resolve_catalog_trail_entry(trail_id=tid, source_url=url, park_code_hint=pc or None)
+    if resolved:
+        owner_code, _entry, owner_kind = resolved
+        if owner_kind == "park":
+            return owner_code
     from src.wanderly.trail_catalog.store import resolve_park_code_from_text
 
     blob = " ".join(
@@ -202,16 +210,39 @@ def build_catalog_itinerary_for_destination(
     )
     t0 = time.perf_counter()
 
-    if not trail_id or not park_code:
-        log_trip_intent(f"SKIP catalog_itinerary rid={rid} missing trail_id or park_code")
-        raise ValueError("Catalog itinerary requires grounding.trail_id and a resolvable park_code")
+    if not trail_id:
+        log_trip_intent(f"SKIP catalog_itinerary rid={rid} missing trail_id")
+        raise ValueError("Catalog itinerary requires grounding.trail_id")
+
+    source_url = str(g.get("source_url") or "").strip()
+    resolved = resolve_catalog_trail_entry(
+        trail_id=trail_id,
+        source_url=source_url,
+        park_code_hint=park_code,
+    )
+    if not resolved:
+        log_trip_intent(
+            f"FAIL catalog_itinerary rid={rid} trail_id={trail_id!r} not in offline catalog"
+        )
+        raise ValueError(f"Trail {trail_id!r} not found in offline catalog")
+
+    owner_code, entry, owner_kind = resolved
+    if owner_kind == "park":
+        park_code = owner_code
+    elif not park_code:
+        park_code = str(entry.get("park_code") or "").strip().lower() or None
 
     safe_emit("Loading trail catalog…")
-    doc = load_park_catalog(park_code)
-    entry = entry_by_trail_id(doc, trail_id)
-    if not entry:
-        log_trip_intent(f"FAIL catalog_itinerary rid={rid} trail_id={trail_id!r} not in park={park_code!r}")
-        raise ValueError(f"Trail {trail_id!r} not found in catalog for park {park_code!r}")
+    if owner_kind == "park" and park_code:
+        doc = load_park_catalog(park_code)
+        catalog_entry = entry_by_trail_id(doc, str(entry.get("trail_id") or trail_id)) or entry
+    else:
+        catalog_entry = entry
+        doc = None
+
+    if not catalog_entry:
+        log_trip_intent(f"FAIL catalog_itinerary rid={rid} trail_id={trail_id!r} empty entry")
+        raise ValueError(f"Trail {trail_id!r} not found in catalog for build")
 
     user_message = _user_message_for_build(session_id, refinement_message)
     days_n, nights_n = _days_nights_from_profile(
@@ -230,20 +261,21 @@ def build_catalog_itinerary_for_destination(
 
     safe_emit(f"Building catalog-grounded plan ({days_n} days)…")
     catalog_payload = llm_build_itinerary(
-        selected_trail=entry,
+        selected_trail=catalog_entry,
         destination=dest_stub,
         user_message=user_message,
         profile=profile,
         days=days_n,
         nights=nights_n,
         session_id=session_id or "catalog-itinerary",
+        destination_id=did,
     )
 
     if not isinstance(catalog_payload, dict):
         log_trip_intent(f"EMPTY catalog_itinerary rid={rid} llm returned no JSON")
         return _itinerary_client_response(itinerary_rows=[])
 
-    validation_errors = validate_itinerary_against_catalog(catalog_payload, catalog_entry=entry)
+    validation_errors = validate_itinerary_against_catalog(catalog_payload, catalog_entry=catalog_entry)
     if validation_errors:
         log_trip_intent(
             f"VALIDATION catalog_itinerary rid={rid} warnings={validation_errors!r}"
@@ -297,11 +329,12 @@ def build_catalog_itinerary_for_destination(
             "session_id": session_id,
             "destination_id": did,
             "park_code": park_code,
+            "owner_kind": owner_kind,
             "trail_id": trail_id,
             "catalog_entry": {
-                "trail_id": entry.get("trail_id"),
-                "name": entry.get("name"),
-                "source_url": entry.get("source_url"),
+                "trail_id": catalog_entry.get("trail_id"),
+                "name": catalog_entry.get("name"),
+                "source_url": catalog_entry.get("source_url"),
             },
             "user_message": user_message,
             "days": days_n,
@@ -317,7 +350,7 @@ def build_catalog_itinerary_for_destination(
         from src.wanderly.alltrails_search_context import derive_alltrails_search_context, normalize_alltrails_search_context
 
         merged_dest = {**destination, "itinerary": out, "grounding": g}
-        url = str(entry.get("source_url") or g.get("source_url") or "").strip()
+        url = str(catalog_entry.get("source_url") or g.get("source_url") or "").strip()
         if url:
             merged_dest.setdefault("alltrails_search_context", {})
         atc = derive_alltrails_search_context(merged_dest)
@@ -326,7 +359,7 @@ def build_catalog_itinerary_for_destination(
             from src.wanderly.alltrails_search_context import normalize_alltrails_search_context
 
             base_atc = atc if isinstance(atc, dict) else {
-                "trail_name": str(destination.get("name") or entry.get("name") or ""),
+                "trail_name": str(destination.get("name") or catalog_entry.get("name") or ""),
                 "country": destination.get("country") or "United States",
             }
             merged = {**base_atc, "parent_alltrails_url": url, "verification_status": "catalog"}

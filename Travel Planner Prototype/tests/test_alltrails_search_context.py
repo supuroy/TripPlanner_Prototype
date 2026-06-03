@@ -48,6 +48,35 @@ def test_unverified_llm_url_is_not_persisted_as_authoritative() -> None:
     assert ctx.get("unverified_url_hint", "").endswith("heart-lake--2")
 
 
+def test_catalog_verification_promotes_parent_url() -> None:
+    ctx = normalize_alltrails_search_context(
+        {
+            "trail_name": "Bullfrog Lakes via Farewell Gap",
+            "country": "United States",
+            "verification_status": "catalog",
+            "parent_alltrails_url": "https://www.alltrails.com/trail/us/california/bullfrog-lakes-via-farewell-gap",
+        }
+    )
+    assert ctx is not None
+    assert ctx.get("verified") is True
+    assert ctx.get("verification_status") == "catalog"
+    assert "bullfrog-lakes" in ctx["parent_alltrails_url"]
+    assert "unverified_url_hint" not in ctx
+
+
+def test_preferred_urls_from_catalog_grounding() -> None:
+    dest = {
+        "name": "Bullfrog Lakes",
+        "grounding": {
+            "status": "catalog",
+            "source_url": "https://www.alltrails.com/trail/us/california/bullfrog-lakes-via-farewell-gap",
+        },
+    }
+    urls = preferred_alltrails_urls_from_destination(dest)
+    assert len(urls) == 1
+    assert "bullfrog-lakes" in urls[0]
+
+
 def test_verified_url_is_persisted() -> None:
     ctx = normalize_alltrails_search_context(
         {

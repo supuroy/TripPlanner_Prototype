@@ -5,7 +5,7 @@ Resolve ``TripIntentClassification`` to catalog-backed park codes (server-side).
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,8 @@ from src.wanderly.nps_provider import infer_park_code_from_name
 from src.wanderly.trail_catalog.store import catalog_root, park_catalog_path, resolve_park_code_from_text
 from src.wanderly.trip_intent_llm import TripIntentClassification, is_outdoor_trip_product
 from src.wanderly.trip_intent_trace import dump_trip_intent_debug, log_trip_intent
+
+CatalogLane = Literal["none", "park", "intent"]
 
 
 class TripIntentResolution(BaseModel):
@@ -22,7 +24,9 @@ class TripIntentResolution(BaseModel):
     primary_park_code: str | None = None
     primary_park_name: str | None = None
     catalog_eligible: bool = False
+    catalog_lane: CatalogLane = "none"
     catalog_trail_count: int = 0
+    intent_scope: dict[str, Any] | None = None
     rationale: str = ""
 
 
@@ -153,11 +157,35 @@ def resolve_trip_intent(
         ok = False
 
     eligible = bool(primary and ok and is_outdoor_trip_product(product))
+    lane: CatalogLane = "park" if eligible else "none"
+    intent_scope: dict[str, Any] | None = None
     rationale = intent.rationale
     if eligible:
         rationale = f"catalog_eligible:{primary}"
     elif is_outdoor_trip_product(product) and not primary:
         rationale = (rationale + "; no_manifest_park").strip("; ")
+
+    if not eligible and is_outdoor_trip_product(product):
+        from src.wanderly.trail_catalog.intent_pick import intent_search_eligible
+
+        preview_res = TripIntentResolution(
+            trip_product=product,
+            destination_hints=hints,
+            resolved_park_codes=codes,
+            primary_park_code=primary,
+            primary_park_name=primary_name,
+        )
+        intent_ok, preview = intent_search_eligible(
+            user_message,
+            min_trails=3,
+            resolution=preview_res,
+        )
+        if intent_ok:
+            eligible = True
+            lane = "intent"
+            trail_count = int(preview.get("count") or 0)
+            intent_scope = preview.get("scope") if isinstance(preview.get("scope"), dict) else None
+            rationale = (rationale + "; catalog_intent_search").strip("; ")
 
     res = TripIntentResolution(
         trip_product=product,
@@ -166,11 +194,13 @@ def resolve_trip_intent(
         primary_park_code=primary,
         primary_park_name=primary_name,
         catalog_eligible=eligible,
+        catalog_lane=lane,
         catalog_trail_count=trail_count,
+        intent_scope=intent_scope,
         rationale=rationale,
     )
     log_trip_intent(
-        f"resolve product={product!r} primary={primary!r} eligible={eligible} "
+        f"resolve product={product!r} primary={primary!r} eligible={eligible} lane={lane!r} "
         f"codes={codes!r} trails={trail_count}"
     )
     dump_trip_intent_debug(

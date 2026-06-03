@@ -22,6 +22,7 @@ from src.integrations.cursor_agent_client import (
 )
 from src.wanderly.cursor_advisor import advisor_model_id, structured_followup_model_id
 from src.wanderly.itinerary_debug_log import log_itinerary_build
+from src.wanderly.json_llm_repair import extract_first_json_object
 from src.wanderly.llm_telemetry import ACTIVITY_ITINERARY_BUILDER, telemetry_meta
 from src.wanderly.outdoor_adventure import DEFAULT_TRIP_STYLE, infer_trip_style_from_text
 from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
@@ -76,34 +77,6 @@ def trip_intent_llm_enabled() -> bool:
 
 def _intent_model_id() -> str | None:
     return advisor_model_id() or structured_followup_model_id()
-
-
-def _extract_json_object(text: str) -> dict[str, Any] | None:
-    t = (text or "").strip()
-    if not t:
-        return None
-    try:
-        out = json.loads(t)
-        return out if isinstance(out, dict) else None
-    except json.JSONDecodeError:
-        pass
-    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", t, re.I)
-    if m:
-        try:
-            out = json.loads(m.group(1).strip())
-            return out if isinstance(out, dict) else None
-        except json.JSONDecodeError:
-            return None
-    for i, ch in enumerate(t):
-        if ch != "{":
-            continue
-        try:
-            dec = json.JSONDecoder()
-            out, _ = dec.raw_decode(t, i)
-            return out if isinstance(out, dict) else None
-        except json.JSONDecodeError:
-            continue
-    return None
 
 
 def _clean_hints(raw: object) -> list[str]:
@@ -229,7 +202,7 @@ def classify_trip_intent_llm(
                             trace_path="wanderly.trip_intent_llm.json",
                         ),
                     )
-                parsed = _extract_json_object(raw)
+                parsed = extract_first_json_object(raw)
                 if parsed:
                     dto = TripIntentClassification.model_validate(
                         {

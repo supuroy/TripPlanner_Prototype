@@ -64,6 +64,7 @@ from src.integrations.cursor_agent_client import (  # noqa: E402
     basic_client,
     consume_sse_assistant_streaming,
     create_agent_run,
+    consume_run_sse_robust,
     fetch_run_blob,
     get_api_key,
     load_env_from_roots,
@@ -71,13 +72,22 @@ from src.integrations.cursor_agent_client import (  # noqa: E402
 )
 from src.wanderly.trail_catalog.poc_cursor_agent import (  # noqa: E402
     BOOTSTRAP_PROMPT,
+    LIST_MCP_PROMPT,
     PROVE_MCP_PROMPT,
     assess_trail_catalog_mcp,
     build_recommendation_prompt,
+    classify_mcp_diagnose,
+    diagnose_trail_catalog_mcp_visible,
     extract_mcp_catalog_calls,
+    load_poc_session,
+    normalize_agent_id,
     parse_selections,
     print_mcp_catalog_calls,
+    resolve_poc_agent_id,
+    session_uses_ui_mcp,
     validate_selection_trail_ids,
+    format_local_preview_selections,
+    local_trail_preview,
 )
 from src.wanderly.trail_catalog.search import catalog_stats
 from src.wanderly.trail_catalog.store import load_feature_catalog, load_park_catalog
@@ -97,18 +107,74 @@ def _print_tool_call_summary(tool_calls: list[dict[str, Any]]) -> None:
     print(f"  tool_call events: {', '.join(parts[:12])}", flush=True)
 
 
-def _print_mcp_zero_call_hints() -> None:
-    launcher = ROOT / "scripts" / "run_trail_catalog_mcp_stdio.sh"
+def _print_api_empty_run_help(*, diagnose_passed: bool = False) -> None:
     print(
-        "\n  HINT: 0 trail-catalog MCP calls. Check:\n"
-        "  - scripts/run_trail_catalog_mcp_stdio.sh is committed and pushed (required in cloud VM)\n"
-        "  - CURSOR_REPO_REF points at branch with data/trail_catalog + mcp/trail_catalog_server.py\n"
-        f"  - Launcher exists locally: {launcher.is_file()}\n"
-        "  - Cloud UI MCP menu shows User plugins (Atlassian/Figma) only — API stdio servers may not appear there.\n"
-        "    Read the agent transcript for get_mcp_tools / 'trail-catalog not found' / mcp tool calls.\n"
-        "  - Monorepo: .cursor/mcp.json at repo root should point at Travel Planner Prototype/ (commit + push).\n",
+        "\n  NOTE: Cloud Agent API returned no assistant text and no MCP tool events in SSE.",
         flush=True,
     )
+    if diagnose_passed:
+        print(
+            "  diagnose-mcp PASS only means the agent lists trail-catalog - it does not run tools.\n"
+            "  On many accounts, API follow-up runs can list UI Custom MCP servers but cannot\n"
+            "  execute MCP tools (browser chat on the same agent usually can).\n"
+            "  Open the agent URL in the browser to confirm MCP tool calls in the transcript.",
+            flush=True,
+        )
+    else:
+        print(
+            "  Run diagnose-mcp first. If trail-catalog is missing, bind a browser agent with Custom MCP.",
+            flush=True,
+        )
+
+
+def _print_local_preview(user_message: str, *, trail_count: int) -> None:
+    rows = local_trail_preview(user_message, limit=trail_count)
+    if not rows:
+        print("\n--- Local catalog preview (offline) ---\n  (no rows)", flush=True)
+        return
+    sels = format_local_preview_selections(rows)
+    print(
+        "\n--- Local catalog preview (offline; NOT from Cloud Agent API) ---",
+        flush=True,
+    )
+    print(json.dumps(sels, indent=2, ensure_ascii=True), flush=True)
+    print(
+        "  Compare with the agent transcript in the browser. "
+        "For offline-only: python scripts/test_trail_search_intent_local.py \"...\"",
+        flush=True,
+    )
+
+
+def _print_mcp_zero_call_hints(*, api_inline_failed: bool = False) -> None:
+    launcher = ROOT / "scripts" / "run_trail_catalog_mcp.py"
+    print(
+        "\n  HINT: 0 trail-catalog MCP calls recorded in this run.",
+        flush=True,
+    )
+    if api_inline_failed:
+        print(
+            "  DIAGNOSE: API inline mcpServers did NOT attach trail-catalog (model only sees account plugins).\n"
+            "  Terminal scripts cannot prove MCP until trail-catalog is visible to the cloud agent.\n"
+            "  Fix (pick one):\n"
+            "  1. Open the agent in browser -> composer + -> Custom MCP (Command):\n"
+            "       command: python3\n"
+            "       args: Travel Planner Prototype/scripts/run_trail_catalog_mcp.py\n"
+            "       env PYTHONPATH=Travel Planner Prototype\n"
+            "  2. Or Dashboard -> Team MCP Servers -> add trail-catalog from repo .cursor/mcp.json\n"
+            "  3. Bind that UI agent for follow-ups:\n"
+            "       python scripts/poc_cursor_trail_agent_session.py bind-agent <agent-id>\n"
+            "  4. Re-check: python scripts/prove_trail_catalog_cloud.py diagnose-mcp\n",
+            flush=True,
+        )
+    else:
+        print(
+            "  Check:\n"
+            f"  - Launcher exists: {launcher.is_file()}\n"
+            "  - CURSOR_REPO_REF branch has data/trail_catalog + scripts/run_trail_catalog_mcp.py\n"
+            "  - Run: python scripts/prove_trail_catalog_cloud.py diagnose-mcp\n"
+            "  - Open agent_url transcript if SSE captured 0 tool_call events\n",
+            flush=True,
+        )
 
 
 def _session_path(path: str | None) -> Path:
@@ -161,6 +227,8 @@ def _run_turn(
     prompt: str,
     model: str | None,
     mcp_on_create: bool,
+    attach_inline_mcp: bool = True,
+    strip_reuse_prefix: bool = True,
     detail_limit: int,
     max_wait_s: float = 180.0,
     stream_progress: bool = True,
@@ -193,6 +261,8 @@ def _run_turn(
             }
         )
 
+    inline_mcp = trail_catalog_mcp_servers() if attach_inline_mcp else None
+    reuse_prefix = POC_SYSTEM_PREFIX if strip_reuse_prefix else None
     t0 = time.perf_counter()
     if agent_id:
         aid, run_id = _begin_cloud_agent_run(
@@ -200,8 +270,8 @@ def _run_turn(
             prompt,
             model_id_override=model,
             existing_agent_id=agent_id,
-            persistent_instruction_prefix=POC_SYSTEM_PREFIX,
-            mcp_servers=trail_catalog_mcp_servers(),
+            persistent_instruction_prefix=reuse_prefix,
+            mcp_servers=inline_mcp,
         )
         created = False
     else:
@@ -209,16 +279,23 @@ def _run_turn(
             client,
             prompt,
             model_id_override=model,
-            mcp_servers=trail_catalog_mcp_servers() if mcp_on_create else None,
+            mcp_servers=inline_mcp if mcp_on_create else None,
         )
         created = True
 
-    time.sleep(2.0)
-    print(f"  run_id=…{str(run_id)[-8:]} (SSE + retry; poll up to {int(max_wait_s)}s if needed)", flush=True)
+    time.sleep(0.25)
+    print(f"  run_id=...{str(run_id)[-8:]} (SSE + retry; poll up to {int(max_wait_s)}s if needed)", flush=True)
     sse_text = ""
     err: str | None = None
     try:
-        sse_text = consume_sse_assistant_streaming(client, aid, run_id, emit=emit)
+        sse_text = consume_run_sse_robust(
+            client,
+            aid,
+            run_id,
+            emit=emit,
+            tool_detail_limit=detail_limit,
+            max_wait_s=max_wait_s,
+        )
     except Exception as exc:
         err = f"{type(exc).__name__}: {exc}"
         print(f"  SSE error: {err}", flush=True)
@@ -228,15 +305,17 @@ def _run_turn(
         flush=True,
     )
 
-    raw = _assistant_text_or_retry_sse(client, aid, run_id, sse_text or "")
+    raw = sse_text or ""
+    if not (raw or "").strip():
+        raw = _assistant_text_or_retry_sse(client, aid, run_id, raw or "")
 
     if not (raw or "").strip() and not tool_calls:
-        print("  Polling run (terminal, no text in GET run)…", flush=True)
+        print("  Polling run (terminal, no text in GET run)...", flush=True)
         polled = poll_run_for_assistant_text(
             client,
             aid,
             run_id,
-            max_wait_s=min(max_wait_s, 30.0),
+            max_wait_s=max_wait_s,
             on_poll=_poll_progress("poll"),
         )
         if len(polled) > len(raw or ""):
@@ -326,6 +405,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
     path = _session_path(args.session_file)
     session = _load_session(path)
     agent_id = str(session["agent_id"])
+    attach_inline = not session_uses_ui_mcp(session)
+    strip_prefix = not session_uses_ui_mcp(session)
 
     if args.scenario:
         spec = SCENARIOS[args.scenario]
@@ -346,7 +427,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
     )
 
     with basic_client(key, timeout_s=360.0) as client:
-        print(f"\nFollow-up on agent {agent_id[-12:]}...", flush=True)
+        print(
+            f"\nFollow-up on agent ...{agent_id[-12:]} "
+            f"(inline_mcp={'yes' if attach_inline else 'no'}, full_prompt={'yes' if strip_prefix is False else 'no'})...",
+            flush=True,
+        )
         print(f"Request: {user_message[:200]}", flush=True)
         turn = _run_turn(
             client,
@@ -354,6 +439,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
             prompt=prompt,
             model=args.model,
             mcp_on_create=False,
+            attach_inline_mcp=attach_inline,
+            strip_reuse_prefix=strip_prefix,
             detail_limit=args.detail_limit,
             max_wait_s=args.max_wait_s,
         )
@@ -413,6 +500,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
     )
     print(f"Log dir: {log_dir}", flush=True)
     print(f"Agent: {turn['agent_url']}", flush=True)
+    if not turn.get("parse_ok"):
+        _print_api_empty_run_help(
+            diagnose_passed=session_uses_ui_mcp(session),
+        )
+        if args.local_preview:
+            _print_local_preview(user_message, trail_count=args.trail_count)
     return 0
 
 
@@ -430,20 +523,218 @@ def cmd_suite(args: argparse.Namespace) -> int:
     return 0
 
 
+def _diagnose_mcp_on_agent(
+    client: Any,
+    *,
+    agent_id: str | None,
+    model: str | None,
+    detail_limit: int,
+    attach_inline_mcp: bool,
+    mode_label: str,
+    max_wait_s: float = 90.0,
+    retries: int = 3,
+) -> tuple[str, bool | None, str]:
+    """Ask an agent which MCP servers it sees. Returns (status, visible, agent_id)."""
+    if agent_id:
+        print(
+            f"  [diagnose] Follow-up on agent ...{agent_id[-12:]} ({mode_label}, "
+            f"inline_mcp={'yes' if attach_inline_mcp else 'no'})...",
+            flush=True,
+        )
+    else:
+        print(
+            f"  [diagnose] Creating agent to list visible MCP servers "
+            f"(inline_mcp={'yes' if attach_inline_mcp else 'no'})...",
+            flush=True,
+        )
+
+    best_status = "empty"
+    best_visible: bool | None = None
+    best_raw = ""
+    used_agent = str(agent_id or "")
+
+    for attempt in range(1, max(1, retries) + 1):
+        if attempt > 1:
+            print(f"  [diagnose] Retry {attempt}/{retries} (API returned empty)...", flush=True)
+            time.sleep(min(3.0 * attempt, 10.0))
+        turn = _run_turn(
+            client,
+            agent_id=agent_id,
+            prompt=LIST_MCP_PROMPT,
+            model=model,
+            mcp_on_create=attach_inline_mcp and agent_id is None,
+            attach_inline_mcp=attach_inline_mcp,
+            strip_reuse_prefix=False,
+            detail_limit=detail_limit,
+            max_wait_s=max_wait_s,
+            stream_progress=attempt == 1,
+        )
+        used_agent = str(turn.get("agent_id") or used_agent)
+        raw = str(turn.get("raw") or "")
+        status, visible = classify_mcp_diagnose(raw)
+        if raw.strip():
+            best_status, best_visible, best_raw = status, visible, raw
+            break
+        best_status, best_visible, best_raw = status, visible, raw
+
+    snippet = best_raw.strip()[:400]
+    if snippet:
+        print(f"  [diagnose] Assistant: {snippet}", flush=True)
+    else:
+        print("  [diagnose] Assistant: (empty - API did not stream text)", flush=True)
+    if best_visible is None:
+        print("  [diagnose] trail-catalog visible: unknown (empty API response)", flush=True)
+    else:
+        print(f"  [diagnose] trail-catalog visible: {best_visible}", flush=True)
+    return best_status, best_visible, used_agent
+
+
+def cmd_diagnose_mcp(args: argparse.Namespace) -> int:
+    load_env_from_roots()
+    key = get_api_key()
+    path = _session_path(args.session_file)
+    agent_id, session, mode = resolve_poc_agent_id(
+        session_path=path,
+        cli_agent_id=args.agent_id,
+        force_new=args.new_agent,
+    )
+    attach_inline = True
+    if agent_id and not args.new_agent:
+        attach_inline = False if session_uses_ui_mcp(session) else not args.no_inline_mcp
+    elif args.no_inline_mcp:
+        attach_inline = False
+
+    with basic_client(key, timeout_s=360.0) as client:
+        status, visible, used_agent = _diagnose_mcp_on_agent(
+            client,
+            agent_id=agent_id,
+            model=args.model,
+            detail_limit=args.detail_limit,
+            attach_inline_mcp=attach_inline,
+            mode_label=mode,
+            max_wait_s=args.max_wait_s,
+            retries=args.retries,
+        )
+
+    print(f"\nAgent: https://cursor.com/agents?id={used_agent}", flush=True)
+    if status == "visible":
+        print(
+            "\nPASS: trail-catalog appears in the model's MCP list.\n"
+            "This does NOT return trails - it only checks MCP visibility.\n"
+            "Next: python scripts/poc_cursor_trail_agent_session.py ask \"...\"\n"
+            "If ask is empty, run MCP in the browser agent UI (API may not execute Custom MCP tools).",
+            flush=True,
+        )
+        return 0
+    if status == "empty":
+        print(
+            "\nINCONCLUSIVE: Cloud Agent API returned no assistant text after retries.\n"
+            "This is NOT proof that trail-catalog is missing - the API stream often drops text.\n"
+            "Open the agent URL in the browser and ask: \"List every MCP server you can use for tools.\"\n"
+            "If the browser lists trail-catalog, your bind is fine; use browser chat for MCP tool calls.",
+            flush=True,
+        )
+        return 2
+    if agent_id and not attach_inline:
+        print(
+            "\nFAIL: Bound agent replied but did not list trail-catalog.\n"
+            "Open the agent URL in the browser and confirm Custom MCP (trail-catalog) is enabled.",
+            flush=True,
+        )
+    else:
+        print(
+            "\nFAIL: Inline API mcpServers is not attaching trail-catalog (Figma/Atlassian only).\n"
+            "Use bind-agent on a browser agent with Custom MCP, then re-run diagnose-mcp.",
+            flush=True,
+        )
+    return 1
+
+
+def cmd_bind_agent(args: argparse.Namespace) -> int:
+    """Save a browser-configured Cloud Agent id (Custom MCP enabled in UI) for session follow-ups."""
+    load_env_from_roots()
+    path = _session_path(args.session_file)
+    agent_id = normalize_agent_id(args.agent_id)
+    session = {
+        "agent_id": agent_id,
+        "agent_url": f"https://cursor.com/agents?id={agent_id}",
+        "created_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": "bind-agent-ui",
+        "attach_inline_mcp": False,
+        "catalog_stats": catalog_stats(),
+        "runs": [],
+    }
+    _save_session(path, session)
+    print(f"Bound session -> {path}", flush=True)
+    print(f"Agent: {session['agent_url']}", flush=True)
+    print(
+        "Ensure trail-catalog Custom MCP is enabled on this agent in the browser, then:\n"
+        "  python scripts/poc_cursor_trail_agent_session.py diagnose-mcp   # lists MCP servers (not trails)\n"
+        "  python scripts/poc_cursor_trail_agent_session.py ask \"3 moderate waterfall hikes in Utah under 7 miles\"",
+        flush=True,
+    )
+    return 0
+
+
 def cmd_prove_mcp(args: argparse.Namespace) -> int:
     """Single-turn cloud agent created only to prove trail-catalog MCP attaches."""
     load_env_from_roots()
     key = get_api_key()
     path = _session_path(args.session_file)
 
+    agent_id, session, mode = resolve_poc_agent_id(
+        session_path=path,
+        cli_agent_id=args.agent_id,
+        force_new=args.new_agent and not args.agent_id,
+    )
+    attach_inline = True
+    if agent_id and session_uses_ui_mcp(session) and not args.new_agent:
+        attach_inline = False
+
     with basic_client(key, timeout_s=360.0) as client:
-        print("Creating Cloud Agent (prove trail-catalog MCP only)…", flush=True)
+        if not args.skip_diagnose:
+            status, visible, _ = _diagnose_mcp_on_agent(
+                client,
+                agent_id=agent_id,
+                model=args.model,
+                detail_limit=args.detail_limit,
+                attach_inline_mcp=attach_inline if agent_id else True,
+                mode_label=mode,
+                max_wait_s=min(args.max_wait_s, 90.0),
+                retries=2,
+            )
+            if status == "missing" or (status == "empty" and agent_id is None):
+                print("\n=== PROVE MCP: BLOCKED (trail_catalog_not_visible) ===", flush=True)
+                if status == "empty" and agent_id:
+                    print(
+                        "Diagnose inconclusive (empty API). Try browser or re-run diagnose-mcp.",
+                        flush=True,
+                    )
+                elif agent_id and not attach_inline:
+                    print(
+                        "Bound agent does not list trail-catalog. Enable Custom MCP in the browser first.",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "Inline POST mcpServers is not attaching trail-catalog on this account.\n"
+                        "Configure Custom MCP on a Cloud Agent in the browser, then bind-agent.",
+                        flush=True,
+                    )
+                _print_mcp_zero_call_hints(api_inline_failed=attach_inline or agent_id is None)
+                return 1
+
+        if agent_id:
+            print(f"Prove MCP on agent ...{agent_id[-12:]} ({mode})...", flush=True)
+        else:
+            print("Creating Cloud Agent (prove trail-catalog MCP only)...", flush=True)
         turn = _run_turn(
             client,
-            agent_id=None,
+            agent_id=agent_id,
             prompt=PROVE_MCP_PROMPT,
             model=args.model,
-            mcp_on_create=True,
+            mcp_on_create=agent_id is None,
+            attach_inline_mcp=attach_inline if agent_id else True,
             detail_limit=args.detail_limit,
             max_wait_s=args.max_wait_s,
         )
@@ -464,6 +755,8 @@ def cmd_prove_mcp(args: argparse.Namespace) -> int:
     print(f"tool_call events: {len(turn.get('tool_calls') or [])}", flush=True)
     _print_tool_call_summary(turn.get("tool_calls") or [])
     print_mcp_catalog_calls(turn["mcp_catalog_calls"])
+    if not mcp_ok:
+        _print_mcp_zero_call_hints(api_inline_failed=pass_note in ("no_mcp_calls", "mcp_not_found"))
     if turn.get("raw"):
         print(f"\nAssistant:\n{turn['raw'][:1200]}", flush=True)
     print(f"\nAgent: {turn['agent_url']}", flush=True)
@@ -571,11 +864,46 @@ def main() -> int:
 
     p_prove = sub.add_parser("prove-mcp", help="One-shot: prove trail-catalog MCP on a new cloud agent")
     p_prove.add_argument("--max-wait-s", type=float, default=300.0)
+    p_prove.add_argument(
+        "--skip-diagnose",
+        action="store_true",
+        help="Skip pre-check that API inline mcpServers lists trail-catalog",
+    )
+    p_prove.add_argument(
+        "--agent-id",
+        default=None,
+        help="Reuse an existing agent (e.g. UI agent with Custom MCP enabled)",
+    )
+
+    p_prove.add_argument(
+        "--new-agent",
+        action="store_true",
+        help="Ignore session and create a fresh API agent (tests inline mcpServers)",
+    )
+
+    p_diag = sub.add_parser("diagnose-mcp", help="List MCP servers visible to session or bound agent")
+    p_diag.add_argument("--agent-id", default=None, help="Override session agent id")
+    p_diag.add_argument("--new-agent", action="store_true", help="Force new API agent (inline mcpServers test)")
+    p_diag.add_argument(
+        "--no-inline-mcp",
+        action="store_true",
+        help="Do not pass inline mcpServers even on a new agent",
+    )
+    p_diag.add_argument("--max-wait-s", type=float, default=90.0)
+    p_diag.add_argument("--retries", type=int, default=3, help="Retries when API returns empty text")
+
+    p_bind = sub.add_parser("bind-agent", help="Save a browser Cloud Agent id for session ask/follow-ups")
+    p_bind.add_argument("agent_id", help="bc-… id or full https://cursor.com/agents?id=… URL")
 
     p_ask = sub.add_parser("ask", help="Follow-up question on existing agent")
     p_ask.add_argument("message", nargs="?", default=None)
     p_ask.add_argument("--scenario", choices=tuple(SCENARIOS.keys()), default=None)
     p_ask.add_argument("--trail-count", type=int, default=3)
+    p_ask.add_argument(
+        "--local-preview",
+        action="store_true",
+        help="If API returns no trails, print offline catalog matches for comparison",
+    )
 
     p_suite = sub.add_parser("suite", help="Run multiple scenarios on one agent")
     p_suite.add_argument("--scenarios", nargs="+", default=None)
@@ -592,6 +920,10 @@ def main() -> int:
         return cmd_start(args)
     if args.command == "prove-mcp":
         return cmd_prove_mcp(args)
+    if args.command == "diagnose-mcp":
+        return cmd_diagnose_mcp(args)
+    if args.command == "bind-agent":
+        return cmd_bind_agent(args)
     if args.command == "ask":
         return cmd_ask(args)
     if args.command == "suite":

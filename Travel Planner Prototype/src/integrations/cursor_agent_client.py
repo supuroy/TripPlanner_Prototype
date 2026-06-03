@@ -384,6 +384,7 @@ def consume_sse_assistant_streaming(
     run_id: str,
     *,
     emit: Callable[[dict[str, Any]], None] | None = None,
+    tool_detail_limit: int = 120_000,
 ) -> str:
     """Like consume_sse_assistant but forwards SSE events for live UI (assistant deltas + other events)."""
     url = f"/v1/agents/{agent_id}/runs/{run_id}/stream"
@@ -442,6 +443,7 @@ def consume_sse_assistant_streaming(
         elif event_type == "tool_call" and emit:
             try:
                 payload = json.loads(data_raw)
+                cap = max(int(tool_detail_limit), 800)
                 emit(
                     {
                         "type": "tool_call",
@@ -449,7 +451,7 @@ def consume_sse_assistant_streaming(
                         "name": str(payload.get("name") or ""),
                         "status": str(payload.get("status") or ""),
                         "truncated": payload.get("truncated"),
-                        "detail": (data_raw or "")[:800],
+                        "detail": (data_raw or "")[:cap],
                     }
                 )
             except json.JSONDecodeError:
@@ -760,6 +762,81 @@ def wait_for_stream_ready(client: httpx.Client, agent_id: str, run_id: str, max_
         if status in ("FINISHED", "FAILED", "CANCELLED"):
             break
         time.sleep(0.5)
+
+
+def wait_for_run_started(
+    client: httpx.Client,
+    agent_id: str,
+    run_id: str,
+    *,
+    max_wait_s: float = 45.0,
+) -> str:
+    """Poll until run leaves ``CREATING`` (or terminal). Returns last status."""
+    deadline = time.monotonic() + max_wait_s
+    last = ""
+    while time.monotonic() < deadline:
+        blob = fetch_run_blob(client, agent_id, run_id)
+        if isinstance(blob, dict):
+            last = str(blob.get("status") or blob.get("state") or "").upper()
+            if last and last not in ("CREATING", ""):
+                return last
+        time.sleep(0.35)
+    return last
+
+
+def consume_run_sse_robust(
+    client: httpx.Client,
+    agent_id: str,
+    run_id: str,
+    *,
+    emit: Callable[[dict[str, Any]], None] | None = None,
+    tool_detail_limit: int = 120_000,
+    max_wait_s: float = 120.0,
+    max_attempts: int = 4,
+) -> str:
+    """
+    Read assistant text from run SSE with reconnect retries.
+
+    Cursor sometimes closes the first stream before assistant events arrive, or returns an
+    empty turn while ``durationMs`` shows work happened. Re-open ``/stream`` after short waits.
+    """
+    terminal = frozenset({"FINISHED", "FAILED", "CANCELLED", "COMPLETE", "COMPLETED", "DONE"})
+    texts: list[str] = []
+    deadline = time.monotonic() + max_wait_s
+    attempt = 0
+    while time.monotonic() < deadline and attempt < max_attempts:
+        attempt += 1
+        wait_for_run_started(client, agent_id, run_id, max_wait_s=min(20.0, max_wait_s))
+        try:
+            chunk = consume_sse_assistant_streaming(
+                client,
+                agent_id,
+                run_id,
+                emit=emit,
+                tool_detail_limit=tool_detail_limit,
+            )
+        except httpx.HTTPStatusError as exc:
+            sc = exc.response.status_code if exc.response is not None else 0
+            if sc == 409 and attempt < max_attempts:
+                time.sleep(min(2.0 * attempt, 8.0))
+                continue
+            raise
+        if chunk:
+            texts.append(chunk)
+        combined = "".join(texts)
+        if combined.strip():
+            return combined
+        blob = fetch_run_blob(client, agent_id, run_id)
+        st = ""
+        if isinstance(blob, dict):
+            st = str(blob.get("status") or blob.get("state") or "").upper()
+        if st in terminal:
+            if attempt < max_attempts and time.monotonic() < deadline:
+                time.sleep(min(2.5 * attempt, 8.0))
+                continue
+            break
+        time.sleep(1.0)
+    return "".join(texts)
 
 
 def _assistant_text_or_retry_sse(

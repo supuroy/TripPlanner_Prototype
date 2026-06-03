@@ -4,6 +4,18 @@ import type { ItineraryBudgetGuidance, WanderlyBookingHooks, WanderlyTransportPl
 import { syncCardLogisticsFromItinerary } from "./syncCardLogisticsFromItinerary";
 import { logItin } from "./itineraryDebug";
 
+function shouldMergeAllTrailsContext(
+  ctx: DestCard["alltrails_search_context"] | null | undefined,
+  card: DestCard,
+): boolean {
+  if (!ctx) return false;
+  if (ctx.trail_name?.trim()) return true;
+  if ((ctx as { parent_alltrails_url?: string }).parent_alltrails_url?.trim()) return true;
+  if ((ctx as { unverified_url_hint?: string }).unverified_url_hint?.trim()) return true;
+  if (card.grounding?.status === "catalog" && card.grounding.source_url?.includes("alltrails.com")) return true;
+  return false;
+}
+
 /** Merge lazy itinerary rows + optional LLM budget bands (+ optional booking URL hints) onto a destination card. */
 export function mergeItineraryBuildIntoDest(
   card: DestCard,
@@ -41,11 +53,11 @@ export function mergeItineraryBuildIntoDest(
     ...(transportPlan && String(transportPlan.primary_mode || "").trim() ? { transport_plan: transportPlan } : {}),
     ...(bookingHooks && bookingHooks.transport ? { booking_hooks: bookingHooks } : {}),
     ...(itineraryQa && !itineraryQa.skipped ? { itinerary_qa: itineraryQa } : {}),
-    ...(alltrailsSearchContext?.trail_name?.trim()
+    ...(shouldMergeAllTrailsContext(alltrailsSearchContext, card)
       ? { alltrails_search_context: alltrailsSearchContext }
       : {}),
   };
-  if (alltrailsSearchContext?.trail_name?.trim()) {
+  if (shouldMergeAllTrailsContext(alltrailsSearchContext, card)) {
     logItin("merge_itinerary_trail_context", {
       destId: card.id,
       hasParentUrl: Boolean(

@@ -60,4 +60,16 @@ Re-crawl after the fix (old `features/*.json` with `trail_count: 0` used the wro
 | `scripts/crawl_alltrails_feature_catalog.py` | One feature |
 | `scripts/crawl_alltrails_feature_directory.py` | Batch |
 
-Not wired into Wanderly or MCP yet.
+## Enrich existing feature JSON (offline)
+
+Backfill geo + `park_code` without re-crawling AllTrails:
+
+```powershell
+python scripts/enrich_feature_catalog.py
+```
+
+New crawls run enrichment automatically after write (unless `--no-resolve-park`).
+
+See also **`REGIONS.md`** for the US regions manifest (`search_manifest_regions_tool` in MCP).
+
+Not wired into Wanderly UI yet; available via trail-catalog MCP.
