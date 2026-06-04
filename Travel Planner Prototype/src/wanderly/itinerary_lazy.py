@@ -359,24 +359,90 @@ def _normalize_needs_commercial_flight(raw: Any) -> bool | None:
     return None
 
 
+def _looks_like_itinerary_day_row(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    if _parse_itinerary_day_number(
+        row.get("day") or row.get("day_num") or row.get("dayNumber") or row.get("index")
+    ) is None:
+        return False
+    return (
+        row.get("items") is not None
+        or bool(str(row.get("label") or "").strip())
+        or bool(str(row.get("base") or "").strip())
+        or row.get("day_logistics") is not None
+        or row.get("day_transport") is not None
+    )
+
+
+def _coerce_itinerary_value_to_list(value: Any) -> list[Any] | None:
+    """
+    Normalize ``itinerary`` / ``days`` whether the model emitted an array or a day-keyed object.
+
+    Common bad shapes (Australia Trip 9): ``"itinerary": {"1": {day...}, "2": {...}}`` instead of
+    ``"itinerary": [{day...}, ...]``. Prompt-only fixes are unreliable; coerce here before fallback
+    array scanning (which often grabs day-1 ``items`` string lists and yields EMPTY cards).
+    """
+    if isinstance(value, list):
+        if _itinerary_day_dict_count(value) > 0:
+            return value
+        return None
+    if not isinstance(value, dict) or not value:
+        return None
+
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for key, row in value.items():
+        if not isinstance(row, dict):
+            continue
+        day = _parse_itinerary_day_number(row.get("day"))
+        if day is None:
+            day = _parse_itinerary_day_number(
+                row.get("day_num") or row.get("dayNumber") or row.get("index")
+            )
+        if day is None:
+            day = _parse_itinerary_day_number(key)
+        if day is None or day < 1:
+            continue
+        if not _looks_like_itinerary_day_row(row):
+            continue
+        candidates.append((day, row))
+
+    if candidates:
+        dict_values = sum(1 for v in value.values() if isinstance(v, dict))
+        if len(candidates) >= max(1, dict_values // 2):
+            candidates.sort(key=lambda pair: pair[0])
+            return [row for _day, row in candidates]
+
+    for nested_key in ("itinerary", "Itinerary", "days", "Days"):
+        nested = value.get(nested_key)
+        if nested is not None and nested is not value:
+            coerced = _coerce_itinerary_value_to_list(nested)
+            if coerced:
+                return coerced
+    return None
+
+
 def _itinerary_list_from_wrapper(obj: dict[str, Any]) -> list[Any] | None:
     best: list[Any] | None = None
     best_score = 0
     for key in ("itinerary", "Itinerary", "days", "Days"):
         v = obj.get(key)
-        if not isinstance(v, list) or not v:
+        if v is None:
             continue
-        sc = _score_itinerary_array(v)
+        rows = _coerce_itinerary_value_to_list(v)
+        if not rows:
+            continue
+        sc = _score_itinerary_array(rows)
         if sc > best_score:
             best_score = sc
-            best = v
+            best = rows
     if best is not None and _itinerary_day_dict_count(best) > 0:
         return best
     return None
 
 
 def _collect_wrapped_itinerary_dicts(t: str) -> list[dict[str, Any]]:
-    """Every JSON object in ``t`` that contains a non-empty itinerary list."""
+    """Every JSON object in ``t`` that contains a coercible itinerary (array or day-keyed object)."""
     dec = json.JSONDecoder()
     t0 = t.lstrip()
     out: list[dict[str, Any]] = []
@@ -880,23 +946,59 @@ def _salvage_itinerary_day_dicts_from_text(t: str, *, max_days: int = 12) -> lis
     Collect complete ``{day, label, items, ...}`` objects when the outer wrapper JSON was truncated.
 
     Kyoto-style failures: the only fully closed array is day-1 ``items`` (strings); bracket repair on
-  the full wrapper recovers the real itinerary rows.
+    the full wrapper recovers the real itinerary rows.
+
+    Also handles day objects nested under numeric keys (``"1": {"day": 1, ...}``) where the object
+    does not start with ``{"day":``.
     """
     out: list[dict[str, Any]] = []
     seen: set[int] = set()
+
+    def try_add(obj: Any) -> None:
+        if not isinstance(obj, dict) or len(out) >= max_days:
+            return
+        day = _parse_itinerary_day_number(obj.get("day"))
+        if day is None:
+            day = _parse_itinerary_day_number(
+                obj.get("day_num") or obj.get("dayNumber") or obj.get("index")
+            )
+        if day is None or day < 1 or day > max_days or day in seen:
+            return
+        if not _looks_like_itinerary_day_row(obj):
+            return
+        seen.add(day)
+        out.append(obj)
+
     lower = t.lower()
     pos = 0
     while len(out) < max_days:
         i = lower.find('{"day":', pos)
         if i < 0:
             break
-        obj = _try_parse_truncated_json_value(t, start=i)
-        if isinstance(obj, dict):
-            day = _parse_itinerary_day_number(obj.get("day"))
-            if day is not None and 1 <= day <= max_days and day not in seen:
-                seen.add(day)
-                out.append(obj)
+        try_add(_try_parse_truncated_json_value(t, start=i))
         pos = i + 7
+
+    for m in re.finditer(r'"day"\s*:\s*(\d+)', t):
+        idx = m.start()
+        brace = t.rfind("{", 0, idx)
+        attempts = 0
+        while brace >= 0 and attempts < 8 and len(out) < max_days:
+            try_add(_try_parse_truncated_json_value(t, start=brace))
+            brace = t.rfind("{", 0, brace)
+            attempts += 1
+
+    for needle in ('[{"day":', '[{"Day":'):
+        pos = 0
+        while len(out) < max_days:
+            i = lower.find(needle, pos)
+            if i < 0:
+                break
+            arr = _try_parse_truncated_json_value(t, start=i)
+            if isinstance(arr, list):
+                for row in arr:
+                    try_add(row)
+            pos = i + len(needle)
+
     out.sort(key=lambda o: int(_parse_itinerary_day_number(o.get("day")) or 0))
     return out
 
@@ -1274,6 +1376,132 @@ def _itinerary_qa_retry_enabled() -> bool:
         "no",
         "off",
     )
+
+
+def _empty_itinerary_retry_enabled() -> bool:
+    """Second Cursor pass when the model returned no text or prose without parseable itinerary JSON."""
+    return (os.environ.get("WANDERLY_ITIN_EMPTY_RETRY") or "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def _empty_itinerary_retry_user_message(
+    raw: str,
+    *,
+    n_days: int,
+    destination: dict[str, Any],
+    profile_pills: list[dict[str, Any]] | None = None,
+) -> str:
+    body = (raw or "").replace("\r", "").strip()
+    reason = "completely empty" if not body else "missing or unparseable itinerary JSON"
+    preview = body[:500] if body else "(no assistant text returned)"
+    dest_name = str(destination.get("name") or destination.get("id") or "this destination").strip()
+    return (
+        f"ITINERARY JSON REQUIRED: your previous response was {reason}.\n\n"
+        "Return ONLY one complete JSON object (no markdown fences, no commentary, no tool calls, "
+        "no trail-catalog or MCP lookups). "
+        f"Build exactly {n_days} days for {dest_name!r}.\n\n"
+        '- **`itinerary` must be a JSON array** of day objects '
+        '[{"day":1,"label":"...","items":[...], "day_logistics":{...}}, ...] — '
+        'not a day-keyed object ("1":{...}).\n'
+        "- Include **transport_plan**, **budget_guidance**, **needs_commercial_flight**, and "
+        "**day_logistics on every day** per the system contract.\n"
+        "- This is a leisure vacation card, not a US national-park trail catalog trip — write the plan "
+        "directly; do not defer to catalog tools.\n\n"
+        f"Unusable prior output (truncated):\n{preview}\n"
+        f"{outdoor_logistics_repair_append(profile_pills)}"
+    )
+
+
+def _apply_itinerary_empty_retry(
+    *,
+    raw: str,
+    out: list[dict[str, Any]],
+    extracted: list[Any],
+    budget: dict[str, str] | None,
+    booking_hints: dict[str, str] | None,
+    needs_cf: bool | None,
+    transport_plan: dict[str, Any] | None,
+    booking_hooks: dict[str, Any] | None,
+    raw_wrapper: dict[str, Any] | None,
+    rid: str,
+    mode: str,
+    did: str,
+    n: int,
+    profile_pills: list[dict[str, Any]],
+    destination: dict[str, Any],
+    run_repair_prompt: Callable[[str], str],
+) -> tuple[
+    str,
+    list[dict[str, Any]],
+    list[Any],
+    dict[str, str] | None,
+    dict[str, str] | None,
+    bool | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
+    """Re-prompt when Cursor returned empty text or prose without itinerary JSON (Trip 10 Khao Sok / Krabi)."""
+    if not _empty_itinerary_retry_enabled() or out:
+        return raw, out, extracted, budget, booking_hints, needs_cf, transport_plan, booking_hooks, raw_wrapper
+    log_itinerary_build(
+        f"EMPTY_RETRY_BEGIN rid={rid} mode={mode} dest_id={did!r} raw_chars={len(raw or '')}"
+    )
+    repair = _empty_itinerary_retry_user_message(
+        raw, n_days=n, destination=destination, profile_pills=profile_pills
+    )
+    t_retry = time.perf_counter()
+    try:
+        raw2 = run_repair_prompt(repair)
+    except Exception as e:
+        log_itinerary_build(
+            f"EMPTY_RETRY_FAIL rid={rid} mode={mode} dest_id={did!r} exc={type(e).__name__}: {e!s}"
+        )
+        return raw, out, extracted, budget, booking_hints, needs_cf, transport_plan, booking_hooks, raw_wrapper
+    (
+        out2,
+        extracted2,
+        budget2,
+        booking_hints2,
+        needs_cf2,
+        transport_plan2,
+        booking_hooks2,
+        raw_wrapper2,
+    ) = _process_lazy_itinerary_raw(
+        raw2,
+        trace_rid=f"{rid}+empty_retry",
+        mode=mode,
+        dest_id=did,
+        n=n,
+        profile_pills=profile_pills,
+        destination=destination,
+    )
+    retry_ms = (time.perf_counter() - t_retry) * 1000.0
+    if out2:
+        log_itinerary_build(
+            f"EMPTY_RETRY_OK rid={rid} mode={mode} dest_id={did!r} rows={len(out2)} "
+            f"raw_chars={len(raw2 or '')} elapsed_retry_ms={retry_ms:.1f}"
+        )
+        return (
+            raw2,
+            out2,
+            extracted2,
+            budget2,
+            booking_hints2,
+            needs_cf2,
+            transport_plan2,
+            booking_hooks2,
+            raw_wrapper2,
+        )
+    log_itinerary_build(
+        f"EMPTY_RETRY_NO_IMPROVEMENT rid={rid} mode={mode} dest_id={did!r} "
+        f"raw_chars_second={len(raw2 or '')} elapsed_retry_ms={retry_ms:.1f}"
+    )
+    return raw, out, extracted, budget, booking_hints, needs_cf, transport_plan, booking_hooks, raw_wrapper
 
 
 def _itinerary_qa_repair_user_message(
@@ -1823,6 +2051,58 @@ def build_itinerary_for_destination(
         profile_pills=profile_pills,
         destination=destination,
     )
+
+    def _run_empty_repair_json(repair_prompt: str) -> str:
+        with basic_client(key) as client:
+            return run_prompt_collect_assistant_text(
+                client,
+                repair_prompt,
+                model_id_override=light,
+                persistent_instruction_prefix=itin_prefix,
+                llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                llm_telemetry_sub_activity="build_itinerary_empty_retry",
+                llm_telemetry_meta=telemetry_meta(
+                    session_id=session_id,
+                    destination_id=did,
+                    request_id=rid,
+                    days=days,
+                ),
+                **cursor_run_persist_kwargs_for_lane(
+                    session_id or "",
+                    _lane,
+                    trace_path=f"{_tp}.empty_retry",
+                ),
+            )
+
+    (
+        raw,
+        out,
+        extracted,
+        budget,
+        booking_hints,
+        needs_cf,
+        transport_plan,
+        booking_hooks,
+        raw_wrapper,
+    ) = _apply_itinerary_empty_retry(
+        raw=raw,
+        out=out,
+        extracted=extracted,
+        budget=budget,
+        booking_hints=booking_hints,
+        needs_cf=needs_cf,
+        transport_plan=transport_plan,
+        booking_hooks=booking_hooks,
+        raw_wrapper=raw_wrapper if isinstance(raw_wrapper, dict) else None,
+        rid=rid,
+        mode="json",
+        did=did,
+        n=n,
+        profile_pills=profile_pills,
+        destination=destination,
+        run_repair_prompt=_run_empty_repair_json,
+    )
+
     if _logistics_followup_retry_enabled() and out and _persisted_logistics_day_count(out) == 0:
         log_itinerary_build(
             f"LOGISTICS_RETRY_BEGIN rid={rid} mode=json dest_id={did!r} itinerary_days={len(out)} n={n}"
@@ -2101,6 +2381,59 @@ def build_itinerary_for_destination_streaming(
         profile_pills=profile_pills,
         destination=destination,
     )
+
+    def _run_empty_repair_sse(repair_prompt: str) -> str:
+        with basic_client(key) as client:
+            return run_prompt_collect_assistant_text_streaming(
+                client,
+                repair_prompt,
+                emit=_safe_emit if emit else None,
+                model_id_override=light,
+                persistent_instruction_prefix=itin_prefix,
+                llm_telemetry_activity=ACTIVITY_ITINERARY_BUILDER,
+                llm_telemetry_sub_activity="build_itinerary_empty_retry_stream",
+                llm_telemetry_meta=telemetry_meta(
+                    session_id=session_id,
+                    destination_id=did,
+                    request_id=rid,
+                    days=days,
+                ),
+                **cursor_run_persist_kwargs_for_lane(
+                    session_id or "",
+                    _lane,
+                    trace_path=f"{_tp}.empty_retry",
+                ),
+            )
+
+    (
+        raw,
+        out,
+        extracted,
+        budget,
+        booking_hints,
+        needs_cf,
+        transport_plan,
+        booking_hooks,
+        raw_wrapper,
+    ) = _apply_itinerary_empty_retry(
+        raw=raw,
+        out=out,
+        extracted=extracted,
+        budget=budget,
+        booking_hints=booking_hints,
+        needs_cf=needs_cf,
+        transport_plan=transport_plan,
+        booking_hooks=booking_hooks,
+        raw_wrapper=raw_wrapper if isinstance(raw_wrapper, dict) else None,
+        rid=rid,
+        mode="sse",
+        did=did,
+        n=n,
+        profile_pills=profile_pills,
+        destination=destination,
+        run_repair_prompt=_run_empty_repair_sse,
+    )
+
     if _logistics_followup_retry_enabled() and out and _persisted_logistics_day_count(out) == 0:
         log_itinerary_build(
             f"LOGISTICS_RETRY_BEGIN rid={rid} mode=sse dest_id={did!r} itinerary_days={len(out)} n={n}"

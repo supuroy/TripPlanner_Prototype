@@ -282,7 +282,10 @@ def build_catalog_itinerary_for_destination(
         )
 
     raw_rows = catalog_payload.get("itinerary")
-    rows_in = [x for x in raw_rows if isinstance(x, dict)] if isinstance(raw_rows, list) else []
+    from src.wanderly.itinerary_lazy import _coerce_itinerary_value_to_list
+
+    coerced = _coerce_itinerary_value_to_list(raw_rows)
+    rows_in = [x for x in coerced if isinstance(x, dict)] if coerced else []
     if catalog_payload.get("grounding") and isinstance(catalog_payload["grounding"], dict):
         g = {**g, **catalog_payload["grounding"]}
         dest_stub["grounding"] = g

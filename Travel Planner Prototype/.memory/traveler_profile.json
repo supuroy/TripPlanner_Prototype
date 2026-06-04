@@ -7,15 +7,14 @@
       "profile_name": "Default",
       "is_default": true,
       "profile": {
-        "traveler_summary": "Mid September \u00b7 Dates TBD",
+        "traveler_summary": "mid September",
         "group_size": 2,
         "group_type": "couple with pet",
         "trip_type": "leisure",
-        "traveler_origin": "Seattle (SEA)",
-        "budget_max_usd": null,
+        "traveler_origin": "Seattle",
+        "budget_max_usd": 8000.0,
         "destination_preferences": [
-          "Moderate",
-          "waterfall-focused hiking (under 7 miles)"
+          "Iconic sights + hidden gems"
         ],
         "preferred_climate": "warm",
         "preferred_activities": [
@@ -28,7 +27,7 @@
         "travel_time_tolerance": "within 12 hours of fly time",
         "dietary_or_accessibility_notes": [],
         "assumptions_used": [],
-        "editable_notes": "2 travelers; Trip length: 4 days / 3 nights; Trip length: 4 days / 3 nights"
+        "editable_notes": "2 travelers; Trip length: 4 days / 3 nights; Trip length: 4 days / 3 nights; Trip style: General leisure; Trip style: General leisure"
       }
     }
   ]
