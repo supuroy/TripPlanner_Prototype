@@ -55,6 +55,7 @@ from src.wanderly.session_store import (
     chat_context_snippet,
     cursor_run_persist_kwargs,
     get_session,
+    get_trip_intent,
     set_last_destinations,
     set_last_profile_pills,
     set_trip_intent,
@@ -67,7 +68,7 @@ from src.wanderly.trip_intent_llm import (
     is_outdoor_trip_product,
     leisure_destination_context_block,
 )
-from src.wanderly.trip_intent_resolve import resolve_trip_intent
+from src.wanderly.trip_intent_resolve import TripIntentResolution, resolve_trip_intent
 
 
 def _refine_model_persist_kwargs(session_id: str, *, trace_path: str) -> tuple[str | None, dict[str, Any]]:
@@ -1054,14 +1055,33 @@ def _run_smoke_with_trip_intent(
         if emit:
             emit(obj)
 
-    safe_emit({"type": "phase", "message": "Understanding trip type…"})
-    intent = classify_trip_intent_llm(user_message=um, session_id=session_id)
-    resolution = resolve_trip_intent(intent, user_message=um)
-    intent_payload = {
-        "classification": intent.model_dump(),
-        "resolution": resolution.model_dump(),
-    }
-    set_trip_intent(session_id, intent_payload)
+    # Classify trip type once per session — reuse on subsequent smoke turns.
+    intent: TripIntentClassification | None = None
+    resolution: TripIntentResolution | None = None
+    intent_payload: dict[str, Any] | None = None
+
+    cached_intent = get_trip_intent(session_id)
+    if (
+        cached_intent
+        and isinstance(cached_intent.get("classification"), dict)
+        and isinstance(cached_intent.get("resolution"), dict)
+    ):
+        try:
+            intent = TripIntentClassification.model_validate(cached_intent["classification"])
+            resolution = TripIntentResolution.model_validate(cached_intent["resolution"])
+            intent_payload = cached_intent
+        except Exception:
+            pass  # corrupted cache — fall through to LLM below
+
+    if intent is None:
+        safe_emit({"type": "phase", "message": "Understanding trip type…"})
+        intent = classify_trip_intent_llm(user_message=um, session_id=session_id)
+        resolution = resolve_trip_intent(intent, user_message=um)
+        intent_payload = {
+            "classification": intent.model_dump(),
+            "resolution": resolution.model_dump(),
+        }
+        set_trip_intent(session_id, intent_payload)
 
     if resolution.catalog_eligible:
         if resolution.catalog_lane == "intent":

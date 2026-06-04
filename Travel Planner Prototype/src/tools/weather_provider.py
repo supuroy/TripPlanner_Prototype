@@ -32,15 +32,9 @@ class WeatherProvider(BaseProvider):
         profile_fp = hashlib.sha1(
             json.dumps(traveler_profile or {}, sort_keys=True, ensure_ascii=True).encode("utf-8")
         ).hexdigest()[:10]
-        domains = [
-            "weather.com",
-            "accuweather.com",
-            "timeanddate.com",
-            "metoffice.gov.uk",
-        ]
         prompt = f"""
-You are a weather-research summarizer.
-Use only information from these domains conceptually: {domains}
+You are a travel planning assistant providing seasonal weather context for trip planning.
+Based on your training knowledge, provide a plausible weather summary for this destination and travel window.
 Return strict JSON matching this schema:
 {json.dumps(WeatherPayload.model_json_schema(), ensure_ascii=True)}
 
@@ -48,9 +42,9 @@ Destination: {destination}
 Travel window: {travel_window}
 
 Rules:
-- Give concise weather summary for the trip period.
-- Include likely temperature range and rain outlook.
-- Include source domains used as strings in `sources`.
+- Give a concise seasonal weather summary for the trip period.
+- Include a likely temperature range and rain outlook based on typical conditions.
+- Set `sources` to an empty list.
 """
         payload = self.llm_client.generate_structured(
             prompt=prompt,

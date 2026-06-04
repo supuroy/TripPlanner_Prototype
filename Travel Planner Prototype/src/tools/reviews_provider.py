@@ -30,15 +30,9 @@ class ReviewsProvider(BaseProvider):
         profile_fp = hashlib.sha1(
             json.dumps(traveler_profile or {}, sort_keys=True, ensure_ascii=True).encode("utf-8")
         ).hexdigest()[:10]
-        domains = [
-            "tripadvisor.com",
-            "lonelyplanet.com",
-            "booking.com",
-            "reddit.com",
-        ]
         prompt = f"""
-You are a travel-review summarizer.
-Use only these domains conceptually: {domains}
+You are a travel planning assistant providing destination sentiment context for trip planning.
+Based on your training knowledge, summarize typical traveler experiences for this destination.
 Return strict JSON matching this schema:
 {json.dumps(ReviewsPayload.model_json_schema(), ensure_ascii=True)}
 
@@ -47,9 +41,9 @@ Traveler profile:
 {traveler_profile}
 
 Rules:
-- Summarize traveler sentiment and practical fit for this traveler.
+- Summarize typical traveler sentiment and practical fit for this traveler profile.
 - Keep pros/cons high-signal and concise.
-- Include source domains in `sources`.
+- Set `sources` to an empty list.
 """
         payload = self.llm_client.generate_structured(
             prompt=prompt,

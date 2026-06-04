@@ -523,9 +523,7 @@ Destination enrichment:
 Rules:
 - Build a day-by-day plan using exactly {days} days.
 - Include travel-in, daily city-to-stay + activity, and travel-out.
-- Use destination enrichment as factual planning context, especially weather and top activities.
-- If weather or conditions suggest a better split, choose multi-city and explain it.
-- Avoid activities on days with likely poor weather when alternatives are available.
+- Use destination enrichment as general planning context, especially top activities.
 - If a multi-city plan is better, set `is_multi_city=true` and include `intercity_travel_time` on relevant days.
 - If single-city, keep `intercity_travel_time` null/empty.
 - Keep the human summary concise and easy to read.
@@ -795,8 +793,6 @@ Rules:
             "estimated_travel_time_hours": option.get("estimated_travel_time_hours"),
             "recommended_length_days": option.get("recommended_length_days"),
             "trip_highlight": option.get("trip_highlight"),
-            "weather_summary": enrich.get("weather_summary"),
-            "reviews_summary": enrich.get("reviews_summary"),
             "top_things_to_do": things[:3],
         }
 
