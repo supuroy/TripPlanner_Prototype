@@ -1054,8 +1054,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   }, [destinations, profile, wanderlyTripId, tripName, capturePersistSig]);
 
   const setTripName = useCallback((name: string) => {
-    const trimmed = name.trim().slice(0, 200);
-    setTripNameState(trimmed.length > 0 ? trimmed : "Untitled trip");
+    // Do NOT trim here — trimming on every keystroke swallows spaces mid-word.
+    // Trimming happens at save time (renameTrip call in SavedTripsBar).
+    setTripNameState(name.slice(0, 200));
   }, []);
 
   useEffect(() => {
