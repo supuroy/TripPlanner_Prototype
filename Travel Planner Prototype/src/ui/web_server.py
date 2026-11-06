@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
+from pathlib import Path
 import re
 import threading
 import time
@@ -218,17 +220,68 @@ def _cors_headers(handler: BaseHTTPRequestHandler) -> dict[str, str]:
     return h
 
 
+def _resolve_spa_dist_dir() -> Path | None:
+    """Locate the built React/Vite dist directory if it exists."""
+    env_dist = os.getenv("WANDERLY_DIST_DIR", "").strip()
+    if env_dist:
+        p = Path(env_dist).resolve()
+        if p.is_dir() and (p / "index.html").is_file():
+            return p
+
+    # Standard locations relative to this file:
+    # 1. <repo_root>/Figma Prototype/dist
+    # 2. <repo_root>/Travel Planner Prototype/dist
+    # 3. <cwd>/Figma Prototype/dist or <cwd>/dist
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent.parent / "Figma Prototype" / "dist",
+        Path(__file__).resolve().parent.parent.parent / "dist",
+        Path.cwd() / "Figma Prototype" / "dist",
+        Path.cwd() / "dist",
+    ]
+    for c in candidates:
+        if c.is_dir() and (c / "index.html").is_file():
+            return c
+    return None
+
+
 def run_web_server(
     orchestrator_factory: Callable[[], TravelPlannerOrchestrator],
     host: str = "127.0.0.1",
     port: int = 8000,
 ) -> None:
     orchestrator = orchestrator_factory()
+    spa_dist_dir = _resolve_spa_dist_dir()
+    if spa_dist_dir:
+        print(f"[web] Serving compiled UI from SPA dist: {spa_dist_dir}")
+    else:
+        print("[web] No built SPA dist found; serving dev HTML scaffold (or use Vite on :5173).")
 
     class Handler(BaseHTTPRequestHandler):
         def _apply_cors(self) -> None:
             for k, v in _cors_headers(self).items():
                 self.send_header(k, v)
+
+        def _send_file(self, file_path: Path, status: int = 200) -> None:
+            try:
+                data = file_path.read_bytes()
+                mime, _ = mimetypes.guess_type(str(file_path))
+                if not mime:
+                    mime = "application/octet-stream"
+                self.send_response(status)
+                self._apply_cors()
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(len(data)))
+                # Cache static assets with content hash; keep index.html fresh
+                if file_path.name == "index.html":
+                    self.send_header("Cache-Control", "no-cache")
+                else:
+                    self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                return
+            except Exception as e:
+                self._send_json({"error": f"Failed to serve file: {e}"}, status=500)
 
         def _send_json(self, payload: dict, status: int = 200) -> None:
             body = json.dumps(payload).encode("utf-8")
@@ -282,14 +335,12 @@ def run_web_server(
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             path = normalize_request_path(parsed.path)
-            if path == "/":
-                self._send_html(HTML_SCAFFOLD)
+
+            if path == "/health":
+                self._send_json({"status": "ok"}, status=200)
                 return
             if path == "/state":
                 self._send_json(orchestrator.get_workspace_state(), status=200)
-                return
-            if path == "/health":
-                self._send_json({"status": "ok"}, status=200)
                 return
             if path == "/api/wanderly/workspace":
                 qs = parse_qs(parsed.query or "")
@@ -312,6 +363,27 @@ def run_web_server(
                             wanderly["trip_meta"] = {"trip_id": tid, "trip_name": tname}
                 self._send_json({"wanderly": wanderly, "wanderly_snapshot_restored": snap}, status=200)
                 return
+
+            # Static asset & SPA routing:
+            if spa_dist_dir is not None:
+                if path == "/":
+                    self._send_file(spa_dist_dir / "index.html")
+                    return
+                # Check for exact file inside dist (e.g. assets/index-xxx.js, favicon.svg)
+                rel_path = path.lstrip("/")
+                candidate = (spa_dist_dir / rel_path).resolve()
+                if candidate.is_file() and str(candidate).startswith(str(spa_dist_dir)):
+                    self._send_file(candidate)
+                    return
+                # If path doesn't start with /api and has no extension, route to SPA index.html
+                if not path.startswith("/api/") and "." not in Path(path).name:
+                    self._send_file(spa_dist_dir / "index.html")
+                    return
+
+            if path == "/":
+                self._send_html(HTML_SCAFFOLD)
+                return
+
             self._send_json({"error": f"Not found ({path})"}, status=404)
 
         def do_POST(self) -> None:

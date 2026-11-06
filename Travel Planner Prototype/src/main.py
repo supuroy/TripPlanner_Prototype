@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 from src.llm import CursorLlmClient
 from src.orchestrator import TravelPlannerOrchestrator
@@ -45,8 +46,10 @@ def main() -> None:
     )
     parser.add_argument("--ui", action="store_true", help="Run browser UI server.")
     parser.add_argument("--replay", action="store_true", help="Replay from cached LLM responses.")
-    parser.add_argument("--host", default="127.0.0.1", help="Web UI host.")
-    parser.add_argument("--port", type=int, default=8000, help="Web UI port.")
+    default_host = os.environ.get("HOST", "127.0.0.1")
+    default_port = int(os.environ.get("PORT", "8000"))
+    parser.add_argument("--host", default=default_host, help="Web UI host (defaults to $HOST or 127.0.0.1).")
+    parser.add_argument("--port", type=int, default=default_port, help="Web UI port (defaults to $PORT or 8000).")
     args = parser.parse_args()
 
     if args.ui:
