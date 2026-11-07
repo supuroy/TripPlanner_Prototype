@@ -244,12 +244,35 @@ def _resolve_spa_dist_dir() -> Path | None:
     return None
 
 
+class _LazyOrchestratorProxy:
+    """Delays orchestrator creation (and CURSOR_API_KEY checks) until the first API request."""
+
+    def __init__(self, factory: Callable[[], TravelPlannerOrchestrator]) -> None:
+        self._factory = factory
+        self._instance: TravelPlannerOrchestrator | None = None
+        self._lock = threading.Lock()
+
+    def _get(self) -> TravelPlannerOrchestrator:
+        with self._lock:
+            if self._instance is None:
+                self._instance = self._factory()
+            return self._instance
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._get(), name)
+
+    def shutdown(self) -> None:
+        with self._lock:
+            if self._instance is not None:
+                self._instance.shutdown()
+
+
 def run_web_server(
     orchestrator_factory: Callable[[], TravelPlannerOrchestrator],
     host: str = "127.0.0.1",
     port: int = 8000,
 ) -> None:
-    orchestrator = orchestrator_factory()
+    orchestrator = _LazyOrchestratorProxy(orchestrator_factory)
     spa_dist_dir = _resolve_spa_dist_dir()
     if spa_dist_dir:
         print(f"[web] Serving compiled UI from SPA dist: {spa_dist_dir}")

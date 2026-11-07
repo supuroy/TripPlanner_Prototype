@@ -40,7 +40,8 @@ class CursorLlmClient:
         load_dotenv()
         load_env_from_roots()
         self._api_key_override = (api_key or "").strip() or None
-        get_api_key()  # fail fast with same message as smoke_turn
+        # Note: API key is validated on first call to _key(), allowing web server preview/hosting
+        # to bind ports and serve health checks even before secrets are accessed.
         default_cache = os.environ.get("CURSOR_PLANNER_CACHE_PATH", ".cache/cursor_planner_cache.json")
         self.cache_path = Path(cache_path or default_cache)
         self.model_name = "cursor-cloud-agent"
