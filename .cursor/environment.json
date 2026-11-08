@@ -1,4 +1,4 @@
 {
-  "install": "cd \"Figma Prototype\" && npm install && npm run build && cd .. && pip install -r \"Travel Planner Prototype/requirements.txt\"",
-  "start": "python \"Travel Planner Prototype/main.py\" --ui --host 0.0.0.0 --port ${PORT:-8000}"
+  "install": "bash start_app.sh build",
+  "start": "bash start_app.sh start"
 }

@@ -1,14 +1,44 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-echo "[setup] Building React frontend (Figma Prototype)..."
-cd "Figma Prototype"
-npm install
-npm run build
-cd ..
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
 
-echo "[setup] Installing Python dependencies..."
-pip install -r "Travel Planner Prototype/requirements.txt"
+resolve_backend_dir() {
+  local d
+  for d in */; do
+    d="${d%/}"
+    case "$d" in
+      Figma\ Prototype|config|expedia-listing-cli|node_modules) continue ;;
+    esac
+    if [[ -f "$d/main.py" && -f "$d/requirements.txt" ]]; then
+      echo "$d"
+      return 0
+    fi
+  done
+  echo "No backend directory with main.py and requirements.txt found under $ROOT" >&2
+  return 1
+}
 
-echo "[start] Launching unified Travel Planner server on port ${PORT:-8000}..."
-exec python "Travel Planner Prototype/main.py" --ui --host 0.0.0.0 --port "${PORT:-8000}"
+BACKEND="$(resolve_backend_dir)"
+PORT="${PORT:-8000}"
+
+do_build() {
+  echo "[setup] Building React frontend (Figma Prototype)..."
+  (cd "Figma Prototype" && npm install && npm run build)
+  echo "[setup] Installing Python dependencies..."
+  pip install -r "$BACKEND/requirements.txt"
+}
+
+do_start() {
+  echo "[start] Launching Wanderly server on port ${PORT}..."
+  exec python3 "$BACKEND/main.py" --ui --host 0.0.0.0 --port "$PORT"
+}
+
+cmd="${1:-all}"
+case "$cmd" in
+  build) do_build ;;
+  start) do_start ;;
+  all) do_build; do_start ;;
+  *) echo "Usage: $0 {build|start|all}" >&2; exit 2 ;;
+esac

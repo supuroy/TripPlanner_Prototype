@@ -17,6 +17,9 @@ dist/
 *.egg-info/
 .pytest_cache/
 
+# Runtime session data (Cloud Agent / local)
+.memory/
+
 # Logs & OS
 *.log
 .DS_Store
