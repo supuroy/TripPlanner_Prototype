@@ -483,6 +483,31 @@ def reset_wanderly_session_snapshot_cache_for_tests() -> None:
     return
 
 
+def ensure_session_owner(session_id: str, owner_sub: str) -> bool:
+    """Bind wanderly session to verified viewer ``sub``; refuse cross-viewer access."""
+    sid = (session_id or "").strip()
+    sub = (owner_sub or "").strip()
+    if not sid:
+        return True
+    if not sub:
+        return False
+    with _lock:
+        bucket = _sessions.get(sid)
+        if bucket is None:
+            _sessions[sid] = {
+                "chat": [],
+                "last_destinations": [],
+                "mode": "idle",
+                "owner_sub": sub,
+            }
+            return True
+        existing = (bucket.get("owner_sub") or "").strip()
+        if not existing:
+            bucket["owner_sub"] = sub
+            return True
+        return existing == sub
+
+
 def get_session(session_id: str) -> dict[str, Any]:
     with _lock:
         if session_id not in _sessions:

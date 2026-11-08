@@ -32,7 +32,7 @@ do_build() {
 
 do_start() {
   echo "[start] Launching Wanderly server on port ${PORT}..."
-  exec python3 "$BACKEND/main.py" --ui --host 0.0.0.0 --port "$PORT"
+  exec python3 "$BACKEND/main.py" --ui --host "${HOST:-127.0.0.1}" --port "$PORT"
 }
 
 cmd="${1:-all}"

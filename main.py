@@ -50,7 +50,7 @@ __all__ = ["app"]
 
 def run_direct() -> None:
     port = int(os.environ.get("PORT", "8000"))
-    host = os.environ.get("HOST", "0.0.0.0")
+    host = os.environ.get("HOST") or "127.0.0.1"
     sys.argv = ["main.py", "--ui", "--host", host, "--port", str(port)]
     from src.main import main as planner_main
 
