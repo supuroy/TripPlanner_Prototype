@@ -491,6 +491,17 @@ def ensure_session_owner(session_id: str, owner_sub: str) -> bool:
         return True
     if not sub:
         return False
+
+    trip_owner: str | None = None
+    try:
+        from src.wanderly import trip_disk_store
+
+        trip_owner = trip_disk_store.lookup_owner_for_session(sid)
+    except Exception:
+        trip_owner = None
+    if trip_owner and trip_owner != sub:
+        return False
+
     with _lock:
         bucket = _sessions.get(sid)
         if bucket is None:
@@ -502,10 +513,11 @@ def ensure_session_owner(session_id: str, owner_sub: str) -> bool:
             }
             return True
         existing = (bucket.get("owner_sub") or "").strip()
+        if existing and existing != sub:
+            return False
         if not existing:
             bucket["owner_sub"] = sub
-            return True
-        return existing == sub
+        return True
 
 
 def get_session(session_id: str) -> dict[str, Any]:

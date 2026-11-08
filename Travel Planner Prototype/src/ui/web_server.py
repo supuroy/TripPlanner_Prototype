@@ -319,6 +319,9 @@ def run_web_server(
                 return False
             return True
 
+        def _viewer_sub(self) -> str | None:
+            return getattr(_viewer_ctx, "sub", None)
+
         def _bind_wanderly_session(self, session_id: str) -> bool:
             from src.wanderly.session_store import ensure_session_owner
 
@@ -721,25 +724,33 @@ def run_web_server(
                     return
 
                 if path == "/api/wanderly/trips/bootstrap":
+                    sub_v = self._viewer_sub()
+                    if not sub_v:
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
                     hint_s = (payload.get("session_id") or "").strip() or None
                     hint_t = (payload.get("trip_id") or "").strip() or None
-                    meta = trip_disk_store.bootstrap(hint_s, hint_t, get_session)
+                    meta = trip_disk_store.bootstrap(hint_s, hint_t, get_session, sub_v)
                     sid_b = meta["session_id"]
                     if not self._bind_wanderly_session(sid_b):
                         return
                     tid_b = (meta.get("trip_id") or "").strip()
                     if maybe_hydrate_empty_session_from_snapshots(get_session, sid_b) and tid_b:
-                        trip_disk_store.persist_trip(tid_b, sid_b, get_session)
+                        trip_disk_store.persist_trip(tid_b, sid_b, get_session, sub_v)
                     wly = _wanderly_workspace_payload(orchestrator, sid_b)
                     self._send_json({**meta, "wanderly": wly}, status=200)
                     return
 
                 if path == "/api/wanderly/trips/activate":
+                    sub_v = self._viewer_sub()
+                    if not sub_v:
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
                     tid_a = (payload.get("trip_id") or "").strip()
                     if not tid_a:
                         self._send_json({"error": "Missing 'trip_id'."}, status=400)
                         return
-                    meta = trip_disk_store.activate_trip(tid_a, get_session)
+                    meta = trip_disk_store.activate_trip(tid_a, get_session, sub_v)
                     if not meta:
                         self._send_json({"error": "Unknown trip_id."}, status=404)
                         return
@@ -748,15 +759,19 @@ def run_web_server(
                         return
                     tid_act = (meta.get("trip_id") or "").strip()
                     if maybe_hydrate_empty_session_from_snapshots(get_session, sid_act) and tid_act:
-                        trip_disk_store.persist_trip(tid_act, sid_act, get_session)
+                        trip_disk_store.persist_trip(tid_act, sid_act, get_session, sub_v)
                     wly = _wanderly_workspace_payload(orchestrator, sid_act)
                     self._send_json({**meta, "wanderly": wly}, status=200)
                     return
 
                 if path == "/api/wanderly/trips/create":
+                    sub_v = self._viewer_sub()
+                    if not sub_v:
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
                     raw_name = payload.get("name")
                     nm = str(raw_name).strip()[:120] if raw_name is not None else ""
-                    meta = trip_disk_store.create_trip(nm or None, get_session)
+                    meta = trip_disk_store.create_trip(nm or None, get_session, sub_v)
                     if not self._bind_wanderly_session(meta["session_id"]):
                         return
                     wly = _wanderly_workspace_payload(orchestrator, meta["session_id"])
@@ -780,45 +795,47 @@ def run_web_server(
                     return
 
                 if path == "/api/wanderly/trips/rename":
+                    sub_v = self._viewer_sub()
+                    if not sub_v:
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
                     tid_r = (payload.get("trip_id") or "").strip()
                     raw_rn = payload.get("name")
                     nm_r = str(raw_rn).strip()[:120] if raw_rn is not None else ""
                     if not tid_r:
                         self._send_json({"error": "Missing 'trip_id'."}, status=400)
                         return
-                    meta_r = trip_disk_store.rename_trip(tid_r, nm_r, get_session)
+                    meta_r = trip_disk_store.rename_trip(tid_r, nm_r, get_session, sub_v)
                     if not meta_r:
                         self._send_json({"error": "Unknown trip_id."}, status=404)
                         return
-                    m2 = trip_disk_store.read_manifest()
-                    act = str(m2.get("active_trip_id") or "").strip()
-                    sid_rw = ""
-                    for row in m2.get("trips") or []:
-                        if isinstance(row, dict) and str(row.get("trip_id") or "").strip() == act:
-                            sid_rw = str(row.get("session_id") or "").strip()
-                            break
-                    wly_r = _wanderly_workspace_payload(orchestrator, sid_rw) if sid_rw else _wanderly_workspace_payload(
-                        orchestrator, (payload.get("session_id") or "").strip()
-                    )
-                    self._send_json(
-                        {**meta_r, "session_id": sid_rw, "active_trip_id": act, "wanderly": wly_r},
-                        status=200,
-                    )
+                    sid_rw = (meta_r.get("session_id") or "").strip()
+                    act = str(meta_r.get("active_trip_id") or tid_r).strip()
+                    if sid_rw and not self._bind_wanderly_session(sid_rw):
+                        return
+                    wly_r = _wanderly_workspace_payload(orchestrator, sid_rw) if sid_rw else {}
+                    self._send_json({**meta_r, "wanderly": wly_r}, status=200)
                     return
 
                 if path == "/api/wanderly/trips/delete":
+                    sub_v = self._viewer_sub()
+                    if not sub_v:
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
                     tid_d = (payload.get("trip_id") or "").strip()
                     if not tid_d:
                         self._send_json({"error": "Missing 'trip_id'."}, status=400)
                         return
-                    meta_d = trip_disk_store.delete_trip(tid_d, get_session)
+                    meta_d = trip_disk_store.delete_trip(tid_d, get_session, sub_v)
                     if not meta_d:
                         self._send_json({"error": "Unknown trip_id."}, status=404)
                         return
                     sid_del = meta_d["session_id"]
                     tid_act = (meta_d.get("trip_id") or "").strip()
+                    if not self._bind_wanderly_session(sid_del):
+                        return
                     if maybe_hydrate_empty_session_from_snapshots(get_session, sid_del) and tid_act:
-                        trip_disk_store.persist_trip(tid_act, sid_del, get_session)
+                        trip_disk_store.persist_trip(tid_act, sid_del, get_session, sub_v)
                     wly_d = _wanderly_workspace_payload(orchestrator, sid_del)
                     self._send_json({**meta_d, "wanderly": wly_d}, status=200)
                     return
@@ -852,7 +869,12 @@ def run_web_server(
                             trip_disk = looked
                     else:
                         trip_disk = looked
-                    saved_disk = bool(trip_disk) and trip_disk_store.persist_trip(trip_disk, sid, get_session)
+                    sub_sv = self._viewer_sub() or ""
+                    saved_disk = (
+                        bool(trip_disk)
+                        and bool(sub_sv)
+                        and trip_disk_store.persist_trip(trip_disk, sid, get_session, sub_sv)
+                    )
                     persist_wanderly_session_snapshot(sid)
                     self._send_json(
                         {"ok": True, "saved_to_disk": saved_disk, "trip_id": trip_disk or None},
@@ -1411,8 +1433,9 @@ def run_web_server(
                     wanderly = map_workspace_to_wanderly(orchestrator.get_workspace_state())
                     if sid_pp:
                         tid_pp = (trip_disk_store.lookup_trip_id_for_session(sid_pp) or "").strip()
-                        if tid_pp:
-                            trip_disk_store.persist_trip(tid_pp, sid_pp, get_session)
+                        sub_pp = self._viewer_sub() or ""
+                        if tid_pp and sub_pp:
+                            trip_disk_store.persist_trip(tid_pp, sid_pp, get_session, sub_pp)
                         persist_wanderly_session_snapshot(sid_pp)
                     self._send_json({"traveler_profile": updated, "wanderly": wanderly}, status=200)
                     return
