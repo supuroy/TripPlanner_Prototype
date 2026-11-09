@@ -24,6 +24,17 @@ from src.wanderly.session_store import cursor_run_persist_kwargs_for_lane
 
 _CURSOR_LANE_INTENT = "wanderly_user_intent"
 
+# Card-chat escape hatch: same as Figma ConversationPanel PREFIX_FORCE_REFINE.
+_FORCE_PLANNER_PREFIX = re.compile(r"^(>|!plan|/trip)\s+", re.IGNORECASE)
+
+# When focus_destination_id is set, skip a blocking route LLM for obvious Q&A.
+_CARD_PLANNER_HINT = re.compile(
+    r"\b(add|remove|drop|delete|swap|replace|change|rebuild|redo|regenerate|refresh|rewrite|"
+    r"update|shortlist|compare|hotel|lodging|itinerary|itineraries|day-by-day|days|nights|"
+    r"budget|refine|consolidat)\w*\b",
+    re.IGNORECASE,
+)
+
 
 class WanderlyIntentClassification(BaseModel):
     """Structured intent for a single user line (refine / Q&A / compare / removal language)."""
@@ -136,6 +147,39 @@ def _intent_model_id() -> str | None:
     return advisor_model_id() or structured_followup_model_id()
 
 
+def _card_focus_advisor_fast_path(
+    user_message: str,
+    *,
+    focus_destination_id: str | None,
+) -> WanderlyIntentClassification | None:
+    """Route focused card Q&A to the travel agent without POST /orchestrate waiting on Cloud Agents."""
+    um = (user_message or "").strip()
+    focus = (focus_destination_id or "").strip()
+    if not um or not focus:
+        return None
+    if _FORCE_PLANNER_PREFIX.search(um):
+        return None
+    if itinerary_primary_refine_message(um) or _CARD_PLANNER_HINT.search(um):
+        return None
+    if is_plan_compare_only_question(um):
+        return None
+    from src.wanderly.refine_shortlist_guard import is_trip_wide_itinerary_refine_message
+
+    if is_trip_wide_itinerary_refine_message(um):
+        return None
+    if re.search(r"\b(remove|drop|delete)\b.{0,40}\b(destination|card|place|spot)\b", um, re.I):
+        return None
+    return WanderlyIntentClassification(
+        workspace_action="lightweight_qa",
+        confidence=0.86,
+        rationale="card_focus_advisor_fast_path",
+        itinerary_refresh="none",
+        itinerary_delivery="none",
+        focus_destination_ids=[focus],
+        lock_canvas_navigation=False,
+    )
+
+
 def _fast_path_intent_classification(
     user_message: str,
     *,
@@ -147,6 +191,9 @@ def _fast_path_intent_classification(
     if not um:
         return None
     focus = (focus_destination_id or "").strip()
+    card_qa = _card_focus_advisor_fast_path(um, focus_destination_id=focus or None)
+    if card_qa is not None:
+        return card_qa
     if is_plan_compare_only_question(um):
         return WanderlyIntentClassification(
             workspace_action="compare_places",
