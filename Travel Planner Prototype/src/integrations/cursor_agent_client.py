@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 from contextlib import nullcontext
+from pathlib import Path
 from typing import Any, Callable, Iterator
 from urllib.parse import urlparse
 
@@ -226,11 +227,62 @@ def load_env_from_roots(extra_roots: list[str] | None = None) -> None:
             load_dotenv(ap, override=False)
 
 
+def _read_api_key_file() -> str:
+    path = (os.environ.get("CURSOR_API_KEY_FILE") or "").strip()
+    if not path:
+        return ""
+    try:
+        return Path(path).expanduser().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _apply_hosted_cursor_defaults() -> None:
+    try:
+        from src.wanderly.app_paths import hosted_runtime
+    except Exception:
+        return
+    if not hosted_runtime():
+        return
+    wanderly_repo = (os.environ.get("WANDERLY_CURSOR_REPO_URL") or "").strip()
+    gh_repo = (os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    if not (os.environ.get("CURSOR_REPO_URL") or "").strip():
+        if wanderly_repo:
+            os.environ.setdefault("CURSOR_REPO_URL", wanderly_repo)
+        elif gh_repo:
+            os.environ.setdefault("CURSOR_REPO_URL", f"https://github.com/{gh_repo}")
+    if not (os.environ.get("CURSOR_REPO_REF") or "").strip():
+        ref = (
+            (os.environ.get("WANDERLY_CURSOR_REPO_REF") or "").strip()
+            or (os.environ.get("VERCEL_GIT_COMMIT_REF") or "").strip()
+            or (os.environ.get("GITHUB_REF_NAME") or "").strip()
+        )
+        if ref:
+            os.environ.setdefault("CURSOR_REPO_REF", ref)
+
+
 def get_api_key() -> str:
-    key = (os.environ.get("CURSOR_API_KEY") or "").strip()
+    _apply_hosted_cursor_defaults()
+    key = (
+        (os.environ.get("CURSOR_API_KEY") or "").strip()
+        or (os.environ.get("WANDERLY_CURSOR_API_KEY") or "").strip()
+        or _read_api_key_file()
+    )
     if not key:
+        try:
+            from src.wanderly.app_paths import hosted_runtime
+            hosted = hosted_runtime()
+        except Exception:
+            hosted = bool((os.environ.get("CURSOR_APP_ID") or "").strip())
+        if hosted:
+            raise ValueError(
+                "Missing Cloud Agents API key. In Cursor, open this app's Publish settings → "
+                "Secrets and set WANDERLY_CURSOR_API_KEY (create a key at cursor.com/dashboard → "
+                "Integrations → Cloud Agents), then republish."
+            )
         raise ValueError(
-            "Missing CURSOR_API_KEY. Set it in .env or config/.env (see config/.env.example)."
+            "Missing CURSOR_API_KEY. Set it in .env or config/.env (see config/.env.example), "
+            "or WANDERLY_CURSOR_API_KEY for hosted apps."
         )
     return key
 
@@ -520,10 +572,12 @@ def create_agent_run(
     model_id_override: str | None = None,
     mcp_servers: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str]:
+    _apply_hosted_cursor_defaults()
     repo_url = normalize_github_repo_url((os.environ.get("CURSOR_REPO_URL") or "").strip())
     if not repo_url:
         raise ValueError(
-            "CURSOR_REPO_URL is required for Cloud Agents. Set it in .env (https://… GitHub repo URL)."
+            "CURSOR_REPO_URL is required for Cloud Agents. Set it in .env (https://… GitHub repo URL) "
+            "or add CURSOR_REPO_URL in the app's Publish → Secrets."
         )
     parsed = urlparse(repo_url)
     if parsed.scheme != "https":

@@ -33,6 +33,12 @@ do_build() {
 do_start() {
   if [[ -n "${CURSOR_APP_ID:-}" ]] || [[ -n "${VERCEL:-}" ]] || [[ -d /var/task ]]; then
     export WANDERLY_CACHE_DIR="${WANDERLY_CACHE_DIR:-/tmp/wanderly-cache}"
+    if [[ -z "${WANDERLY_CURSOR_REPO_URL:-}" && -z "${CURSOR_REPO_URL:-}" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+      export WANDERLY_CURSOR_REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
+    fi
+    if [[ -z "${WANDERLY_CURSOR_REPO_REF:-}" && -z "${CURSOR_REPO_REF:-}" && -n "${VERCEL_GIT_COMMIT_REF:-}" ]]; then
+      export WANDERLY_CURSOR_REPO_REF="${VERCEL_GIT_COMMIT_REF}"
+    fi
   fi
   if [[ ! -f "Figma Prototype/dist/index.html" ]]; then
     echo "[start] Wanderly SPA dist missing; running frontend build..."
