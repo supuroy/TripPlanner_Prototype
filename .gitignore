@@ -9,6 +9,8 @@ Cursor key.txt
 # JS / Vite
 node_modules/
 dist/
+!Figma Prototype/dist/
+!Figma Prototype/dist/**
 .vite/
 *.local
 
