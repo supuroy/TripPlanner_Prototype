@@ -40,6 +40,7 @@ from src.wanderly.session_store import (
     persist_wanderly_session_snapshot,
     set_last_destinations,
     set_last_profile_pills,
+    resolve_session_destination,
     snapshot_destinations_for_model,
     snapshot_profile_pills,
     start_new_wanderly_trip_session,
@@ -1808,10 +1809,11 @@ def run_web_server(
                         self._send_json({"error": "Missing session_id or destination_id."}, status=400)
                         return
                     dh_bs = payload.get("date_hints") if isinstance(payload.get("date_hints"), dict) else None
-                    dests_bs = snapshot_destinations_for_model(sid_bs)
-                    dest_bs = next(
-                        (x for x in dests_bs if isinstance(x, dict) and str(x.get("id") or "") == did_bs),
-                        None,
+                    dest_in_bs = payload.get("destination")
+                    dest_bs = resolve_session_destination(
+                        sid_bs,
+                        did_bs,
+                        dest_in_bs if isinstance(dest_in_bs, dict) else None,
                     )
                     if not dest_bs:
                         self._send_json({"error": "Destination not found in session."}, status=404)
@@ -1891,10 +1893,11 @@ def run_web_server(
                             self._send_json({"error": "hotel_index must be an integer."}, status=400)
                             return
                     dh_st = payload.get("date_hints") if isinstance(payload.get("date_hints"), dict) else None
-                    dests_st = snapshot_destinations_for_model(sid_st)
-                    dest_st = next(
-                        (x for x in dests_st if isinstance(x, dict) and str(x.get("id") or "") == did_st),
-                        None,
+                    dest_in_st = payload.get("destination")
+                    dest_st = resolve_session_destination(
+                        sid_st,
+                        did_st,
+                        dest_in_st if isinstance(dest_in_st, dict) else None,
                     )
                     if not dest_st:
                         self._send_json({"error": "Destination not found in session."}, status=404)
@@ -1963,10 +1966,11 @@ def run_web_server(
                         self._send_json({"error": "Missing session_id or destination_id."}, status=400)
                         return
                     dh_bps = payload.get("date_hints") if isinstance(payload.get("date_hints"), dict) else None
-                    dests_bps = snapshot_destinations_for_model(sid_bps)
-                    dest_bps = next(
-                        (x for x in dests_bps if isinstance(x, dict) and str(x.get("id") or "") == did_bps),
-                        None,
+                    dest_in_bps = payload.get("destination")
+                    dest_bps = resolve_session_destination(
+                        sid_bps,
+                        did_bps,
+                        dest_in_bps if isinstance(dest_in_bps, dict) else None,
                     )
                     if not dest_bps:
                         self._send_json({"error": "Destination not found in session."}, status=404)
@@ -2069,10 +2073,11 @@ def run_web_server(
                             self._send_json({"error": "hotel_index must be an integer."}, status=400)
                             return
                     dh_bss = payload.get("date_hints") if isinstance(payload.get("date_hints"), dict) else None
-                    dests_bss = snapshot_destinations_for_model(sid_bss)
-                    dest_bss = next(
-                        (x for x in dests_bss if isinstance(x, dict) and str(x.get("id") or "") == did_bss),
-                        None,
+                    dest_in_bss = payload.get("destination")
+                    dest_bss = resolve_session_destination(
+                        sid_bss,
+                        did_bss,
+                        dest_in_bss if isinstance(dest_in_bss, dict) else None,
                     )
                     if not dest_bss:
                         self._send_json({"error": "Destination not found in session."}, status=404)

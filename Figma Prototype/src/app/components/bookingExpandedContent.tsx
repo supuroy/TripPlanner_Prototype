@@ -43,6 +43,10 @@ import {
   transportPlanSummary,
   type PlannedFlightSegment,
 } from "../lib/bookingFlightPlan";
+
+function destinationForBookingApi(dest: DestCard): Record<string, unknown> {
+  return dest as unknown as Record<string, unknown>;
+}
 import {
   applyBookingStreamEvent,
   BOOKING_PROGRESS_MESSAGES,
@@ -938,6 +942,7 @@ export async function runSingleHotelBookingSearch(args: {
       {
         session_id: sessionId,
         destination_id: dest.id,
+        destination: destinationForBookingApi(dest),
         date_hints: dateHintsPayload,
         profile_pills: pillsPayload,
         skip_parallel_prefetch: true,
@@ -998,6 +1003,7 @@ export async function runSingleHotelBookingSearch(args: {
       {
         session_id: sessionId,
         destination_id: dest.id,
+        destination: destinationForBookingApi(dest),
         step: "hotel",
         hotel_index: resolvedIndex,
         date_hints: dateHintsPayload,
@@ -1118,6 +1124,7 @@ export async function runSingleFlightBookingSearch(args: {
       {
         session_id: sessionId,
         destination_id: dest.id,
+        destination: destinationForBookingApi(dest),
         date_hints: dateHintsPayload,
         profile_pills: pillsPayload,
         skip_parallel_prefetch: true,
@@ -1163,6 +1170,7 @@ export async function runSingleFlightBookingSearch(args: {
       {
         session_id: sessionId,
         destination_id: dest.id,
+        destination: destinationForBookingApi(dest),
         step: "flight",
         flight_segment_index: resolvedIndex,
         date_hints: dateHintsPayload,
@@ -1593,6 +1601,7 @@ export function BookingTimelineFace({
           {
             session_id: sessionId,
             destination_id: dest.id,
+            destination: destinationForBookingApi(dest),
             date_hints: dateHintsPayload,
             profile_pills: pillsPayload,
           },
@@ -1717,6 +1726,7 @@ export function BookingTimelineFace({
                 {
                   session_id: sessionId,
                   destination_id: dest.id,
+                  destination: destinationForBookingApi(dest),
                   step: "flight",
                   flight_segment_index: si,
                   date_hints: dateHintsPayload,
@@ -1756,6 +1766,7 @@ export function BookingTimelineFace({
               {
                 session_id: sessionId,
                 destination_id: dest.id,
+                destination: destinationForBookingApi(dest),
                 step: "flight",
                 flight_leg: "outbound",
                 date_hints: dateHintsPayload,
@@ -1814,6 +1825,7 @@ export function BookingTimelineFace({
             {
               session_id: sessionId,
               destination_id: dest.id,
+              destination: destinationForBookingApi(dest),
               step: "hotel",
               hotel_index: i,
               date_hints: dateHintsPayload,
@@ -1876,6 +1888,7 @@ export function BookingTimelineFace({
             {
               session_id: sessionId,
               destination_id: dest.id,
+              destination: destinationForBookingApi(dest),
               step: "flight",
               flight_leg: "return",
               date_hints: dateHintsPayload,

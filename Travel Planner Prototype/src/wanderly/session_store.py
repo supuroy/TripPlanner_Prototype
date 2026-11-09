@@ -853,6 +853,45 @@ def snapshot_destinations_for_model(session_id: str) -> list[dict[str, Any]]:
     return [x for x in last if isinstance(x, dict)]
 
 
+def resolve_session_destination(
+    session_id: str,
+    destination_id: str,
+    client_destination: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """
+    Resolve a destination card for booking / export APIs.
+
+    Hydrates from disk when RAM is empty (common on hosted cold starts). If the client sends
+    the full ``destination`` object, merge it into ``ui_destinations`` when missing.
+    """
+    from src.wanderly.legacy_session_snapshots import maybe_hydrate_empty_session_from_snapshots
+
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return None
+    hydrate_wanderly_session_from_disk(sid)
+    maybe_hydrate_empty_session_from_snapshots(get_session, sid)
+    for row in snapshot_destinations_for_model(sid):
+        if str(row.get("id") or "").strip() == did:
+            return row
+    if not isinstance(client_destination, dict):
+        return None
+    if str(client_destination.get("id") or "").strip() != did:
+        return None
+    s = get_session(sid)
+    ui = [x for x in (s.get("ui_destinations") or []) if isinstance(x, dict)]
+    if any(str(x.get("id") or "").strip() == did for x in ui):
+        ui = [client_destination if str(x.get("id") or "").strip() == did else x for x in ui]
+    else:
+        ui = [*ui, client_destination]
+    s["ui_destinations"] = ui
+    if not isinstance(s.get("last_destinations"), list) or not s["last_destinations"]:
+        s["last_destinations"] = list(ui)
+    persist_wanderly_session_snapshot(sid)
+    return client_destination
+
+
 def cursor_lane_key(model_id_override: str | None) -> str:
     """Stable key for Cursor Cloud Agent reuse (one agent per lane per Wanderly session)."""
     o = (model_id_override or "").strip()
