@@ -13,6 +13,8 @@ type SetDestinations = (u: DestCard[] | ((prev: DestCard[]) => DestCard[])) => v
 const chainByKey = new Map<string, Promise<void>>();
 /** Destination ids with a build scheduled or in flight (background + expanded share this). */
 const activeDestBuilds = new Set<string>();
+/** Resolve when ``releaseDestinationItineraryBuild`` drops a destination id. */
+const buildIdleWaiters = new Map<string, Set<() => void>>();
 /** Avoid scheduling the same dirty-card wave twice (workspace apply + canvas effect). */
 const lastPrefetchSigBySession = new Map<string, string>();
 
@@ -58,10 +60,50 @@ export function tryClaimDestinationItineraryBuild(destId: string): boolean {
   return true;
 }
 
+function notifyDestinationBuildIdle(destId: string): void {
+  const waiters = buildIdleWaiters.get(destId);
+  if (!waiters?.size) return;
+  buildIdleWaiters.delete(destId);
+  for (const w of waiters) w();
+}
+
 export function releaseDestinationItineraryBuild(destId: string): void {
   const id = String(destId || "").trim();
   if (!id || !activeDestBuilds.delete(id)) return;
   notifyLaneDepth();
+  notifyDestinationBuildIdle(id);
+}
+
+/** Wait until no background/expanded build holds this destination (best-effort). */
+export function waitForDestinationItineraryBuildIdle(
+  destId: string,
+  timeoutMs = 20 * 60 * 1000,
+): Promise<void> {
+  const id = String(destId || "").trim();
+  if (!id || !activeDestBuilds.has(id)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      const set = buildIdleWaiters.get(id);
+      set?.delete(done);
+      reject(new Error("Timed out waiting for itinerary build"));
+    }, timeoutMs);
+    const done = () => {
+      window.clearTimeout(timer);
+      resolve();
+    };
+    let set = buildIdleWaiters.get(id);
+    if (!set) {
+      set = new Set();
+      buildIdleWaiters.set(id, set);
+    }
+    set.add(done);
+    if (!activeDestBuilds.has(id)) {
+      set.delete(done);
+      if (set.size === 0) buildIdleWaiters.delete(id);
+      window.clearTimeout(timer);
+      resolve();
+    }
+  });
 }
 
 /**
@@ -206,7 +248,11 @@ export function enqueueBackgroundItineraryBuild(args: {
     } catch (err: unknown) {
       logItin("background_prefetch_error", { destId: id, message: String(err), source: args.source });
       args.setDestinations((prev) =>
-        prev.map((x) => (String(x.id) !== id ? x : { ...x, itinerary_dirty: false })),
+        prev.map((x) => {
+          if (String(x.id) !== id) return x;
+          const hasItinerary = (x.itinerary?.length ?? 0) > 0;
+          return { ...x, itinerary_dirty: hasItinerary ? false : true };
+        }),
       );
     } finally {
       stopSpin?.();
