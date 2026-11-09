@@ -236,11 +236,16 @@ def _enrich_with_stock_parallel(
             except Exception:
                 log_hero_image(f"stock future error\n{traceback.format_exc()}")
                 continue
-    fallback_wiki = os.environ.get("HERO_IMAGE_STOCK_FALLBACK_WIKIMEDIA", "0").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    fb_raw = (os.environ.get("HERO_IMAGE_STOCK_FALLBACK_WIKIMEDIA") or "").strip().lower()
+    if not fb_raw:
+        try:
+            from src.wanderly.app_paths import hosted_runtime
+
+            fallback_wiki = hosted_runtime()
+        except Exception:
+            fallback_wiki = False
+    else:
+        fallback_wiki = fb_raw in ("1", "true", "yes")
     gap = float(os.environ.get("HERO_IMAGE_REQUEST_GAP_S", "0.55"))
 
     if not fallback_wiki:
@@ -357,7 +362,16 @@ def enrich_destinations_hero_images(
         gallery_max = 3
     gallery_max = max(1, min(gallery_max, 6))
     hints: dict[str, str] = {}
-    use_llm = os.environ.get("CURSOR_HERO_IMAGE_LLM", "1").strip().lower() not in ("0", "false", "no")
+    use_llm_raw = (os.environ.get("CURSOR_HERO_IMAGE_LLM") or "").strip().lower()
+    if not use_llm_raw:
+        try:
+            from src.wanderly.app_paths import hosted_runtime
+
+            use_llm = not hosted_runtime()
+        except Exception:
+            use_llm = True
+    else:
+        use_llm = use_llm_raw not in ("0", "false", "no")
     if use_llm:
         try:
             hints = _llm_search_hints(destinations, session_id=session_id)
