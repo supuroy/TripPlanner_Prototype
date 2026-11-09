@@ -51,6 +51,7 @@ import {
   scheduleCardsItineraryPrefetch,
   tryClaimDestinationItineraryBuild,
   releaseDestinationItineraryBuild,
+  waitForDestinationItineraryBuildIdle,
 } from "../lib/lazyItineraryPrefetch";
 import { createCardStreamFromSseHandler } from "../lib/cardStreamFromSse";
 import { streamEventToCaption } from "../lib/streamCaption";
@@ -647,6 +648,8 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
   const itinStreamAssistantRef = useRef({ text: "" });
   const itinStreamThinkingRef = useRef({ text: "" });
   const itinBuildGenRef = useRef(0);
+  const destRef = useRef(dest);
+  destRef.current = dest;
   const [bookingFace, setBookingFace] = useState(false);
 
   /** Main-board planner/refine only — not card Q&A (``advising``). */
@@ -724,17 +727,46 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
       buildGen,
     });
     const startTimer = window.setTimeout(() => {
-      if (ac.signal.aborted || buildGen !== itinBuildGenRef.current) return;
-      if (isDestinationItineraryBuildActive(dest.id)) {
-        setItinLoading(true);
-        logItin("expanded_effect_skip_duplicate", { requestId, destId: dest.id, buildGen });
-        return;
-      }
-      if (!tryClaimDestinationItineraryBuild(dest.id)) {
-        setItinLoading(true);
-        return;
-      }
-      const enqueued = enqueueItineraryLane(async () => {
+      void (async () => {
+        if (ac.signal.aborted || buildGen !== itinBuildGenRef.current) return;
+
+        const waitThenContinue = async (): Promise<boolean> => {
+          if (!isDestinationItineraryBuildActive(dest.id)) return true;
+          setItinLoading(true);
+          logItin("expanded_effect_wait_inflight", { requestId, destId: dest.id, buildGen });
+          try {
+            await waitForDestinationItineraryBuildIdle(dest.id);
+          } catch (waitErr) {
+            logItin("expanded_effect_wait_timeout", {
+              requestId,
+              destId: dest.id,
+              message: String(waitErr),
+            });
+          }
+          if (ac.signal.aborted || buildGen !== itinBuildGenRef.current) return false;
+          const d = destRef.current;
+          const satisfied =
+            (d.itinerary?.length ?? 0) > 0 && d.itinerary_dirty !== true;
+          if (satisfied) {
+            setItinLoading(false);
+            return false;
+          }
+          return true;
+        };
+
+        if (!(await waitThenContinue())) return;
+
+        if (!tryClaimDestinationItineraryBuild(dest.id)) {
+          if (await waitThenContinue()) {
+            if (!tryClaimDestinationItineraryBuild(dest.id)) {
+              setItinLoading(isDestinationItineraryBuildActive(dest.id));
+              return;
+            }
+          } else {
+            return;
+          }
+        }
+        const enqueued = enqueueItineraryLane(async () => {
         if (ac.signal.aborted || buildGen !== itinBuildGenRef.current) {
           releaseDestinationItineraryBuild(dest.id);
           setItinLoading(false);
@@ -820,17 +852,22 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           logItin("expanded_fetch_error", { requestId, destId: dest.id, message: String(err) });
           setItinErrorKind("request_failed");
           setDestinations((prev) =>
-            prev.map((d) => (d.id === dest.id ? { ...d, itinerary_dirty: false } : d)),
+            prev.map((d) => {
+              if (d.id !== dest.id) return d;
+              const hasItinerary = (d.itinerary?.length ?? 0) > 0;
+              return { ...d, itinerary_dirty: hasItinerary ? false : true };
+            }),
           );
         } finally {
           releaseDestinationItineraryBuild(dest.id);
           if (!ac.signal.aborted && buildGen === itinBuildGenRef.current) setItinLoading(false);
         }
       }, dest.id);
-      if (!enqueued) {
-        releaseDestinationItineraryBuild(dest.id);
-        setItinLoading(false);
-      }
+        if (!enqueued) {
+          releaseDestinationItineraryBuild(dest.id);
+          setItinLoading(false);
+        }
+      })();
     }, debounceMs);
     return () => {
       window.clearTimeout(startTimer);
@@ -839,7 +876,21 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
     };
     // Keep deps minimal so a long-running build is not aborted by redundant identity churn
     // (e.g. ``profile`` ref vs stable ``profileSig``).
-  }, [sessionId, dest.id, needsItinFetch, profileSig, addResponse, setDestinations, queuePlanReviewAfterItineraries, beginTripDiskSave, completeTripDiskSave, failTripDiskSave, wanderlyTripId]);
+  }, [
+    sessionId,
+    dest.id,
+    dest.itinerary_dirty,
+    dest.itinerary?.length,
+    needsItinFetch,
+    profileSig,
+    addResponse,
+    setDestinations,
+    queuePlanReviewAfterItineraries,
+    beginTripDiskSave,
+    completeTripDiskSave,
+    failTripDiskSave,
+    wanderlyTripId,
+  ]);
 
   useEffect(() => {
     if (needsItinFetch) return;
