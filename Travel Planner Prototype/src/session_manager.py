@@ -19,16 +19,25 @@ from src.schemas import (
     TravelerProfileEntry,
 )
 from src.schemas import LLMActivityEntry, OptionComparisonGuidance
+from src.wanderly.app_paths import cache_subpath
+
+
+def _default_traveler_memory_path() -> Path:
+    return cache_subpath("memory", "traveler_profile.json")
 
 
 class SessionManager:
     def __init__(
         self,
         session_id: str | None = None,
-        traveler_memory_path: str = ".memory/traveler_profile.json",
+        traveler_memory_path: str | Path | None = None,
     ) -> None:
         self.state = SessionState(session_id=session_id or str(uuid4()))
-        self.traveler_memory_path = Path(traveler_memory_path)
+        self.traveler_memory_path = (
+            Path(traveler_memory_path)
+            if traveler_memory_path is not None
+            else _default_traveler_memory_path()
+        )
         self._load_traveler_profile_memory()
         self._ensure_profile_bootstrap()
 

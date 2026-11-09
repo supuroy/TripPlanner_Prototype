@@ -31,6 +31,9 @@ do_build() {
 }
 
 do_start() {
+  if [[ -n "${CURSOR_APP_ID:-}" ]] || [[ -n "${VERCEL:-}" ]] || [[ -d /var/task ]]; then
+    export WANDERLY_CACHE_DIR="${WANDERLY_CACHE_DIR:-/tmp/wanderly-cache}"
+  fi
   if [[ ! -f "Figma Prototype/dist/index.html" ]]; then
     echo "[start] Wanderly SPA dist missing; running frontend build..."
     do_build

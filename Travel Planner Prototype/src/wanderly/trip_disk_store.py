@@ -10,6 +10,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from src.wanderly.app_paths import cache_subpath
+
 _lock = threading.Lock()
 
 _OWNER_MANIFEST_KEY = "active_trip_by_owner"
@@ -103,8 +105,7 @@ def trips_root() -> Path:
         if not p.is_absolute():
             p = Path(os.getcwd()) / p
     else:
-        root = Path(__file__).resolve().parent.parent.parent
-        p = root / ".cache" / "wanderly_trips"
+        p = cache_subpath("wanderly_trips")
     p.mkdir(parents=True, exist_ok=True)
     return p
 

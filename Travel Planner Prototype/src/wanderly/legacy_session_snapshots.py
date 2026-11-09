@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from src.wanderly.app_paths import cache_subpath, resolve_under_cache
+
 """Best-effort import from ``.cache/wanderly_session_snapshots.json`` (older Wanderly persist).
 
 The per-trip disk store (``wanderly_trips/``) does not read that file by default. When the
@@ -17,12 +19,8 @@ snapshot row into the active session so a reload restores cards without manual J
 def snapshots_file_path() -> Path:
     raw = (os.environ.get("WANDERLY_SESSION_SNAPSHOTS_PATH") or "").strip()
     if raw:
-        p = Path(raw).expanduser()
-        if not p.is_absolute():
-            p = Path(os.getcwd()) / p
-        return p
-    root = Path(__file__).resolve().parent.parent.parent
-    return root / ".cache" / "wanderly_session_snapshots.json"
+        return resolve_under_cache(raw)
+    return cache_subpath("wanderly_session_snapshots.json")
 
 
 def _parse_updated_at(val: Any) -> float:

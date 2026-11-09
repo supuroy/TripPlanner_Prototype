@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from src.wanderly.app_paths import cache_subpath, resolve_under_cache
 from src.wanderly.itinerary_debug_log import itinerary_file_log_enabled, log_itinerary_build
 
 _lock = threading.RLock()
@@ -26,12 +27,9 @@ def _cursor_agent_ids_persist_enabled() -> bool:
 def _cursor_agent_ids_file() -> Path:
     raw = (os.environ.get("WANDERLY_CURSOR_AGENT_IDS_PATH") or "").strip()
     if raw:
-        p = Path(raw).expanduser()
-        if not p.is_absolute():
-            p = Path(os.getcwd()) / p
+        p = resolve_under_cache(raw)
     else:
-        root = Path(__file__).resolve().parent.parent.parent
-        p = root / ".cache" / "cursor_agent_ids.json"
+        p = cache_subpath("cursor_agent_ids.json")
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -159,12 +157,9 @@ def _session_snapshot_persist_enabled() -> bool:
 def _wanderly_session_snapshots_file() -> Path:
     raw = (os.environ.get("WANDERLY_SESSION_SNAPSHOT_PATH") or "").strip()
     if raw:
-        p = Path(raw).expanduser()
-        if not p.is_absolute():
-            p = Path(os.getcwd()) / p
+        p = resolve_under_cache(raw)
     else:
-        root = Path(__file__).resolve().parent.parent.parent
-        p = root / ".cache" / "wanderly_session_snapshots.json"
+        p = cache_subpath("wanderly_session_snapshots.json")
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

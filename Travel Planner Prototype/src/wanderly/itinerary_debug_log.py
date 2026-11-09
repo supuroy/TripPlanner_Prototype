@@ -12,7 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_LOG_DIR = Path(__file__).resolve().parent.parent.parent / ".cache"
+from src.wanderly.app_paths import cache_root
+
+_LOG_DIR = cache_root()
 _LOG_FILE = _LOG_DIR / "itinerary_debug.log"
 
 
