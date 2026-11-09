@@ -226,6 +226,51 @@ def _cors_headers(handler: BaseHTTPRequestHandler) -> dict[str, str]:
     return h
 
 
+_spa_build_attempted = False
+_spa_build_lock = threading.Lock()
+
+
+def _repo_root_guess() -> Path:
+    return Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _ensure_spa_dist_built() -> None:
+    """Run ``start_app.sh build`` once when ``Figma Prototype/dist`` is missing (hosted deploy)."""
+    global _spa_build_attempted
+    if _resolve_spa_dist_dir() is not None:
+        return
+    with _spa_build_lock:
+        if _spa_build_attempted:
+            return
+        _spa_build_attempted = True
+    if os.environ.get("WANDERLY_SKIP_SPA_BUILD", "").strip().lower() in ("1", "true", "yes"):
+        return
+    root = _repo_root_guess()
+    start_sh = root / "start_app.sh"
+    if not start_sh.is_file():
+        print("[web] No start_app.sh; cannot build Wanderly SPA — serving dev HTML scaffold.", flush=True)
+        return
+    print("[web] Wanderly SPA dist not found; running start_app.sh build…", flush=True)
+    import subprocess
+
+    try:
+        subprocess.run(
+            ["bash", str(start_sh), "build"],
+            cwd=str(root),
+            check=False,
+            timeout=900,
+        )
+    except Exception as exc:
+        print(f"[web] Wanderly SPA build failed: {exc!r}", flush=True)
+        return
+    dist = root / "Figma Prototype" / "dist"
+    if (dist / "index.html").is_file():
+        os.environ["WANDERLY_DIST_DIR"] = str(dist)
+        print(f"[web] Wanderly SPA ready at {dist}", flush=True)
+    else:
+        print("[web] Wanderly SPA build finished but dist/index.html still missing.", flush=True)
+
+
 def _resolve_spa_dist_dir() -> Path | None:
     """Locate the built React/Vite dist directory if it exists."""
     env_dist = os.getenv("WANDERLY_DIST_DIR", "").strip()
@@ -285,6 +330,7 @@ def run_web_server(
     host: str = "127.0.0.1",
     port: int = 8000,
 ) -> None:
+    _ensure_spa_dist_built()
     orchestrator = _PerViewerOrchestratorRouter(orchestrator_factory)
     spa_dist_dir = _resolve_spa_dist_dir()
     if spa_dist_dir:

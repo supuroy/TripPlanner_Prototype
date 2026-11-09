@@ -31,6 +31,12 @@ do_build() {
 }
 
 do_start() {
+  if [[ ! -f "Figma Prototype/dist/index.html" ]]; then
+    echo "[start] Wanderly SPA dist missing; running frontend build..."
+    do_build
+  fi
+  export WANDERLY_DIST_DIR="${ROOT}/Figma Prototype/dist"
+  echo "[start] Wanderly SPA dist: ${WANDERLY_DIST_DIR}"
   echo "[start] Launching Wanderly server on port ${PORT}..."
   exec python3 "$BACKEND/main.py" --ui --host "${HOST:-127.0.0.1}" --port "$PORT"
 }
