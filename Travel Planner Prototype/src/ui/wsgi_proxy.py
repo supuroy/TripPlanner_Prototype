@@ -75,6 +75,24 @@ def _response_headers(response: httpx.Response) -> list[tuple[str, str]]:
 _UPSTREAM_TIMEOUT = httpx.Timeout(connect=30.0, read=900.0, write=120.0, pool=30.0)
 
 
+def _wants_event_stream(environ: dict[str, Any], path: str) -> bool:
+    accept = _header_value(environ, "Accept") or ""
+    if "text/event-stream" in accept.lower():
+        return True
+    return path.endswith("_stream") or "/stream" in path
+
+
+def _close_upstream(client: httpx.Client, response: httpx.Response) -> None:
+    try:
+        response.close()
+    except Exception:
+        pass
+    try:
+        client.close()
+    except Exception:
+        pass
+
+
 def application(
     environ: dict[str, Any], start_response: Callable[..., Any]
 ) -> list[bytes] | Iterator[bytes]:
@@ -106,23 +124,37 @@ def application(
         else:
             body = environ["wsgi.input"].read()
 
+    client = httpx.Client(timeout=_UPSTREAM_TIMEOUT)
+    stream_sse = _wants_event_stream(environ, path)
     try:
-        with httpx.Client(timeout=_UPSTREAM_TIMEOUT) as client:
-            with client.stream(method, url, headers=headers, content=body or None) as response:
-                start_response(
-                    f"{response.status_code} {response.reason_phrase}",
-                    _response_headers(response),
-                )
+        req = client.build_request(method, url, headers=headers, content=body or None)
+        response = client.send(req, stream=stream_sse)
+        start_response(
+            f"{response.status_code} {response.reason_phrase}",
+            _response_headers(response),
+        )
+        ctype = (response.headers.get("content-type") or "").lower()
+        if stream_sse or "text/event-stream" in ctype:
 
-                def generate() -> Iterator[bytes]:
-                    try:
-                        for chunk in response.iter_bytes():
-                            if chunk:
-                                yield chunk
-                    except httpx.HTTPError:
-                        pass
+            def generate() -> Iterator[bytes]:
+                try:
+                    for chunk in response.iter_bytes():
+                        if chunk:
+                            yield chunk
+                except httpx.HTTPError:
+                    pass
+                finally:
+                    _close_upstream(client, response)
 
-                return generate()
+            return generate()
+
+        payload = response.read()
+        _close_upstream(client, response)
+        return [payload]
     except httpx.HTTPError as exc:
+        try:
+            client.close()
+        except Exception:
+            pass
         start_response("502 Bad Gateway", [("Content-Type", "application/json")])
         return [f'{{"error":"upstream_unreachable","detail":{exc!r}}}'.encode()]
