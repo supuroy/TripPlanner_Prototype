@@ -10,6 +10,7 @@ import os
 import socket
 import threading
 import time
+from collections.abc import Iterator
 from typing import Any, Callable
 
 import httpx
@@ -61,7 +62,22 @@ def _header_value(environ: dict[str, Any], name: str) -> str | None:
     return str(val) if val is not None else None
 
 
-def application(environ: dict[str, Any], start_response: Callable[..., Any]) -> list[bytes]:
+def _response_headers(response: httpx.Response) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for name, value in response.headers.multi_items():
+        lname = name.lower()
+        if lname in ("connection", "transfer-encoding", "content-encoding"):
+            continue
+        out.append((name, value))
+    return out
+
+
+_UPSTREAM_TIMEOUT = httpx.Timeout(connect=30.0, read=900.0, write=120.0, pool=30.0)
+
+
+def application(
+    environ: dict[str, Any], start_response: Callable[..., Any]
+) -> list[bytes] | Iterator[bytes]:
     _ensure_embedded_server()
     method = environ.get("REQUEST_METHOD", "GET").upper()
     path = environ.get("PATH_INFO") or "/"
@@ -91,17 +107,22 @@ def application(environ: dict[str, Any], start_response: Callable[..., Any]) -> 
             body = environ["wsgi.input"].read()
 
     try:
-        with httpx.Client(timeout=httpx.Timeout(300.0)) as client:
-            response = client.request(method, url, headers=headers, content=body)
+        with httpx.Client(timeout=_UPSTREAM_TIMEOUT) as client:
+            with client.stream(method, url, headers=headers, content=body or None) as response:
+                start_response(
+                    f"{response.status_code} {response.reason_phrase}",
+                    _response_headers(response),
+                )
+
+                def generate() -> Iterator[bytes]:
+                    try:
+                        for chunk in response.iter_bytes():
+                            if chunk:
+                                yield chunk
+                    except httpx.HTTPError:
+                        pass
+
+                return generate()
     except httpx.HTTPError as exc:
         start_response("502 Bad Gateway", [("Content-Type", "application/json")])
         return [f'{{"error":"upstream_unreachable","detail":{exc!r}}}'.encode()]
-
-    resp_headers: list[tuple[str, str]] = []
-    for name, value in response.headers.multi_items():
-        lname = name.lower()
-        if lname in ("connection", "transfer-encoding", "content-encoding"):
-            continue
-        resp_headers.append((name, value))
-    start_response(f"{response.status_code} {response.reason_phrase}", resp_headers)
-    return [response.content]

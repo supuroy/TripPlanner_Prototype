@@ -33,6 +33,7 @@ do_build() {
 do_start() {
   if [[ -n "${CURSOR_APP_ID:-}" ]] || [[ -n "${VERCEL:-}" ]] || [[ -d /var/task ]]; then
     export WANDERLY_CACHE_DIR="${WANDERLY_CACHE_DIR:-/tmp/wanderly-cache}"
+    export WANDERLY_ITINERARY_PARALLEL_DEST="${WANDERLY_ITINERARY_PARALLEL_DEST:-0}"
     if [[ -z "${WANDERLY_CURSOR_REPO_URL:-}" && -z "${CURSOR_REPO_URL:-}" && -n "${GITHUB_REPOSITORY:-}" ]]; then
       export WANDERLY_CURSOR_REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
     fi

@@ -1775,11 +1775,19 @@ def _itinerary_cursor_lane(light: str | None) -> str:
 
 
 def itinerary_parallel_dest_enabled() -> bool:
-    """When true (default), each destination uses its own Cursor persistence lane (parallel builds).
+    """When true, each destination uses its own Cursor persistence lane (parallel builds).
 
+    Default on for local dev; default off on hosted runtimes (avoids Cursor 409s).
     Opt out with ``WANDERLY_ITINERARY_PARALLEL_DEST=0`` (or ``false`` / ``off``).
     """
-    raw = (os.environ.get("WANDERLY_ITINERARY_PARALLEL_DEST") or "1").strip().lower()
+    raw = (os.environ.get("WANDERLY_ITINERARY_PARALLEL_DEST") or "").strip().lower()
+    if not raw:
+        try:
+            from src.wanderly.app_paths import hosted_runtime
+
+            return not hosted_runtime()
+        except Exception:
+            return True
     return raw not in ("0", "false", "no", "off")
 
 
