@@ -190,7 +190,15 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
         stopSpin = startRotatingWaitCaption(setAgentStreamCaption, WAIT_ORCHESTRATE_CAPTIONS);
         let orch: Awaited<ReturnType<typeof orchestrateTurn>>;
         try {
-          orch = await orchestrateTurn(sid0, userMessage, { focusDestinationId: destId });
+          try {
+            orch = await orchestrateTurn(sid0, userMessage, { focusDestinationId: destId });
+          } catch (orchErr) {
+            logItin("conversation_panel_orchestrate_fail", {
+              destId,
+              message: String((orchErr as Error)?.message || orchErr).slice(0, 200),
+            });
+            orch = { session_id: sid0, parse_ok: false, orchestration: null };
+          }
         } finally {
           stopSpin?.();
           stopSpin = undefined;
@@ -365,7 +373,11 @@ export function ConversationPanel({ destId, destName, mode, onModeChange }: Conv
         setPendingRefineOrchestration(orchNorm);
         setPendingRefineText(refinePayload);
       } catch (e) {
-        const msg = (e as Error)?.message || String(e);
+        const raw = (e as Error)?.message || String(e);
+        const msg =
+          raw === "sign_in_required"
+            ? "Your session may have expired — refresh the page, sign in to Cursor again, then retry."
+            : raw;
         addConversationMessage(
           destId,
           "agent",

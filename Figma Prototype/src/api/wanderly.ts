@@ -794,6 +794,8 @@ export async function bookingSearchPrepare(
   args: {
     session_id: string;
     destination_id: string;
+    /** Full destination card when server RAM may be empty (hosted / before sync_ui). */
+    destination?: Record<string, unknown>;
     date_hints?: BookingDateHints;
     /** When set, overrides server session snapshot (sidebar profile for adults / LLM context). */
     profile_pills?: WanderlyProfilePillDTO[];
@@ -810,6 +812,7 @@ export async function bookingSearchPrepare(
     destination_id: args.destination_id,
     date_hints: args.date_hints,
   };
+  if (args.destination && typeof args.destination === "object") body.destination = args.destination;
   if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
   if (args.skip_parallel_prefetch) body.skip_parallel_prefetch = true;
   return apiFetch<BookingSearchPrepareResponse>("/api/wanderly/booking_search_prepare", {
@@ -822,6 +825,7 @@ export async function bookingSearchPrepare(
 export async function bookingSearchStep(args: {
   session_id: string;
   destination_id: string;
+  destination?: Record<string, unknown>;
   step: "flight" | "hotel";
   hotel_index?: number;
   date_hints?: BookingDateHints;
@@ -835,6 +839,7 @@ export async function bookingSearchStep(args: {
     step: args.step,
     date_hints: args.date_hints,
   };
+  if (args.destination && typeof args.destination === "object") body.destination = args.destination;
   if (args.step === "hotel" && args.hotel_index != null) body.hotel_index = args.hotel_index;
   if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
   if (args.step === "flight") {
@@ -858,6 +863,7 @@ export async function bookingSearchPrepareStream(
     destination_id: args.destination_id,
     date_hints: args.date_hints,
   };
+  if (args.destination && typeof args.destination === "object") body.destination = args.destination;
   if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
   if (args.skip_parallel_prefetch) body.skip_parallel_prefetch = true;
   let result: BookingSearchPrepareResponse | undefined;
@@ -892,6 +898,7 @@ export async function bookingSearchStepStream(
     step: args.step,
     date_hints: args.date_hints,
   };
+  if (args.destination && typeof args.destination === "object") body.destination = args.destination;
   if (args.step === "hotel" && args.hotel_index != null) body.hotel_index = args.hotel_index;
   if (args.profile_pills?.length) body.profile_pills = args.profile_pills;
   if (args.step === "flight") {

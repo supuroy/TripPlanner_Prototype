@@ -21,6 +21,7 @@ from src.integrations.cursor_agent_client import (
     load_env_from_roots,
     run_prompt_collect_assistant_text,
 )
+from src.wanderly.app_paths import cache_subpath, resolve_under_cache
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -42,8 +43,15 @@ class CursorLlmClient:
         self._api_key_override = (api_key or "").strip() or None
         # Note: API key is validated on first call to _key(), allowing web server preview/hosting
         # to bind ports and serve health checks even before secrets are accessed.
-        default_cache = os.environ.get("CURSOR_PLANNER_CACHE_PATH", ".cache/cursor_planner_cache.json")
-        self.cache_path = Path(cache_path or default_cache)
+        if cache_path:
+            self.cache_path = resolve_under_cache(cache_path)
+        else:
+            env = (os.environ.get("CURSOR_PLANNER_CACHE_PATH") or "").strip()
+            self.cache_path = (
+                resolve_under_cache(env)
+                if env
+                else cache_subpath("cursor_planner_cache.json")
+            )
         self.model_name = "cursor-cloud-agent"
         self.replay_mode = False
         self.last_call_info: dict = {}

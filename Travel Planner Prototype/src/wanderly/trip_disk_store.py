@@ -10,7 +10,84 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from src.wanderly.app_paths import cache_subpath
+
 _lock = threading.Lock()
+
+_OWNER_MANIFEST_KEY = "active_trip_by_owner"
+
+
+def _normalize_owner(owner_sub: str) -> str:
+    o = (owner_sub or "").strip()
+    if not o:
+        raise ValueError("owner_sub required")
+    return o
+
+
+def _trip_row_owner(row: dict[str, Any]) -> str:
+    return str(row.get("owner_sub") or "").strip()
+
+
+def lookup_owner_for_session(session_id: str) -> str | None:
+    """Manifest ``owner_sub`` for the trip row that references this session, if any."""
+    sid = (session_id or "").strip()
+    if not sid:
+        return None
+    for row in read_manifest().get("trips") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("session_id") or "").strip() == sid:
+            o = _trip_row_owner(row)
+            return o or None
+    return None
+
+
+def trip_owned_by(trip_id: str, owner_sub: str) -> bool:
+    tid = (trip_id or "").strip()
+    osub = _normalize_owner(owner_sub)
+    if not tid:
+        return False
+    row = _manifest_index_trips_by_id(read_manifest()).get(tid)
+    if not row:
+        return False
+    owner = _trip_row_owner(row)
+    return bool(owner) and owner == osub
+
+
+def _trips_for_owner(manifest: dict[str, Any], owner_sub: str) -> list[dict[str, Any]]:
+    osub = _normalize_owner(owner_sub)
+    trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+    return [t for t in trips if _trip_row_owner(t) == osub]
+
+
+def _get_active_trip_id(manifest: dict[str, Any], owner_sub: str) -> str:
+    osub = _normalize_owner(owner_sub)
+    raw = manifest.get(_OWNER_MANIFEST_KEY)
+    if isinstance(raw, dict):
+        tid = str(raw.get(osub) or "").strip()
+        if tid:
+            by_id = _manifest_index_trips_by_id(manifest)
+            if tid in by_id and _trip_row_owner(by_id[tid]) == osub:
+                return tid
+    for row in _trips_for_owner(manifest, osub):
+        tid = str(row.get("trip_id") or "").strip()
+        if tid:
+            return tid
+    return ""
+
+
+def _set_active_trip_id(manifest: dict[str, Any], owner_sub: str, trip_id: str) -> None:
+    osub = _normalize_owner(owner_sub)
+    tid = (trip_id or "").strip()
+    by_owner = manifest.get(_OWNER_MANIFEST_KEY)
+    if not isinstance(by_owner, dict):
+        by_owner = {}
+    if tid:
+        by_owner[osub] = tid
+    elif osub in by_owner:
+        by_owner.pop(osub, None)
+    manifest[_OWNER_MANIFEST_KEY] = by_owner
+
 
 _SESSION_KEYS = (
     "ui_destinations",
@@ -28,8 +105,7 @@ def trips_root() -> Path:
         if not p.is_absolute():
             p = Path(os.getcwd()) / p
     else:
-        root = Path(__file__).resolve().parent.parent.parent
-        p = root / ".cache" / "wanderly_trips"
+        p = cache_subpath("wanderly_trips")
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -192,9 +268,11 @@ def write_trip_file(
     trip_name: str,
     session_id: str,
     session_slice: dict[str, Any],
+    *,
+    owner_sub: str = "",
 ) -> None:
     now = int(time.time() * 1000)
-    doc = {
+    doc: dict[str, Any] = {
         "v": 1,
         "trip_id": trip_id,
         "trip_name": trip_name,
@@ -202,11 +280,14 @@ def write_trip_file(
         "updated_at_ms": now,
         "session": session_slice,
     }
+    o = (owner_sub or "").strip()
+    if o:
+        doc["owner_sub"] = o
     with _lock:
         _atomic_write_json(trip_file_path(trip_id), doc)
 
 
-def persist_trip(trip_id: str, session_id: str, get_session: Any) -> bool:
+def persist_trip(trip_id: str, session_id: str, get_session: Any, owner_sub: str) -> bool:
     """Persist RAM session slice for ``trip_id`` after mutating ``get_session(session_id)``.
 
     Returns True when the per-trip JSON file was written. If the manifest row is missing but the
@@ -215,8 +296,14 @@ def persist_trip(trip_id: str, session_id: str, get_session: Any) -> bool:
     """
     tid = (trip_id or "").strip()
     sid = (session_id or "").strip()
+    osub = _normalize_owner(owner_sub)
     if not tid or not sid:
         return False
+    owned = trip_owned_by(tid, osub)
+    if not owned:
+        blob = read_trip_file(tid)
+        if not isinstance(blob, dict) or str(blob.get("owner_sub") or "").strip() != osub:
+            return False
     s = get_session(sid)
     manifest = read_manifest()
     trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
@@ -236,18 +323,27 @@ def persist_trip(trip_id: str, session_id: str, get_session: Any) -> bool:
         blob_sid = str(blob.get("session_id") or "").strip()
         if blob_sid and blob_sid != sid:
             return False
+        blob_owner = str(blob.get("owner_sub") or "").strip()
+        if blob_owner and blob_owner != osub:
+            return False
         name = str(blob.get("trip_name") or name)[:120] or name
-        new_row = {"trip_id": tid, "trip_name": name, "session_id": sid, "updated_at_ms": int(time.time() * 1000)}
+        new_row = {
+            "trip_id": tid,
+            "trip_name": name,
+            "session_id": sid,
+            "updated_at_ms": int(time.time() * 1000),
+            "owner_sub": osub,
+        }
         trips = [r for r in trips if str(r.get("trip_id") or "").strip() != tid]
         trips.append(new_row)
         manifest["trips"] = trips
-        if not str(manifest.get("active_trip_id") or "").strip():
-            manifest["active_trip_id"] = tid
+        if not _get_active_trip_id(manifest, osub):
+            _set_active_trip_id(manifest, osub, tid)
         write_manifest(manifest)
-        write_trip_file(tid, name, sid, _session_slice(s))
+        write_trip_file(tid, name, sid, _session_slice(s), owner_sub=osub)
         return True
     write_manifest({**manifest, "trips": trips})
-    write_trip_file(tid, name, sid, _session_slice(s))
+    write_trip_file(tid, name, sid, _session_slice(s), owner_sub=osub)
     return True
 
 
@@ -294,23 +390,22 @@ def manifest_contains_trip_id(trip_id: str) -> bool:
 def ensure_manifest_with_trip(
     hint_session_id: str | None,
     get_session: Any,
+    owner_sub: str,
 ) -> tuple[str, str, dict[str, Any]]:
     """
     If manifest is empty, create one trip (prefer ``hint_session_id`` for stable browser tab ids).
     Returns ``(trip_id, session_id, manifest)``.
     """
+    osub = _normalize_owner(owner_sub)
     manifest = read_manifest()
-    trips_raw = manifest.get("trips")
-    trips: list[dict[str, Any]] = [x for x in trips_raw if isinstance(x, dict)] if isinstance(trips_raw, list) else []
+    trips = _trips_for_owner(manifest, osub)
     if trips:
-        active = str(manifest.get("active_trip_id") or "").strip() or str(trips[0].get("trip_id") or "")
-        if not active:
-            active = str(trips[0].get("trip_id") or "")
-        manifest["active_trip_id"] = active
-        manifest["trips"] = trips
+        active = _get_active_trip_id(manifest, osub) or str(trips[0].get("trip_id") or "").strip()
+        if active:
+            _set_active_trip_id(manifest, osub, active)
         write_manifest(manifest)
         by_id = _manifest_index_trips_by_id(manifest)
-        row = by_id.get(active) or trips[0]
+        row = by_id.get(active) if active in by_id else trips[0]
         tid = str(row.get("trip_id") or "").strip()
         sid = str(row.get("session_id") or "").strip()
         return tid, sid, manifest
@@ -318,11 +413,20 @@ def ensure_manifest_with_trip(
     tid = _new_trip_id()
     sid = (hint_session_id or "").strip() or str(uuid.uuid4())
     now = int(time.time() * 1000)
-    row = {"trip_id": tid, "trip_name": _default_trip_name(), "session_id": sid, "updated_at_ms": now}
-    manifest = {"v": 1, "active_trip_id": tid, "trips": [row]}
+    row = {
+        "trip_id": tid,
+        "trip_name": _default_trip_name(),
+        "session_id": sid,
+        "updated_at_ms": now,
+        "owner_sub": osub,
+    }
+    all_trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+    all_trips.append(row)
+    manifest = {"v": 1, "trips": all_trips, _OWNER_MANIFEST_KEY: {}}
+    _set_active_trip_id(manifest, osub, tid)
     write_manifest(manifest)
     get_session(sid)
-    write_trip_file(tid, row["trip_name"], sid, _session_slice(get_session(sid)))
+    write_trip_file(tid, row["trip_name"], sid, _session_slice(get_session(sid)), owner_sub=osub)
     return tid, sid, manifest
 
 
@@ -350,6 +454,9 @@ def reconcile_manifest_orphan_trip_files() -> bool:
         sid = str(blob.get("session_id") or "").strip()
         if not sid:
             continue
+        owner = str(blob.get("owner_sub") or "").strip()
+        if not owner:
+            continue
         name = str(blob.get("trip_name") or _default_trip_name())[:120] or _default_trip_name()
         ms = blob.get("updated_at_ms")
         updated = int(ms) if isinstance(ms, (int, float)) else int(path.stat().st_mtime * 1000)
@@ -359,6 +466,7 @@ def reconcile_manifest_orphan_trip_files() -> bool:
                 "trip_name": name,
                 "session_id": sid,
                 "updated_at_ms": updated,
+                "owner_sub": owner,
             }
         )
         known.add(tid)
@@ -374,9 +482,11 @@ def resolve_bootstrap_trip(
     manifest: dict[str, Any],
     hint_trip_id: str | None,
     hint_session_id: str | None,
+    owner_sub: str,
 ) -> tuple[str, dict[str, Any] | None]:
     """Pick trip row + optional disk blob. Returns ``(trip_id, trip_file_or_none)``."""
-    trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+    osub = _normalize_owner(owner_sub)
+    trips = _trips_for_owner(manifest, osub)
     by_id = {str(t.get("trip_id") or ""): t for t in trips if str(t.get("trip_id") or "")}
 
     if hint_trip_id and hint_trip_id in by_id:
@@ -389,9 +499,9 @@ def resolve_bootstrap_trip(
                 tid = str(t.get("trip_id") or "").strip()
                 if tid:
                     return tid, read_trip_file(tid)
-                return str(manifest.get("active_trip_id") or ""), None
+                return _get_active_trip_id(manifest, osub), None
 
-    active = str(manifest.get("active_trip_id") or "").strip()
+    active = _get_active_trip_id(manifest, osub)
     if active and active in by_id:
         return active, read_trip_file(active)
 
@@ -406,10 +516,12 @@ def bootstrap(
     hint_session_id: str | None,
     hint_trip_id: str | None,
     get_session: Any,
+    owner_sub: str,
 ) -> dict[str, Any]:
+    osub = _normalize_owner(owner_sub)
     reconcile_manifest_orphan_trip_files()
-    tid, sid_hint, manifest = ensure_manifest_with_trip(hint_session_id, get_session)
-    chosen_id, blob = resolve_bootstrap_trip(manifest, hint_trip_id, hint_session_id)
+    tid, sid_hint, manifest = ensure_manifest_with_trip(hint_session_id, get_session, osub)
+    chosen_id, blob = resolve_bootstrap_trip(manifest, hint_trip_id, hint_session_id, osub)
     if not chosen_id:
         chosen_id = tid
 
@@ -419,30 +531,27 @@ def bootstrap(
         row = _manifest_index_trips_by_id(manifest).get(chosen_id) or {}
         sid_use = str(row.get("session_id") or "").strip() or sid_hint or str(uuid.uuid4())
         get_session(sid_use)
-        write_trip_file(chosen_id, str(row.get("trip_name") or _default_trip_name()), sid_use, _session_slice(get_session(sid_use)))
+        write_trip_file(
+            chosen_id,
+            str(row.get("trip_name") or _default_trip_name()),
+            sid_use,
+            _session_slice(get_session(sid_use)),
+            owner_sub=osub,
+        )
         blob = read_trip_file(chosen_id) or {}
 
     canonical_sid = apply_trip_to_session(blob, get_session)
-    manifest["active_trip_id"] = chosen_id
+    _set_active_trip_id(manifest, osub, chosen_id)
     trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
     for row in trips:
-        if str(row.get("trip_id") or "") == chosen_id:
+        if str(row.get("trip_id") or "") == chosen_id and _trip_row_owner(row) == osub:
             row["session_id"] = canonical_sid
             row["updated_at_ms"] = int(time.time() * 1000)
             break
     manifest["trips"] = trips
     write_manifest(manifest)
 
-    trips_out = [
-        {
-            "trip_id": str(r.get("trip_id") or ""),
-            "trip_name": str(r.get("trip_name") or ""),
-            "session_id": str(r.get("session_id") or ""),
-            "updated_at_ms": int(r["updated_at_ms"]) if isinstance(r.get("updated_at_ms"), (int, float)) else 0,
-        }
-        for r in trips
-        if str(r.get("trip_id") or "")
-    ]
+    trips_out = _trips_summary_rows(manifest, osub)
     return {
         "trip_id": chosen_id,
         "session_id": canonical_sid,
@@ -451,7 +560,10 @@ def bootstrap(
     }
 
 
-def activate_trip(trip_id: str, get_session: Any) -> dict[str, Any] | None:
+def activate_trip(trip_id: str, get_session: Any, owner_sub: str) -> dict[str, Any] | None:
+    osub = _normalize_owner(owner_sub)
+    if not trip_owned_by(trip_id, osub):
+        return None
     manifest = read_manifest()
     by_id = _manifest_index_trips_by_id(manifest)
     if trip_id not in by_id:
@@ -466,60 +578,45 @@ def activate_trip(trip_id: str, get_session: Any) -> dict[str, Any] | None:
             str(row.get("trip_name") or _default_trip_name()),
             sid,
             _session_slice(get_session(sid)),
+            owner_sub=osub,
         )
         blob = read_trip_file(trip_id) or {}
     canonical_sid = apply_trip_to_session(blob, get_session)
-    manifest["active_trip_id"] = trip_id
+    _set_active_trip_id(manifest, osub, trip_id)
     trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
     for row in trips:
-        if str(row.get("trip_id") or "") == trip_id:
+        if str(row.get("trip_id") or "") == trip_id and _trip_row_owner(row) == osub:
             row["session_id"] = canonical_sid
             row["updated_at_ms"] = int(time.time() * 1000)
             break
     manifest["trips"] = trips
     write_manifest(manifest)
-    trips_out = [
-        {
-            "trip_id": str(r.get("trip_id") or ""),
-            "trip_name": str(r.get("trip_name") or ""),
-            "session_id": str(r.get("session_id") or ""),
-            "updated_at_ms": int(r["updated_at_ms"]) if isinstance(r.get("updated_at_ms"), (int, float)) else 0,
-        }
-        for r in trips
-        if str(r.get("trip_id") or "")
-    ]
+    trips_out = _trips_summary_rows(manifest, osub)
     return {"trip_id": trip_id, "session_id": canonical_sid, "active_trip_id": trip_id, "trips": trips_out}
 
 
-def create_trip(name: str | None, get_session: Any) -> dict[str, Any]:
+def create_trip(name: str | None, get_session: Any, owner_sub: str) -> dict[str, Any]:
+    osub = _normalize_owner(owner_sub)
     manifest = read_manifest()
-    trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+    owned = _trips_for_owner(manifest, osub)
     tid = _new_trip_id()
     sid = str(uuid.uuid4())
-    label = (name or "").strip()[:120] or f"Trip {len(trips) + 1}"
+    label = (name or "").strip()[:120] or f"Trip {len(owned) + 1}"
     now = int(time.time() * 1000)
-    row = {"trip_id": tid, "trip_name": label, "session_id": sid, "updated_at_ms": now}
-    trips.append(row)
-    manifest["trips"] = trips
-    manifest["active_trip_id"] = tid
+    row = {"trip_id": tid, "trip_name": label, "session_id": sid, "updated_at_ms": now, "owner_sub": osub}
+    all_trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+    all_trips.append(row)
+    manifest["trips"] = all_trips
+    _set_active_trip_id(manifest, osub, tid)
     write_manifest(manifest)
     get_session(sid)
-    write_trip_file(tid, label, sid, _session_slice(get_session(sid)))
-    trips_out = [
-        {
-            "trip_id": str(r.get("trip_id") or ""),
-            "trip_name": str(r.get("trip_name") or ""),
-            "session_id": str(r.get("session_id") or ""),
-            "updated_at_ms": int(r["updated_at_ms"]) if isinstance(r.get("updated_at_ms"), (int, float)) else 0,
-        }
-        for r in trips
-        if str(r.get("trip_id") or "")
-    ]
+    write_trip_file(tid, label, sid, _session_slice(get_session(sid)), owner_sub=osub)
+    trips_out = _trips_summary_rows(manifest, osub)
     return {"trip_id": tid, "session_id": sid, "active_trip_id": tid, "trips": trips_out}
 
 
-def _trips_summary_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
+def _trips_summary_rows(manifest: dict[str, Any], owner_sub: str) -> list[dict[str, Any]]:
+    trips = _trips_for_owner(manifest, owner_sub)
     return [
         {
             "trip_id": str(r.get("trip_id") or ""),
@@ -532,19 +629,22 @@ def _trips_summary_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def rename_trip(trip_id: str, new_name: str, get_session: Any) -> dict[str, Any] | None:
+def rename_trip(trip_id: str, new_name: str, get_session: Any, owner_sub: str) -> dict[str, Any] | None:
     """Update ``trip_name`` in manifest and on-disk trip JSON. Returns summary for API layer."""
     tid = (trip_id or "").strip()
-    if not tid:
+    osub = _normalize_owner(owner_sub)
+    if not tid or not trip_owned_by(tid, osub):
         return None
     label = (new_name or "").strip()[:120] or _default_trip_name()
     manifest = read_manifest()
     trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
     found = False
+    sid = ""
     for row in trips:
-        if str(row.get("trip_id") or "").strip() == tid:
+        if str(row.get("trip_id") or "").strip() == tid and _trip_row_owner(row) == osub:
             row["trip_name"] = label
             row["updated_at_ms"] = int(time.time() * 1000)
+            sid = str(row.get("session_id") or "").strip()
             found = True
             break
     if not found:
@@ -552,29 +652,41 @@ def rename_trip(trip_id: str, new_name: str, get_session: Any) -> dict[str, Any]
     write_manifest({**manifest, "trips": trips})
     blob = read_trip_file(tid)
     if isinstance(blob, dict):
-        sid = str(blob.get("session_id") or "").strip() or str(uuid.uuid4())
+        sid = str(blob.get("session_id") or "").strip() or sid or str(uuid.uuid4())
         inner = blob.get("session")
         if not isinstance(inner, dict):
             inner = _session_slice(get_session(sid))
-        write_trip_file(tid, label, sid, inner)
+        write_trip_file(tid, label, sid, inner, owner_sub=osub)
     else:
         row = _manifest_index_trips_by_id(manifest).get(tid) or {}
-        sid = str(row.get("session_id") or "").strip()
+        sid = str(row.get("session_id") or "").strip() or sid
         if sid:
             get_session(sid)
-            write_trip_file(tid, label, sid, _session_slice(get_session(sid)))
+            write_trip_file(tid, label, sid, _session_slice(get_session(sid)), owner_sub=osub)
     manifest2 = read_manifest()
-    return {"trip_id": tid, "trip_name": label, "trips": _trips_summary_rows(manifest2)}
+    active = _get_active_trip_id(manifest2, osub)
+    return {
+        "trip_id": tid,
+        "trip_name": label,
+        "session_id": sid,
+        "active_trip_id": active or tid,
+        "trips": _trips_summary_rows(manifest2, osub),
+    }
 
 
-def delete_trip(trip_id: str, get_session: Any) -> dict[str, Any] | None:
+def delete_trip(trip_id: str, get_session: Any, owner_sub: str) -> dict[str, Any] | None:
     """Remove trip from manifest and delete its JSON file. Activates another trip (or creates one)."""
     tid_del = (trip_id or "").strip()
-    if not tid_del:
+    osub = _normalize_owner(owner_sub)
+    if not tid_del or not trip_owned_by(tid_del, osub):
         return None
     manifest = read_manifest()
     trips = [x for x in (manifest.get("trips") or []) if isinstance(x, dict)]
-    new_trips = [t for t in trips if str(t.get("trip_id") or "").strip() != tid_del]
+    new_trips = [
+        t
+        for t in trips
+        if not (str(t.get("trip_id") or "").strip() == tid_del and _trip_row_owner(t) == osub)
+    ]
     if len(new_trips) == len(trips):
         return None
 
@@ -586,27 +698,36 @@ def delete_trip(trip_id: str, get_session: Any) -> dict[str, Any] | None:
             except OSError:
                 pass
 
-    active = str(manifest.get("active_trip_id") or "").strip()
+    active = _get_active_trip_id(manifest, osub)
+    owned_after = _trips_for_owner({**manifest, "trips": new_trips}, osub)
 
-    if not new_trips:
+    if not owned_after:
         tid = _new_trip_id()
         sid = str(uuid.uuid4())
         now = int(time.time() * 1000)
-        row = {"trip_id": tid, "trip_name": _default_trip_name(), "session_id": sid, "updated_at_ms": now}
-        fresh: dict[str, Any] = {"v": 1, "active_trip_id": tid, "trips": [row]}
+        row = {
+            "trip_id": tid,
+            "trip_name": _default_trip_name(),
+            "session_id": sid,
+            "updated_at_ms": now,
+            "owner_sub": osub,
+        }
+        fresh: dict[str, Any] = {"v": 1, "trips": new_trips + [row], _OWNER_MANIFEST_KEY: manifest.get(_OWNER_MANIFEST_KEY) or {}}
+        _set_active_trip_id(fresh, osub, tid)
         write_manifest(fresh)
         get_session(sid)
-        write_trip_file(tid, row["trip_name"], sid, _session_slice(get_session(sid)))
-        return {"trip_id": tid, "session_id": sid, "active_trip_id": tid, "trips": _trips_summary_rows(fresh)}
+        write_trip_file(tid, row["trip_name"], sid, _session_slice(get_session(sid)), owner_sub=osub)
+        return {"trip_id": tid, "session_id": sid, "active_trip_id": tid, "trips": _trips_summary_rows(fresh, osub)}
 
     manifest["trips"] = new_trips
-    if active == tid_del:
-        manifest["active_trip_id"] = str(new_trips[0].get("trip_id") or "").strip()
+    if active == tid_del or not _get_active_trip_id(manifest, osub):
+        next_tid = str(owned_after[0].get("trip_id") or "").strip()
+        _set_active_trip_id(manifest, osub, next_tid)
     write_manifest(manifest)
-    next_active = str(manifest.get("active_trip_id") or "").strip()
+    next_active = _get_active_trip_id(manifest, osub)
     if not next_active:
         return None
-    meta = activate_trip(next_active, get_session)
+    meta = activate_trip(next_active, get_session, osub)
     return meta
 
 

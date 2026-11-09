@@ -1,14 +1,62 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-echo "[setup] Building React frontend (Figma Prototype)..."
-cd "Figma Prototype"
-npm install
-npm run build
-cd ..
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
 
-echo "[setup] Installing Python dependencies..."
-pip install -r "Travel Planner Prototype/requirements.txt"
+resolve_backend_dir() {
+  local d
+  for d in */; do
+    d="${d%/}"
+    case "$d" in
+      Figma\ Prototype|config|expedia-listing-cli|node_modules) continue ;;
+    esac
+    if [[ -f "$d/main.py" && -f "$d/requirements.txt" ]]; then
+      echo "$d"
+      return 0
+    fi
+  done
+  echo "No backend directory with main.py and requirements.txt found under $ROOT" >&2
+  return 1
+}
 
-echo "[start] Launching unified Travel Planner server on port ${PORT:-8000}..."
-exec python "Travel Planner Prototype/main.py" --ui --host 0.0.0.0 --port "${PORT:-8000}"
+BACKEND="$(resolve_backend_dir)"
+PORT="${PORT:-8000}"
+
+do_build() {
+  echo "[setup] Building React frontend (Figma Prototype)..."
+  (cd "Figma Prototype" && npm install && npm run build)
+  echo "[setup] Installing Python dependencies..."
+  pip install -r "$BACKEND/requirements.txt"
+}
+
+do_start() {
+  if [[ -n "${CURSOR_APP_ID:-}" ]] || [[ -n "${VERCEL:-}" ]] || [[ -d /var/task ]]; then
+    export WANDERLY_CACHE_DIR="${WANDERLY_CACHE_DIR:-/tmp/wanderly-cache}"
+    export WANDERLY_ITINERARY_PARALLEL_DEST="${WANDERLY_ITINERARY_PARALLEL_DEST:-0}"
+    export CURSOR_HERO_IMAGE_LLM="${CURSOR_HERO_IMAGE_LLM:-0}"
+    export HERO_IMAGE_STOCK_FALLBACK_WIKIMEDIA="${HERO_IMAGE_STOCK_FALLBACK_WIKIMEDIA:-1}"
+    if [[ -z "${WANDERLY_CURSOR_REPO_URL:-}" && -z "${CURSOR_REPO_URL:-}" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+      export WANDERLY_CURSOR_REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
+    fi
+    if [[ -z "${WANDERLY_CURSOR_REPO_REF:-}" && -z "${CURSOR_REPO_REF:-}" && -n "${VERCEL_GIT_COMMIT_REF:-}" ]]; then
+      export WANDERLY_CURSOR_REPO_REF="${VERCEL_GIT_COMMIT_REF}"
+    fi
+  fi
+  if [[ ! -f "Figma Prototype/dist/index.html" ]]; then
+    echo "[start] Wanderly SPA dist missing; running frontend build..."
+    do_build
+  fi
+  export WANDERLY_DIST_DIR="${ROOT}/Figma Prototype/dist"
+  echo "[start] Wanderly SPA dist: ${WANDERLY_DIST_DIR}"
+  echo "[start] Launching Wanderly server on port ${PORT}..."
+  exec python3 "$BACKEND/main.py" --ui --host "${HOST:-127.0.0.1}" --port "$PORT"
+}
+
+cmd="${1:-all}"
+case "$cmd" in
+  build) do_build ;;
+  start) do_start ;;
+  all) do_build; do_start ;;
+  *) echo "Usage: $0 {build|start|all}" >&2; exit 2 ;;
+esac

@@ -1,0 +1,18 @@
+[project]
+name = "wanderly"
+version = "0.0.1"
+description = "Wanderly AI travel planner — React UI and Python API"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7.0",
+    "python-dotenv>=1.0.1",
+    "httpx>=0.27.0",
+    "beautifulsoup4>=4.12.0",
+    "playwright>=1.40.0",
+    "trino>=0.329.0",
+    "PyJWT>=2.8.0",
+    "cryptography>=42.0.0",
+]
+
+[tool.vercel]
+entrypoint = "main:app"

@@ -148,10 +148,22 @@ export function destinationsFromWorkspace(
   );
 }
 
+export function isWeakHeroImage(url: string): boolean {
+  const u = url.trim().toLowerCase();
+  if (!u) return true;
+  if (!/^https?:\/\//i.test(u)) return true;
+  if (u.includes("placehold.co") || u.includes("placehold")) return true;
+  return false;
+}
+
+/** True when cards still need POST /enrich_heroes (placeholder or no real gallery yet). */
 export function needsHeroImageEnrichment(cards: DestCard[]): boolean {
   return cards.some((d) => {
-    const u = String(d.image || "").trim();
-    return !u || u.includes("placehold.co");
+    const imgs = Array.isArray(d.images)
+      ? d.images.filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+      : [];
+    if (imgs.length >= 2 && !isWeakHeroImage(imgs[0] || "")) return false;
+    return isWeakHeroImage(String(d.image || ""));
   });
 }
 

@@ -105,23 +105,30 @@ function scheduleHeroEnrichment(args: {
   const { sessionId, wanderly, priorDestinations, setDestinations } = args;
   const nextDests = destinationsFromWorkspace(wanderly, priorDestinations);
   if (!nextDests?.length || !needsHeroImageEnrichment(nextDests)) return;
-  void (async () => {
-    const need = nextDests.filter((d) => {
-      const u = String(d.image || "").trim();
-      return !u || u.includes("placehold.co");
+  const need = nextDests.filter((d) => needsHeroImageEnrichment([d]));
+  if (need.length === 0) return;
+  const itineraryPending = nextDests.some((d) => d.itinerary_dirty === true);
+  /* Let lazy itinerary builds own the Cursor lane on hosted before hero LLM hints run. */
+  const delayMs = itineraryPending ? 14_000 : 400;
+
+  const attemptEnrich = () => {
+    setDestinations((cur) => {
+      const pending = cur.filter((d) => needsHeroImageEnrichment([d]));
+      if (pending.length === 0) return cur;
+      void enrichHeroes(sessionId, pending as unknown[])
+        .then((out) => {
+          const rows = out.wanderly?.destinations;
+          if (Array.isArray(rows) && rows.length > 0) {
+            setDestinations((latest) => mergeHeroImagesFromEnriched(latest, rows as Record<string, unknown>[]));
+          }
+        })
+        .catch(() => {});
+      return cur;
     });
-    if (need.length === 0) return;
-    try {
-      /* One HTTP call + one Cursor hint pass for all placeholders (was N parallel enrich_hero_one). */
-      const out = await enrichHeroes(sessionId, need as unknown[]);
-      const rows = out.wanderly?.destinations;
-      if (Array.isArray(rows) && rows.length > 0) {
-        setDestinations((cur) => mergeHeroImagesFromEnriched(cur, rows as Record<string, unknown>[]));
-      }
-    } catch {
-      /* non-fatal */
-    }
-  })();
+  };
+
+  window.setTimeout(attemptEnrich, delayMs);
+  window.setTimeout(attemptEnrich, delayMs + 45_000);
 }
 
 export function CommandBar() {

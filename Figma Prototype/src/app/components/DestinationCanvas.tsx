@@ -819,6 +819,9 @@ function ExpandedCard({ dest }: { dest: DestCard }) {
           }
           logItin("expanded_fetch_error", { requestId, destId: dest.id, message: String(err) });
           setItinErrorKind("request_failed");
+          setDestinations((prev) =>
+            prev.map((d) => (d.id === dest.id ? { ...d, itinerary_dirty: false } : d)),
+          );
         } finally {
           releaseDestinationItineraryBuild(dest.id);
           if (!ac.signal.aborted && buildGen === itinBuildGenRef.current) setItinLoading(false);

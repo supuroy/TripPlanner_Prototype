@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from src.wanderly.app_paths import cache_subpath, resolve_under_cache
 from src.wanderly.itinerary_debug_log import itinerary_file_log_enabled, log_itinerary_build
 
 _lock = threading.RLock()
@@ -26,12 +27,9 @@ def _cursor_agent_ids_persist_enabled() -> bool:
 def _cursor_agent_ids_file() -> Path:
     raw = (os.environ.get("WANDERLY_CURSOR_AGENT_IDS_PATH") or "").strip()
     if raw:
-        p = Path(raw).expanduser()
-        if not p.is_absolute():
-            p = Path(os.getcwd()) / p
+        p = resolve_under_cache(raw)
     else:
-        root = Path(__file__).resolve().parent.parent.parent
-        p = root / ".cache" / "cursor_agent_ids.json"
+        p = cache_subpath("cursor_agent_ids.json")
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -159,12 +157,9 @@ def _session_snapshot_persist_enabled() -> bool:
 def _wanderly_session_snapshots_file() -> Path:
     raw = (os.environ.get("WANDERLY_SESSION_SNAPSHOT_PATH") or "").strip()
     if raw:
-        p = Path(raw).expanduser()
-        if not p.is_absolute():
-            p = Path(os.getcwd()) / p
+        p = resolve_under_cache(raw)
     else:
-        root = Path(__file__).resolve().parent.parent.parent
-        p = root / ".cache" / "wanderly_session_snapshots.json"
+        p = cache_subpath("wanderly_session_snapshots.json")
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -481,6 +476,43 @@ def start_new_wanderly_trip_session(old_session_id: str | None) -> tuple[str, di
 def reset_wanderly_session_snapshot_cache_for_tests() -> None:
     """No-op placeholder for tests that monkeypatch disk paths (keeps API surface stable)."""
     return
+
+
+def ensure_session_owner(session_id: str, owner_sub: str) -> bool:
+    """Bind wanderly session to verified viewer ``sub``; refuse cross-viewer access."""
+    sid = (session_id or "").strip()
+    sub = (owner_sub or "").strip()
+    if not sid:
+        return True
+    if not sub:
+        return False
+
+    trip_owner: str | None = None
+    try:
+        from src.wanderly import trip_disk_store
+
+        trip_owner = trip_disk_store.lookup_owner_for_session(sid)
+    except Exception:
+        trip_owner = None
+    if trip_owner and trip_owner != sub:
+        return False
+
+    with _lock:
+        bucket = _sessions.get(sid)
+        if bucket is None:
+            _sessions[sid] = {
+                "chat": [],
+                "last_destinations": [],
+                "mode": "idle",
+                "owner_sub": sub,
+            }
+            return True
+        existing = (bucket.get("owner_sub") or "").strip()
+        if existing and existing != sub:
+            return False
+        if not existing:
+            bucket["owner_sub"] = sub
+        return True
 
 
 def get_session(session_id: str) -> dict[str, Any]:
@@ -819,6 +851,45 @@ def snapshot_destinations_for_model(session_id: str) -> list[dict[str, Any]]:
         return [x for x in ui if isinstance(x, dict)]
     last = s.get("last_destinations") or []
     return [x for x in last if isinstance(x, dict)]
+
+
+def resolve_session_destination(
+    session_id: str,
+    destination_id: str,
+    client_destination: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """
+    Resolve a destination card for booking / export APIs.
+
+    Hydrates from disk when RAM is empty (common on hosted cold starts). If the client sends
+    the full ``destination`` object, merge it into ``ui_destinations`` when missing.
+    """
+    from src.wanderly.legacy_session_snapshots import maybe_hydrate_empty_session_from_snapshots
+
+    sid = (session_id or "").strip()
+    did = (destination_id or "").strip()
+    if not sid or not did:
+        return None
+    hydrate_wanderly_session_from_disk(sid)
+    maybe_hydrate_empty_session_from_snapshots(get_session, sid)
+    for row in snapshot_destinations_for_model(sid):
+        if str(row.get("id") or "").strip() == did:
+            return row
+    if not isinstance(client_destination, dict):
+        return None
+    if str(client_destination.get("id") or "").strip() != did:
+        return None
+    s = get_session(sid)
+    ui = [x for x in (s.get("ui_destinations") or []) if isinstance(x, dict)]
+    if any(str(x.get("id") or "").strip() == did for x in ui):
+        ui = [client_destination if str(x.get("id") or "").strip() == did else x for x in ui]
+    else:
+        ui = [*ui, client_destination]
+    s["ui_destinations"] = ui
+    if not isinstance(s.get("last_destinations"), list) or not s["last_destinations"]:
+        s["last_destinations"] = list(ui)
+    persist_wanderly_session_snapshot(sid)
+    return client_destination
 
 
 def cursor_lane_key(model_id_override: str | None) -> str:

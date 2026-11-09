@@ -1,0 +1,11 @@
+{
+  "name": "wanderly",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Wanderly AI travel planner — Vite UI and Python API on one port",
+  "scripts": {
+    "build": "bash start_app.sh build",
+    "prestart": "bash start_app.sh build",
+    "start": "bash start_app.sh start"
+  }
+}

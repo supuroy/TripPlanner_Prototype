@@ -9,6 +9,8 @@ Cursor key.txt
 # JS / Vite
 node_modules/
 dist/
+!Figma Prototype/dist/
+!Figma Prototype/dist/**
 .vite/
 *.local
 
@@ -16,6 +18,9 @@ dist/
 .cache/
 *.egg-info/
 .pytest_cache/
+
+# Runtime session data (Cloud Agent / local)
+.memory/
 
 # Logs & OS
 *.log
